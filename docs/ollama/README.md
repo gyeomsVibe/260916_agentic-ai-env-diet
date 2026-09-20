@@ -207,5 +207,6 @@ OLLAMA_HOST, OLLAMA_MODELS, OLLAMA_WORKER_MODEL, OLLAMA_WORKER_NUM_CTX, OLLAMA_W
 | 구조 | 28층, 어텐션 헤드 28 / KV 헤드 4, 임베딩 3584 |
 | VRAM 점유 | 4.28GB, 문맥 16,384 |
 | 응답 속도 | 첫 호출 77초(로딩 포함), 이후 1.4~10초 |
-| 벤치 | easy·medium·hard 3/3 통과 (`.coord/runs/U16/bench_local_worker.json`) |
+| 벤치 v2 | 모델 3종 × 과제 6종. 7b 6/6(140.9s), qwen3.5:4b 6/6(234.0s), 3b 5/6(49.2s, 모호한 지시에서 실패) |
+| 기본 모델 | `qwen2.5-coder:7b` — 모호한 지시까지 통과하면서 4b의 60% 시간 |
 | 실제 과제 | 전역 규칙 4파일 패치 6분 43초, 승인·배포 완료 |
