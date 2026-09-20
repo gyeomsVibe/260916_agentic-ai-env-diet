@@ -1,0 +1,55 @@
+{
+  "schema": "u16-local-worker-bench-v1",
+  "model": "qwen2.5-coder:7b",
+  "cases": [
+    {
+      "case": "easy",
+      "verdict": "PASS",
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "acceptance_exit": 0,
+      "changed_files": [
+        "config.py"
+      ],
+      "usage": {
+        "input_tokens": 194,
+        "output_tokens": 26
+      },
+      "wall_s": 9.7
+    },
+    {
+      "case": "medium",
+      "verdict": "PASS",
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "acceptance_exit": 0,
+      "changed_files": [
+        "reader.py",
+        "writer.py"
+      ],
+      "usage": {
+        "input_tokens": 244,
+        "output_tokens": 52
+      },
+      "wall_s": 4.8
+    },
+    {
+      "case": "hard",
+      "verdict": "PASS",
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "acceptance_exit": 0,
+      "changed_files": [
+        "stats.py"
+      ],
+      "usage": {
+        "input_tokens": 251,
+        "output_tokens": 91
+      },
+      "wall_s": 6.9
+    }
+  ],
+  "passed": 3,
+  "total": 3,
+  "note": "판정은 파일럿 인수 게이트가 한 것이며, 표본은 난이도당 1회다."
+}
