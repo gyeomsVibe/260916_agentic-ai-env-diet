@@ -25,6 +25,7 @@ AI 코딩 도구 **세 개**가 한 프로젝트를 함께 하면서 **거짓 �
 | **Codex** | 계획·순서·최종 판정 | 지휘자 |
 | **Antigravity** | 맡은 한 단계 실행 | 작업자 |
 | **Claude Code** | 독립 검증, 지휘자 부재 시 대행 | 감사(監査) |
+| **로컬 모델(Ollama)** | 계정 한도가 소진됐을 때 정해진 패치를 대신 쳐 넣는 손 | 임시 인력 |
 
 셋은 사람을 거치지 않고 **파일과 큐(queue)** 로 직접 주고받습니다.
 
@@ -96,7 +97,7 @@ python -m v7_harness.cli coord brief --owner "나"
 python -m v7_harness.cli coord log --actor claude --kind RUN --step 예시 \
   --summary "무엇을 했는지 한 줄" --cmd "python -m unittest" --exit-code 0
 
-# 4) 파일럿 실행 (작업자에게 한 단계 위임)
+# 4) 파일럿 실행 (작업자에게 한 단계 위임, --worker local 이면 계정 한도 대신 로컬 모델)
 python -m v7_harness.cli pilot run --task T01 --source . \
   --prompt-file <할 일.md> --work-dir .work/pilot_T01 \
   --accept-cmd "python -m unittest discover -s tests -q"

@@ -193,7 +193,7 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
     ]
     explicit_roots = [Path(w).resolve() for w in args.watch_root] if args.watch_root else []
     watch_roots = list(dict.fromkeys(mandatory_roots + explicit_roots))
-    agy_cmd = args.agy_command if args.agy_command else ["agy"]
+    agy_cmd = resolve_worker_command(getattr(args, "worker", "agy"), args.agy_command)
 
     from .pilot import PilotConfig, run_pilot
 
@@ -346,7 +346,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_run.add_argument("--approve", default=None, help="Approve bundle ID for live promotion")
     p_pilot_run.add_argument("--watch-root", action="append", default=[], help="Watch roots for external write detection")
     p_pilot_run.add_argument("--print-timeout", type=int, default=600, help="Print timeout in seconds")
-    p_pilot_run.add_argument("--agy-command", nargs="*", default=None, help="Custom agy command prefix")
+    p_pilot_run.add_argument("--agy-command", nargs="*", default=None, help="Custom worker command prefix (overrides --worker)")
+    p_pilot_run.add_argument("--worker", choices=["agy", "local"], default="agy", help="agy = remote worker (uses account quota); local = this machine's Ollama model")
     p_pilot_run.add_argument("--model", default=None, help="Model name to pass to agy (e.g. gemini-3.7-flash)")
     p_pilot_run.add_argument("--accept-cmd", default=None, help="Acceptance test command to run in staging")
     p_pilot_run.add_argument("--allow-no-changes", action="store_true", default=False, help="Allow PASS verdict even when no files were changed (for read-only tasks)")
@@ -397,6 +398,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_coord_archive.set_defaults(func=cmd_coord_archive)
 
     return parser
+
+
+def resolve_worker_command(worker: str, explicit: Optional[Sequence[str]]) -> list[str]:
+    """어느 작업자에게 맡길지 정한다.
+
+    `agy`는 계정 할당량을 쓰는 원격 작업자, `local`은 이 PC의 Ollama 모델이다.
+    할당량이 소진돼도 진행이 멈추지 않도록 두 번째 손을 둔다. 판정은 어느 쪽이든
+    파일럿의 인수 검사와 게이트가 하므로, 작업자가 약해도 거짓 성공은 통과하지 못한다.
+    """
+    if explicit:
+        return list(explicit)
+    if worker == "local":
+        return [sys.executable, str(Path(__file__).resolve().parent / "adapters" / "ollama_worker.py")]
+    return ["agy"]
 
 
 def cmd_coord_log(args: argparse.Namespace) -> int:
