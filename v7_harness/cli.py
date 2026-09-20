@@ -245,6 +245,11 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
             "message": f"Database error or corruption: {exc}. Recovery hint: run 'python -m v7_harness.cli pilot reconcile --task {task_id}' or backup coord.sqlite3.",
         }
 
+    # 기록은 명시적으로 켠 실행에서만 남긴다. 기본을 "남김"으로 두었더니 임시 폴더에서
+    # CLI 를 호출하는 테스트가 이 프로젝트의 스트림에 사건 8건을 흘렸다(실측).
+    if getattr(args, "coord_log", False):
+        record_pilot_in_stream(Path(getattr(args, "coord_project", ".")), summary)
+
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0 if summary.get("state") == "SUCCEEDED" else 1
 
@@ -348,6 +353,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_run.add_argument("--print-timeout", type=int, default=600, help="Print timeout in seconds")
     p_pilot_run.add_argument("--agy-command", nargs="*", default=None, help="Custom worker command prefix (overrides --worker)")
     p_pilot_run.add_argument("--worker", choices=["agy", "local"], default="agy", help="agy = remote worker (uses account quota); local = this machine's Ollama model")
+    p_pilot_run.add_argument("--coord-log", action="store_true", default=False, help="Record this run in the coordination stream (.coord/stream)")
+    p_pilot_run.add_argument("--coord-project", default=".", help="Project whose coordination stream records this run (default: .)")
     p_pilot_run.add_argument("--model", default=None, help="Model name to pass to agy (e.g. gemini-3.7-flash)")
     p_pilot_run.add_argument("--accept-cmd", default=None, help="Acceptance test command to run in staging")
     p_pilot_run.add_argument("--allow-no-changes", action="store_true", default=False, help="Allow PASS verdict even when no files were changed (for read-only tasks)")
@@ -398,6 +405,48 @@ def build_parser() -> argparse.ArgumentParser:
     p_coord_archive.set_defaults(func=cmd_coord_archive)
 
     return parser
+
+
+def record_pilot_in_stream(project: Path, summary: dict) -> Optional[str]:
+    """파일럿 결과를 조율 스트림에 한 줄로 남긴다.
+
+    사람이 기억해서 적으면 빠뜨린다. 실행이 끝나는 자리에서 바로 남겨야 지휘자가
+    무엇을 판정해야 하는지 알 수 있다. 기록이 실패해도 파일럿 결과 보고는 막지 않는다.
+    """
+    from .coord.stream import StreamRejected, append_event
+
+    verdict = str(summary.get("verdict_hint") or "UNKNOWN")
+    state = str(summary.get("state") or "UNKNOWN")
+    task = str(summary.get("task_id") or "pilot")
+    changed = summary.get("changed_files") or []
+    bundle = summary.get("bundle_id") or ""
+    promotion = summary.get("promotion") or ""
+    kind = "RUN" if state == "SUCCEEDED" else "BLOCKED"
+    detail = f"{state}/{verdict}"
+    if promotion:
+        detail += f"/{promotion}"
+    summary_line = f"파일럿 {task}: {detail}, 변경 {len(changed)}개"
+    if summary.get("error_class") not in (None, "", "NONE"):
+        summary_line += f", {summary['error_class']}"
+
+    evidence = {"cmd": f"pilot run --task {task}", "exit": 0 if state == "SUCCEEDED" else 1}
+    if bundle:
+        evidence["bundle"] = bundle
+    refs = [str(summary["summary_path"]).replace("\\", "/")] if summary.get("summary_path") else []
+    try:
+        event = append_event(
+            project,
+            actor="claude",
+            kind=kind,
+            step=task,
+            summary=summary_line[:200],
+            refs=refs,
+            evidence=evidence,
+        )
+        return event.id
+    except (StreamRejected, OSError, RuntimeError):
+        # 기록 실패가 실행 보고를 덮지 않게 한다. 다음 브리핑에서 빈자리로 드러난다.
+        return None
 
 
 def resolve_worker_command(worker: str, explicit: Optional[Sequence[str]]) -> list[str]:

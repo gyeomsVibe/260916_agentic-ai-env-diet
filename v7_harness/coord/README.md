@@ -32,6 +32,9 @@ python -m v7_harness.cli coord notify --actor claude --headline "..." --send
 
 # 판정 끝난 사건 보관
 python -m v7_harness.cli coord archive
+
+# 파일럿 결과를 자동으로 사건으로 남기기 (기본은 끔)
+python -m v7_harness.cli pilot run ... --coord-log
 ```
 
 ## 규칙
@@ -45,6 +48,7 @@ python -m v7_harness.cli coord archive
 | 큐 메시지 | 6줄·500자, 첫 줄은 `[DATA]`, 값 대신 경로·종료 코드 |
 | 전달 빈도 | 브리핑이 바뀔 때만, 분당 1건·하루 24건 |
 | 스레드 | 지정하지 않으면 이 프로젝트를 다루는 최신 세션, 못 고르면 보내지 않음 |
+| 파일럿 자동 기록 | `--coord-log`를 준 실행만. 기본을 켬으로 두었더니 임시 폴더에서 CLI를 부르는 테스트가 실제 스트림을 오염시켰다(실측 8건) |
 
 ## 안전 설계 근거
 
