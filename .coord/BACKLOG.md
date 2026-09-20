@@ -64,3 +64,4 @@
 | B59 | RESOLVED | 전체 회귀 간헐 실패 원인 규명: U12 IPC 동시성 픽스처의 `dispatcher_capacity=4`에 동시 8건을 보내 일부가 재시도 가능한 `QUEUE_SATURATED`로 반환됨(부하·U13 무관). 픽스처 용량을 8로 맞추고 응답 제한시간 2→10s 여유 부여. 포화 동작은 359행 전용 테스트가 계속 검사. 4중 병렬 전체 회귀 4/4 OK(335, 1 skip) | R2FIX9·2026-09-20 재현 | — |
 | B60 | P1/인수 기준 | R2 고정 테스트 모순: `test_post_apply_acceptance_failure_is_not_success`가 반영을 쓰지 않는 `FakePilotRunner`로 POST_APPLY_ACCEPTANCE_FAILED를 기대 → APPLY_NOT_OBSERVED 계약과 양립 불가, R2FIX11이 테스트 맞추기 분기로 통과(미승인). Codex가 해당 케이스를 `ApplyingFakePilotRunner`(defect 전달)로 교정 필요 | R2FIX11 | R2 재개 전 |
 | B61 | RESOLVED | 회귀 실패 이름 유실 방지: `.coord/runs/run_regression.py`가 전체 회귀를 `-v`로 돌려 `.work/logs/regression-<타임스탬프>.log`에 전문을 남기고 FAIL·ERROR 이름만 요약 출력한다. 이후 회귀는 이 진입점을 쓴다 | 2026-09-20 회귀 | — |
+| B62 | RESOLVED | 승인 화이트리스트(전역 룰 v5.6.0): Claude 가드로 직접 편집이 불가능한 항목을 로컬 Ollama 작업자가 pilot(WL03)에서 작성·인수 통과 → 승인 반영 → 두 도구 배포 ALIGNED → 원격 push. 로컬 모델의 첫 실사용 성공 사례 | 2026-09-20 | — |
