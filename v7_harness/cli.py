@@ -183,6 +183,19 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         print("Error: either --prompt-file or --prompt must be provided.", file=sys.stderr)
         return 2
 
+    # 실행 전에 지시문의 구체성을 알려 준다. 막지는 않는다. 벤치에서 로컬 모델이 실패한
+    # 유일한 축이 모호함이었으므로, 고르기 전에 한 줄이라도 보이는 편이 낫다.
+    from .adapters.worker_advice import advise
+
+    advice = advise(prompt)
+    chosen = getattr(args, "worker", "agy")
+    if advice.worker != chosen:
+        print(
+            f"[조언] 지시문 구체성 {advice.specificity}/100 → --worker {advice.worker} 권장"
+            f" (현재 {chosen}): {'; '.join(advice.reasons[:2])}",
+            file=sys.stderr,
+        )
+
     work_dir = Path(args.work_dir) if args.work_dir else Path(".coord")
     mandatory_roots = [
         Path.home().resolve(),
