@@ -25,7 +25,7 @@ AI 코딩 도구 **세 개**가 한 프로젝트를 함께 하면서 **거짓 �
 | **Codex** | 계획·순서·최종 판정 | 지휘자 |
 | **Antigravity** | 맡은 한 단계 실행 | 작업자 |
 | **Claude Code** | 독립 검증, 지휘자 부재 시 대행 | 감사(監査) |
-| **로컬 모델(Ollama)** | 계정 한도가 소진됐을 때 정해진 패치를 대신 쳐 넣는 손 | 임시 인력 |
+| **로컬 모델(Ollama)** | 계정 한도가 소진됐을 때 정해진 패치를 대신 쳐 넣는 손 ([작동 원리](docs/ollama/README.md)) | 임시 인력 |
 
 셋은 사람을 거치지 않고 **파일과 큐(queue)** 로 직접 주고받습니다.
 
@@ -117,6 +117,7 @@ python -m v7_harness.cli pilot run --task T01 --source . \
 | `.coord/tasks/` | 단계 카드(설계·인수 기준·결과) |
 | `.coord/runs/` | 측정 드라이버와 결과 |
 | `docs/` | 해설서와 보고서 |
+| `docs/ollama/` | 로컬 모델(Ollama) [작동 원리와 운영](docs/ollama/README.md) |
 | `docs/claude-assist/` | 도구 간 조율 메모 79건 + [색인](docs/claude-assist/INDEX.md) |
 
 `.work/`(사본·백업·로그)는 저장소에 올리지 않습니다.
