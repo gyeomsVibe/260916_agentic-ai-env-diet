@@ -1,0 +1,61 @@
+diff --git a/.coord/runs/M3/project-AGENTS.md.orig b/AGENTS.md
+index f8597a5..1b32dda 100644
+--- a/.coord/runs/M3/project-AGENTS.md.orig
++++ b/AGENTS.md
+@@ -16,6 +16,10 @@
+ - 사용자 보고는 결과·변경·검증·위험·다음 자동 행동만 간결하게 제시하고 상세 증거는 카드나 산출물에 보존한다.
+ - 사용자가 해야 할 일이 없으면 질문하지 않고 다음 `READY` 단계를 자동 진행한다. 목표·범위 변경과 명시적 승인 대상만 사용자에게 묻는다.
+ - 삭제, 덮어쓰기, 배포, 푸시, 결제, 계정·권한·자격증명 변경은 사용자에게 그 행동별 명시적 승인을 받는다.
++- 구현·수정 작업은 Antigravity에 SQLite 경로로 위임한다: `python -m v7_harness.cli pilot run --task <ID> --source <dir> --prompt-file <md> --work-dir .coord/pilot`
++- Codex는 `.coord/pilot/runs/<ID>/summary.json`(12키)만 읽고 판정한다. 전문 로그는 필요할 때만 연다.
++- 반영은 같은 task에 `--approve <bundle_id>`로만 한다. `promotion`이 `BLOCKED`·`REJECTED`면 반영하지 않고 원인만 보고한다.
++- `antigravity-bridge` MCP는 조회·대화형 보조용이며 프로젝트 구현 위임에 쓰지 않는다.
+ 
+ ## 최소 실행 루프
+ 
+diff --git a/.coord/runs/M3/codex-AGENTS.md.orig b/C:/Users/Kimyoongyeom/.codex/AGENTS.md
+index 97d61a0..46e825d 100644
+--- a/.coord/runs/M3/codex-AGENTS.md.orig
++++ b/C:/Users/Kimyoongyeom/.codex/AGENTS.md
+@@ -26,5 +26,5 @@
+ ## Codex 역할
+ 
+ - Codex는 단일 마스터 계획, 순서, 범위, 승인 게이트, 최종 검토를 소유한다.
+-- Antigravity 위임은 `antigravity-bridge`만 사용하고 목표 하나·허용 파일·완료 조건을 준다. 결과를 직접 검토·검증하며 위임자의 커밋·푸시·병합은 허용하지 않는다.
++- 프로젝트에 `v7_harness`가 있으면 Antigravity 위임은 `pilot run`(SQLite 원장·staging·검증)을 우선한다. 없으면 `antigravity-bridge`를 쓴다. 어느 경로든 목표 하나·허용 파일·완료 조건을 주고, 판정은 요약·diff·테스트로만 하며 위임자의 커밋·푸시·병합은 허용하지 않는다.
+ - 가까운 `AGENTS.md`와 `AGENTS.override.md`가 이 규칙을 구체화한다.
+diff --git a/.coord/runs/M3/gemini-GEMINI.md.orig b/C:/Users/Kimyoongyeom/.gemini/GEMINI.md
+index e4a2646..352dcf5 100644
+--- a/.coord/runs/M3/gemini-GEMINI.md.orig
++++ b/C:/Users/Kimyoongyeom/.gemini/GEMINI.md
+@@ -28,3 +28,4 @@
+ - Antigravity는 Codex가 지정한 단계의 단일 실행자다. 목표·허용 파일·완료 조건 밖으로 확장하지 않는다.
+ - 위임 작업에서 커밋·푸시·병합·삭제·승인 결정을 하지 않고 변경 경로·검증 증거·미해결 위험을 반환한다.
+ - Codex가 위임한 범위 안의 일반 실행은 추가 승인 없이 자율 수행한다. 무승인 자율 모드에 따라 불필요한 질의 없이 연속으로 작업을 완결한다.
++- `pilot run`으로 호출되면 주어진 staging 작업공간 안에서만 파일을 수정하고, 사용자 홈·TEMP·원본 경로에 쓰지 않는다. 결과는 한 줄 요약으로 끝낸다.
+diff --git a/.coord/runs/M3/codex-mia-vaccine-test-SKILL.md.orig b/C:/Users/Kimyoongyeom/.codex/skills/mia-vaccine-test/SKILL.md
+index bf639e0..ce2b524 100644
+--- a/.coord/runs/M3/codex-mia-vaccine-test-SKILL.md.orig
++++ b/C:/Users/Kimyoongyeom/.codex/skills/mia-vaccine-test/SKILL.md
+@@ -211,6 +211,8 @@ AI 에이전트는 반복적·구조적 검증에 강하지만, **사용성 판
+ | **단위/컴포넌트 테스트** | 프로젝트 테스트 스위트에 추가 | CI·`npm test` |
+ | **오류 패턴 문서** | MCP `write_error_pattern` (`ERR_NNN_slug.md`) | 같은 실수 반복 방지 지식 |
+ 
++MCP가 없으면 로컬 테스트·재현 스크립트로 진단한다.
++
+ ### 진단 항체 뼈대
+ 
+ ```js
+diff --git a/.coord/runs/M3/antigravity-mia-vaccine-test-SKILL.md.orig b/C:/Users/Kimyoongyeom/.gemini/config/skills/mia-vaccine-test/SKILL.md
+index bf639e0..ce2b524 100644
+--- a/.coord/runs/M3/antigravity-mia-vaccine-test-SKILL.md.orig
++++ b/C:/Users/Kimyoongyeom/.gemini/config/skills/mia-vaccine-test/SKILL.md
+@@ -211,6 +211,8 @@ AI 에이전트는 반복적·구조적 검증에 강하지만, **사용성 판
+ | **단위/컴포넌트 테스트** | 프로젝트 테스트 스위트에 추가 | CI·`npm test` |
+ | **오류 패턴 문서** | MCP `write_error_pattern` (`ERR_NNN_slug.md`) | 같은 실수 반복 방지 지식 |
+ 
++MCP가 없으면 로컬 테스트·재현 스크립트로 진단한다.
++
+ ### 진단 항체 뼈대
+ 
+ ```js

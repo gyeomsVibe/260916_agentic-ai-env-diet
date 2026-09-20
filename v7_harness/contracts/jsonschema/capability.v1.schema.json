@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:coord:capability:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "actor", "cli_version", "help_hash", "features", "storage_kind", "probed_at", "expires_at"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "actor": {"type": "string", "minLength": 1},
+    "cli_version": {"type": "string", "minLength": 1},
+    "help_hash": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "[0-9a-fA-F]{64}"},
+    "features": {"type": "object"},
+    "storage_kind": {"type": "string", "enum": ["LOCAL", "NETWORK", "SYNC", "REMOVABLE", "UNKNOWN"]},
+    "probed_at": {"type": "string", "minLength": 1},
+    "expires_at": {"type": "string", "minLength": 1}
+  }
+}

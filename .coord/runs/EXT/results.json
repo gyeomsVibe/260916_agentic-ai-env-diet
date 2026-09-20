@@ -1,0 +1,411 @@
+[
+  {
+    "id": "X01_concurrent_6_tasks_same_workdir",
+    "verdict": "PASS",
+    "secs": 2.4,
+    "succeeded": 1,
+    "lock_rejected": 5,
+    "db": {
+      "integrity": "ok",
+      "attempts": [
+        [
+          "C0-a001",
+          "SUCCEEDED"
+        ]
+      ],
+      "deliveries": [
+        [
+          "C0-cmd",
+          "ACKED"
+        ]
+      ],
+      "active_leases": 0
+    }
+  },
+  {
+    "id": "X02_same_task_double_submit",
+    "verdict": "PASS",
+    "secs": 2.1,
+    "runs": [
+      {
+        "rc": 0,
+        "wall_s": 2.13,
+        "state": "SUCCEEDED",
+        "error_class": "NONE",
+        "effect_state": "CONFIRMED",
+        "promotion": "DRY_RUN_PASSED",
+        "verdict_hint": "PASS",
+        "acceptance_exit": 0,
+        "stderr_tail": ""
+      },
+      {
+        "rc": 1,
+        "wall_s": 0.24,
+        "state": null,
+        "error_class": null,
+        "effect_state": null,
+        "promotion": null,
+        "verdict_hint": null,
+        "acceptance_exit": null,
+        "stderr_tail": "\", line 55, in acquire\r\n    raise BrokerAlreadyRunning(\"BROKER_ALREADY_RUNNING\") from exc\r\nv7_harness.broker.core.BrokerAlreadyRunning: BROKER_ALREADY_RUNNING\r\n"
+      }
+    ],
+    "db": {
+      "integrity": "ok",
+      "attempts": [
+        [
+          "D1-a001",
+          "SUCCEEDED"
+        ]
+      ],
+      "deliveries": [
+        [
+          "D1-cmd",
+          "ACKED"
+        ]
+      ],
+      "active_leases": 0
+    }
+  },
+  {
+    "id": "X03_kill_pilot_midrun_reconcile_rerun",
+    "verdict": "PASS",
+    "secs": 7.3,
+    "db_after_kill": {
+      "integrity": "ok",
+      "attempts": [
+        [
+          "K1-a001",
+          "RUNNING"
+        ]
+      ],
+      "deliveries": [
+        [
+          "K1-cmd",
+          "CLAIMED"
+        ]
+      ],
+      "active_leases": 1
+    },
+    "rerun_without_reconcile": {
+      "rc": 1,
+      "wall_s": 0.24,
+      "state": "FAILED",
+      "error_class": "NEEDS_RECONCILIATION",
+      "effect_state": "UNKNOWN",
+      "promotion": "BLOCKED",
+      "verdict_hint": "BLOCKED",
+      "acceptance_exit": null,
+      "stderr_tail": ""
+    },
+    "reconcile_stdout": "{\r\n  \"state\": \"ABANDONED\",\r\n  \"reconciled_attempts\": 1\r\n}\r\n",
+    "rerun_after_reconcile": {
+      "rc": 0,
+      "wall_s": 0.64,
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "DRY_RUN_PASSED",
+      "verdict_hint": "PASS",
+      "acceptance_exit": 0,
+      "stderr_tail": ""
+    },
+    "db_final": {
+      "integrity": "ok",
+      "attempts": [
+        [
+          "K1-a001",
+          "FAILED"
+        ],
+        [
+          "K1-a002",
+          "SUCCEEDED"
+        ]
+      ],
+      "deliveries": [
+        [
+          "K1-cmd",
+          "DEAD"
+        ],
+        [
+          "K1-cmd-r2",
+          "ACKED"
+        ]
+      ],
+      "active_leases": 0
+    }
+  },
+  {
+    "id": "X04_agy_hang_beyond_timeout",
+    "verdict": "PASS",
+    "secs": 61.4,
+    "result": {
+      "rc": 1,
+      "wall_s": 61.41,
+      "state": "FAILED",
+      "error_class": "TIMEOUT",
+      "effect_state": "UNKNOWN",
+      "promotion": "BLOCKED",
+      "verdict_hint": "BLOCKED",
+      "acceptance_exit": null,
+      "stderr_tail": ""
+    },
+    "db": {
+      "integrity": "ok",
+      "attempts": [
+        [
+          "H1-a001",
+          "NEEDS_RECONCILIATION"
+        ]
+      ],
+      "deliveries": [
+        [
+          "H1-cmd",
+          "CLAIMED"
+        ]
+      ],
+      "active_leases": 0
+    }
+  },
+  {
+    "id": "X05_child_process_hang_tree_kill",
+    "verdict": "PASS",
+    "secs": 63.6,
+    "result": {
+      "rc": 1,
+      "wall_s": 61.38,
+      "state": "FAILED",
+      "error_class": "TIMEOUT",
+      "effect_state": "UNKNOWN",
+      "promotion": "BLOCKED",
+      "verdict_hint": "BLOCKED",
+      "acceptance_exit": null,
+      "stderr_tail": ""
+    },
+    "python_procs_before": 1,
+    "python_procs_after": 1
+  },
+  {
+    "id": "X06_60MB_stdout",
+    "verdict": "PASS",
+    "secs": 0.9,
+    "result": {
+      "rc": 1,
+      "wall_s": 0.85,
+      "state": "FAILED",
+      "error_class": "VALIDATION",
+      "effect_state": "UNKNOWN",
+      "promotion": "BLOCKED",
+      "verdict_hint": "BLOCKED",
+      "acceptance_exit": null,
+      "stderr_tail": ""
+    }
+  },
+  {
+    "id": "X07_binary_garbage_stdout",
+    "verdict": "PASS",
+    "secs": 0.5,
+    "result": {
+      "rc": 1,
+      "wall_s": 0.47,
+      "state": "FAILED",
+      "error_class": "VALIDATION",
+      "effect_state": "UNKNOWN",
+      "promotion": "BLOCKED",
+      "verdict_hint": "BLOCKED",
+      "acceptance_exit": null,
+      "stderr_tail": ""
+    }
+  },
+  {
+    "id": "X08_tamper_staging_before_approve",
+    "verdict": "PASS",
+    "secs": 0.8,
+    "first": {
+      "rc": 0,
+      "wall_s": 0.6,
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "DRY_RUN_PASSED",
+      "verdict_hint": "PASS",
+      "acceptance_exit": 0,
+      "stderr_tail": ""
+    },
+    "approve_after_tamper": {
+      "rc": 0,
+      "wall_s": 0.23,
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "APPROVAL_MISMATCH",
+      "verdict_hint": "PASS",
+      "acceptance_exit": 0,
+      "stderr_tail": ""
+    },
+    "source_unchanged": true
+  },
+  {
+    "id": "X09_source_edit_before_approve",
+    "verdict": "PASS",
+    "secs": 0.8,
+    "approve_after_source_edit": {
+      "rc": 0,
+      "wall_s": 0.24,
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "APPROVAL_MISMATCH",
+      "verdict_hint": "PASS",
+      "acceptance_exit": 0,
+      "stderr_tail": ""
+    }
+  },
+  {
+    "id": "X10_write_outside_staging_not_watch_root",
+    "verdict": "GAP",
+    "secs": 0.6,
+    "result": {
+      "rc": 0,
+      "wall_s": 0.58,
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "DRY_RUN_PASSED",
+      "verdict_hint": "PASS",
+      "acceptance_exit": 0,
+      "stderr_tail": ""
+    },
+    "escaped_file_exists": true,
+    "detected": false
+  },
+  {
+    "id": "X11_delete_in_staging_then_approve",
+    "verdict": "PASS",
+    "secs": 0.7,
+    "first": {
+      "rc": 0,
+      "wall_s": 0.46,
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "DRY_RUN_PASSED",
+      "verdict_hint": "NEEDS_ACCEPTANCE",
+      "acceptance_exit": null,
+      "stderr_tail": ""
+    },
+    "approve": {
+      "rc": 1,
+      "wall_s": 0.23,
+      "state": null,
+      "error_class": null,
+      "effect_state": null,
+      "promotion": null,
+      "verdict_hint": null,
+      "acceptance_exit": null,
+      "stderr_tail": " mutation does not support {item.change_type}: {item.path}\")\r\nv7_harness.isolation.errors.IsolationError: Live mutation does not support DELETED: test_calc.py\r\n"
+    },
+    "source_file_kept": true
+  },
+  {
+    "id": "X12_corrupted_sqlite_ledger",
+    "verdict": "PASS",
+    "secs": 0.8,
+    "result": {
+      "rc": 1,
+      "wall_s": 0.22,
+      "state": null,
+      "error_class": null,
+      "effect_state": null,
+      "promotion": null,
+      "verdict_hint": null,
+      "acceptance_exit": null,
+      "stderr_tail": "\n    connection.execute(\"PRAGMA journal_mode=WAL\")\r\n    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^\r\nsqlite3.DatabaseError: database disk image is malformed\r\n"
+    }
+  },
+  {
+    "id": "X13_source_tree_5000_files",
+    "verdict": "PASS",
+    "secs": 41.9,
+    "result": {
+      "rc": 0,
+      "wall_s": 36.36,
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "DRY_RUN_PASSED",
+      "verdict_hint": "PASS",
+      "acceptance_exit": 0,
+      "stderr_tail": ""
+    },
+    "files": 5002
+  },
+  {
+    "id": "X14_agent_generates_2000_files",
+    "verdict": "PASS",
+    "secs": 33.7,
+    "result": {
+      "rc": 0,
+      "wall_s": 33.16,
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "DRY_RUN_PASSED",
+      "verdict_hint": "PASS",
+      "acceptance_exit": 0,
+      "stderr_tail": ""
+    },
+    "changed_files": 2001
+  },
+  {
+    "id": "X15_unicode_and_space_paths",
+    "verdict": "PASS",
+    "secs": 0.9,
+    "first": {
+      "rc": 0,
+      "wall_s": 0.61,
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "DRY_RUN_PASSED",
+      "verdict_hint": "PASS",
+      "acceptance_exit": 0,
+      "stderr_tail": ""
+    },
+    "approve": {
+      "rc": 0,
+      "wall_s": 0.3,
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "APPLIED",
+      "verdict_hint": "PASS",
+      "acceptance_exit": 0,
+      "stderr_tail": ""
+    },
+    "unicode_file_applied": true
+  },
+  {
+    "id": "X16_replay_storm_8_parallel",
+    "verdict": "PASS",
+    "secs": 1.1,
+    "replayed": 2,
+    "lock_rejected": 6,
+    "db": {
+      "integrity": "ok",
+      "attempts": [
+        [
+          "P1-a001",
+          "SUCCEEDED"
+        ]
+      ],
+      "deliveries": [
+        [
+          "P1-cmd",
+          "ACKED"
+        ]
+      ],
+      "active_leases": 0
+    }
+  }
+]

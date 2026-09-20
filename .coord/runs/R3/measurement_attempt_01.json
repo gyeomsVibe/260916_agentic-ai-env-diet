@@ -1,0 +1,170 @@
+{
+  "schema": "r3-p05-measurement-v2",
+  "task": "P05",
+  "task_id_b": "P05-R3-B-01",
+  "models": {
+    "codex": "gpt-5.6-sol",
+    "codex_reasoning": "low",
+    "antigravity": "gemini-3.7-flash-high"
+  },
+  "measurement_window": "spawned Codex process start through final response after acceptance",
+  "baseline_source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+  "pre_run_manifests": {
+    "A": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+    "B": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616"
+  },
+  "historical_ab_sha256_before": "f844872ffa0dac9aec39430c288603c374763038ea8b3d52f2f03914cea940af",
+  "historical_judgment": {
+    "B": "INVALID_SETUP",
+    "comparison": "INVALID_MEASUREMENT",
+    "savings": "UNMEASURED"
+  },
+  "A": {
+    "label": "R3-P05-A-codex-direct-01",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "exit": 1,
+    "wall_s": 5.376,
+    "started_at_unix": 1789793150.0640266,
+    "finished_at_unix": 1789793155.4396605,
+    "events": ".coord\\runs\\R3\\R3-P05-A-codex-direct-01.jsonl",
+    "usage": {},
+    "tool_call_events": 0,
+    "errors": [
+      "USAGE_LIMIT"
+    ],
+    "acceptance_exit": 0,
+    "discovery_exit": 0,
+    "test_count": 6,
+    "behavior_exit": 1,
+    "acceptance_stderr_tail": "----------------------------------------------------------------------\nRan 6 tests in 0.000s\n\nOK\n",
+    "behavior_stderr_tail": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import calc; assert calc.power(2, 3) == 8; assert calc.power(9, 0) == 1; assert calc.power(4, -1) == 0.25; assert calc.reciprocal(4) == 0.25; assert calc.reciprocal(-2) == -0.5;\n                        ^^^^^^^^^^\nAttributeError: module 'calc' has no attribute 'power'\n",
+    "task": "P05",
+    "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+    "changes": {
+      "modified": [],
+      "added": [],
+      "deleted": []
+    }
+  },
+  "B_pre_run_attempt_ids": [],
+  "B": {
+    "receipt": {
+      "ok": true,
+      "exit_code": 0,
+      "error_class": null,
+      "task_id": "P05-R3-B-01",
+      "run_id": "P05-R3-B-01-a001",
+      "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+      "bundle_id": "44322af2a8556c54ff0069ec1183c32a27061b8f9b8515bf61809766560060fe",
+      "promotion": "APPLIED",
+      "post_acceptance_exit": 0,
+      "pilot_invocations": 1,
+      "approval_invocations": 1
+    },
+    "wall_s": 40.092,
+    "started_at_unix": 1789793155.7773554,
+    "finished_at_unix": 1789793195.8695197,
+    "antigravity_usage": {
+      "input_tokens": 68924,
+      "output_tokens": 4048,
+      "thinking_tokens": 2141,
+      "cache_read_tokens": 162566,
+      "total_tokens": 72972
+    },
+    "codex_coordinator": {
+      "label": "P05-R3-B-01-coordinator",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "low",
+      "exit": 1,
+      "wall_s": 5.194,
+      "started_at_unix": 1789793196.1707428,
+      "finished_at_unix": 1789793201.3645358,
+      "events": ".coord\\runs\\R3\\P05-R3-B-01-coordinator.jsonl",
+      "usage": {},
+      "tool_call_events": 0,
+      "errors": [
+        "USAGE_LIMIT"
+      ]
+    },
+    "acceptance_exit": 0,
+    "discovery_exit": 0,
+    "test_count": 12,
+    "behavior_exit": 0,
+    "acceptance_stderr_tail": "----------------------------------------------------------------------\nRan 12 tests in 0.000s\n\nOK\n",
+    "behavior_stderr_tail": "",
+    "task": "P05",
+    "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+    "changes": {
+      "modified": [
+        "calc.py",
+        "test_calc.py"
+      ],
+      "added": [],
+      "deleted": []
+    },
+    "pilot_summary": {
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "APPLIED",
+      "bundle_id": "44322af2a8556c54ff0069ec1183c32a27061b8f9b8515bf61809766560060fe",
+      "changed_files": [
+        "calc.py",
+        "test_calc.py"
+      ],
+      "conversation_id": "23d446dd-205c-405f-b6a6-0d590a648a9c",
+      "agy_usage": {
+        "input_tokens": 68924,
+        "output_tokens": 4048,
+        "thinking_tokens": 2141,
+        "cache_read_tokens": 162566,
+        "total_tokens": 72972
+      },
+      "agy_workspace": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_pilot_work_R3_P05_B_01\\stage\\P05-R3-B-01",
+      "raw_stdout_path": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_pilot_work_R3_P05_B_01\\runs\\P05-R3-B-01\\P05-R3-B-01-a001.json",
+      "raw_stderr_path": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_pilot_work_R3_P05_B_01\\runs\\P05-R3-B-01\\P05-R3-B-01-a001.err",
+      "summary_path": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_pilot_work_R3_P05_B_01\\runs\\P05-R3-B-01\\summary.json",
+      "acceptance_exit": 0,
+      "verdict_hint": "PASS",
+      "acceptance_log_path": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_pilot_work_R3_P05_B_01\\runs\\P05-R3-B-01\\acceptance.log",
+      "replayed": true,
+      "task_id": "P05-R3-B-01",
+      "run_id": "P05-R3-B-01-a001",
+      "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616"
+    },
+    "ledger_terminal": {
+      "task_id": "P05-R3-B-01",
+      "run_id": "P05-R3-B-01-a001",
+      "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+      "bundle_id": "44322af2a8556c54ff0069ec1183c32a27061b8f9b8515bf61809766560060fe",
+      "attempt_state": "SUCCEEDED",
+      "delivery_state": "ACKED",
+      "lease_state": "RELEASED"
+    },
+    "pre_run_attempt_ids": [],
+    "post_apply_acceptance_exit": 0
+  },
+  "token_accounting": {
+    "codex": {
+      "A_input_tokens": 0,
+      "A_cached_input_tokens": 0,
+      "B_coordinator_input_tokens": 0,
+      "B_coordinator_cached_tokens": 0
+    },
+    "antigravity": {
+      "A_input_tokens": 0,
+      "B_worker_input_tokens": 68924,
+      "B_worker_cached_read_tokens": 162566,
+      "B_worker_output_tokens": 4048,
+      "B_worker_total_tokens": 72972
+    },
+    "notes": "Gate comparison evaluates pure Codex tokens (A vs B). Antigravity worker tokens are reported separately as cross-provider reference."
+  },
+  "historical_ab_sha256_after": "f844872ffa0dac9aec39430c288603c374763038ea8b3d52f2f03914cea940af",
+  "comparison": {
+    "status": "INVALID_CODEX_EXECUTION",
+    "reason": "Codex execution failed (A=1, B=1)",
+    "savings": "UNMEASURED"
+  }
+}

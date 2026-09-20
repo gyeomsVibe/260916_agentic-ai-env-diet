@@ -1,0 +1,100 @@
+{
+  "verification_target": "R0, B40, and B41 Bundle Independent Verification",
+  "verified_at": "2026-09-18T21:07:00+09:00",
+  "verifier": "Antigravity (Autonomous Direct Execution)",
+  "coordinator": "Codex",
+  "peer_critic": "Claude Code",
+  "verdict": "PASS",
+  "items": {
+    "R0": {
+      "title": "Cost measurement validity redesign & gate",
+      "description": "Historical P05-B classified as INVALID_SETUP, comparison as INVALID_MEASUREMENT, savings as UNMEASURED; strict measurement validation gate enforced.",
+      "implementation": [
+        ".coord/runs/measure_p05.py",
+        ".coord/runs/R0/p05-correction.json",
+        ".coord/tasks/R0-cost-measurement-validity.md"
+      ],
+      "tests": [
+        "tests/test_r0_measurement_validity.py (8/8 PASS)"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    },
+    "B40": {
+      "title": "Claude synced skills noise exclusion",
+      "description": "Exclude app-managed .claude/skills/synced directory from re-includes to prevent watch fingerprint budget exhaustion.",
+      "implementation": [
+        "v7_harness/isolation/security.py (DEFAULT_REINCLUDE_NOISE)"
+      ],
+      "tests": [
+        "tests/test_b40_synced_noise.py (2/2 PASS)"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    },
+    "B41": {
+      "title": "EXTERNAL_WRITE external_paths summary field",
+      "description": "Populate external_paths list in summary when EXTERNAL_WRITE is detected outside staging boundary.",
+      "implementation": [
+        "v7_harness/isolation/errors.py (ExternalWriteDetectedError.changed_paths)",
+        "v7_harness/isolation/security.py (assert_unchanged passes changed_paths)",
+        "v7_harness/pilot.py (summary['external_paths'])"
+      ],
+      "tests": [
+        "tests/test_b41_bundle.py::test_external_write_includes_external_paths_in_summary",
+        "tests/test_b41_bundle.py::test_pilot_run_external_write_populates_summary_external_paths"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    },
+    "B36": {
+      "title": "SOURCE_DIVERGED structured summary",
+      "description": "Trap SourceDivergenceError during dry-run promotion and apply promotion, returning structured summary with error_class=SOURCE_DIVERGED and verdict_hint=BLOCKED without traceback.",
+      "implementation": [
+        "v7_harness/pilot.py (dry_run_promotion and apply_promotion trap SourceDivergenceError)",
+        "v7_harness/cli.py (cmd_pilot_run traps SourceDivergenceError)"
+      ],
+      "tests": [
+        "tests/test_b41_bundle.py::test_dry_run_source_divergence_returns_structured_summary",
+        "tests/test_b41_bundle.py::test_cmd_pilot_run_catches_source_divergence_cleanly"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    },
+    "B35": {
+      "title": "Summary key count strict upper bound (<= 18)",
+      "description": "Restore strict summary key bound check (14 <= len(summary) <= 18) in pilot execution and tests.",
+      "implementation": [
+        "tests/test_m4_efficiency.py (assertLessEqual len(summary) 18)",
+        "v7_harness/pilot.py (bounded summary keys)"
+      ],
+      "tests": [
+        "tests/test_m4_efficiency.py::test_acceptance_pass_gives_verdict_pass"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    },
+    "B39": {
+      "title": "Heavy subdirectories exclusion from re-includes",
+      "description": "Exclude node_modules, .venv, venv, __pycache__, .git, .cache under re-included directories to prevent watch budget exhaustion.",
+      "implementation": [
+        "v7_harness/isolation/security.py (HEAVY_REINCLUDE_SUBDIRS, is_protected_watch_path, is_protected_watch_dir_ancestor, DEFAULT_WATCH_EXCLUDES)"
+      ],
+      "tests": [
+        "tests/test_b41_bundle.py::test_heavy_subdirs_under_reincludes_are_excluded",
+        "tests/test_b41_bundle.py::test_heavy_dir_ancestor_is_not_traversed"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    }
+  },
+  "regression_summary": {
+    "total_tests_ran": 266,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "duration_seconds": 45.03,
+    "compileall_exit": 0,
+    "overall_status": "ALL_PASS"
+  }
+}

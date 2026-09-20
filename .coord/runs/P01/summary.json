@@ -1,0 +1,14 @@
+{
+  "state": "FAILED",
+  "error_class": "EXECUTION_ERROR",
+  "effect_state": "UNKNOWN",
+  "promotion": "BLOCKED",
+  "bundle_id": null,
+  "changed_files": [],
+  "conversation_id": null,
+  "agy_usage": {},
+  "agy_workspace": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.coord\\stage\\P01",
+  "raw_stdout_path": ".coord\\runs\\P01\\P01-a001.json",
+  "raw_stderr_path": ".coord\\runs\\P01\\P01-a001.err",
+  "summary_path": ".coord\\runs\\P01\\summary.json"
+}

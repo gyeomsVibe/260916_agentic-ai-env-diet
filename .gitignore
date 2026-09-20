@@ -1,0 +1,28 @@
+# 작업 산출물: 사본·staging·측정 복사본·백업·로그. 저장소에 올리지 않는다(570MB).
+.work/
+
+# 파일럿 원장과 staging 복사본. 실행 기록은 로컬에만 둔다.
+.coord/pilot/
+.coord/pilot-r2/
+.coord/stage/
+.coord/b22-source/
+.coord/coord.sqlite3
+.coord/coord.sqlite3-*
+.coord/*.lock
+
+# 조율 스트림과 브리핑은 도구 간 런타임 상태다. 원본 매니페스트에서도 제외한다.
+.coord/stream/
+.coord/codex_brief.md
+
+# 파이썬
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 도구 로컬 설정
+.claude/settings.local.json
+
+# 릴레이 런타임 로그·전송 기록(도구 간 실행 흔적). 스크립트만 저장소에 둔다.
+.claude/codex-relay/*.log
+.claude/codex-relay/*.txt
+.claude/scheduled_tasks.lock

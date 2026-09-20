@@ -1,0 +1,26 @@
+{
+  "state": "SUCCEEDED",
+  "error_class": "NONE",
+  "effect_state": "CONFIRMED",
+  "promotion": "APPLIED",
+  "bundle_id": "af0f81a238481a6f180d83e37b0b9156158eb2d18e0681c5d56ec8da058d8bc7",
+  "changed_files": [
+    "calc.py",
+    "test_calc.py"
+  ],
+  "conversation_id": "42d7cc21-9140-4cbd-b78d-b7e31ba8a57a",
+  "agy_usage": {
+    "input_tokens": 55972,
+    "output_tokens": 5785,
+    "thinking_tokens": 4055,
+    "cache_read_tokens": 142421,
+    "total_tokens": 61757
+  },
+  "agy_workspace": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.coord\\pilot\\stage\\P03",
+  "raw_stdout_path": ".coord\\pilot\\runs\\P03\\P03-a001.json",
+  "raw_stderr_path": ".coord\\pilot\\runs\\P03\\P03-a001.err",
+  "summary_path": ".coord\\pilot\\runs\\P03\\summary.json",
+  "acceptance_exit": 0,
+  "verdict_hint": "PASS",
+  "replayed": true
+}

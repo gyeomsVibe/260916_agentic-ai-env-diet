@@ -1,0 +1,44 @@
+{
+  "schema": "u15-coordination-measure-v1",
+  "measured_at": "2026-09-20T20:25:13+09:00",
+  "sample": {
+    "events_in_stream": 6,
+    "stream_bytes": 1975,
+    "memos_total": 78,
+    "memos_sampled": 10
+  },
+  "per_handoff_payload": {
+    "baseline_memo_chars": 1552,
+    "baseline_memo_tokens_est": 621,
+    "brief_chars": 828,
+    "brief_tokens_est": 331,
+    "brief_lines": 25,
+    "queue_message_chars": 81,
+    "queue_message_tokens_est": 32,
+    "reduction_pct_vs_memo": 46.6
+  },
+  "dedup": {
+    "cursor_hash": "a7953c4fcd51",
+    "brief_hash": "a7953c4fcd51",
+    "repeat_send_blocked": true,
+    "repeat_reason": "NO_CHANGE"
+  },
+  "delivery": {
+    "last_sent_at": "2026-09-20T20:18:26+09:00",
+    "thread": "01a0b77f-cbc2-7930-878e-4b18186813e1",
+    "queued_message_id": "01a0be89-d401-7980-8d4b-66a34518685e",
+    "queue_accepted": true,
+    "codex_consumed_at": "UNKNOWN",
+    "verdict_latency_s": "UNKNOWN"
+  },
+  "limits": {
+    "brief_within_60_lines": true,
+    "brief_within_6kb": true,
+    "queue_message_within_500": true
+  },
+  "status": "PARTIAL_MEASURED",
+  "unmeasured": [
+    "하루 운용 기준 전달 건수와 판정 지연(Codex 소비 시각 필요)",
+    "조율 턴의 실제 토큰 절감(Codex 사용량 기록 대조 필요)"
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "task": "P01",
+  "A_codex_only": {
+    "wall_s": 23.167,
+    "codex_5h_pct_before": 58,
+    "codex_5h_pct_after": 60,
+    "codex_exec_usage": null,
+    "turns": 1,
+    "acceptance_exit": 0,
+    "rework_count": 0,
+    "human_intervention_count": 0
+  },
+  "B_codex_plus_antigravity": {
+    "wall_s": 146.688,
+    "successful_run_wall_s": 68.883,
+    "codex_5h_pct_before": 50,
+    "codex_5h_pct_after": 58,
+    "codex_exec_usage": null,
+    "codex_turns": 2,
+    "agy_usage": {
+      "successful_run": {
+        "input_tokens": 136320,
+        "output_tokens": 3251,
+        "thinking_tokens": 0,
+        "cache_read_tokens": 0,
+        "total_tokens": 139571
+      },
+      "failed_external_write_run_total_tokens": 158333,
+      "all_live_runs_total_tokens": 297904
+    },
+    "acceptance_exit": 0,
+    "promotion": "APPLIED",
+    "false_success_count": 0,
+    "outside_write_count": 0,
+    "rework_count": 1,
+    "human_intervention_count": 0
+  },
+  "comparison": {
+    "wall_s_delta_B_minus_A": 123.521,
+    "codex_5h_percentage_point_delta_A": 2,
+    "codex_5h_percentage_point_delta_B": 8,
+    "cost_savings": "UNMEASURED",
+    "token_savings": "UNMEASURED"
+  },
+  "notes": "Measured values only; B includes one blocked live run and the in-turn M2 repair overhead, so its Codex percentage delta is not an apples-to-apples steady-state estimate. codex exec --json usage was not used and is UNAVAILABLE. No extrapolation."
+}

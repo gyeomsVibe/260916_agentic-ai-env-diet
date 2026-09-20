@@ -1,0 +1,33 @@
+{
+  "verification_target": "R2 Minimal Deterministic Control Layer & Contract Gaps Independent Verification",
+  "verified_at": "2026-09-19T12:16:30+09:00",
+  "verifier": "Antigravity (Autonomous Direct Execution)",
+  "coordinator": "Codex",
+  "peer_critic": "Claude Code",
+  "verdict": "PASS",
+  "items": {
+    "R2_CONTROL": {
+      "title": "Minimal deterministic local control layer",
+      "description": "Removes nested Codex helper from B critical path, providing fail-closed local orchestration with independent ledger identity, exact-bundle approval replay, and post-apply acceptance.",
+      "implementation": [
+        "v7_harness/control.py"
+      ],
+      "tests": [
+        "tests/test_r2_minimal_control.py (10/10 PASS)",
+        "tests/test_r2_contract_gaps.py (23/23 PASS)"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    }
+  },
+  "regression_summary": {
+    "total_tests_ran": 312,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "duration_seconds": 41.93,
+    "compileall_exit": 0,
+    "historical_ab_hash_intact": true,
+    "overall_status": "ALL_PASS"
+  }
+}

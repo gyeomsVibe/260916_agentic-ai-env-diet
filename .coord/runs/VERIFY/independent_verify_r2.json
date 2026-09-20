@@ -1,0 +1,118 @@
+{
+  "items": [
+    {
+      "id": "B20",
+      "verdict": "PASS",
+      "evidence": "v7_harness/cli.py 및 pilot.py에서 --model 인자를 파싱해 AgyRequest와 CLI 명령에 전달함을 확인 (tests/test_b20_model_flag.py 3건 검증)"
+    },
+    {
+      "id": "B21",
+      "verdict": "PASS",
+      "evidence": "v7_harness/pilot.py에서 파이프·체이닝 연산자 포함 시 shell=True, 단순 명령 시 shlex.split 기반 shell=False 분기 실행 확인 (tests/test_b26_b21_features.py 검증)"
+    },
+    {
+      "id": "B23",
+      "verdict": "PASS",
+      "evidence": "BrokerAlreadyRunning 발생 시 exit 1 및 BLOCKED 요약을 반환하고 DEFAULT_WATCH_EXCLUDES로 Claude 런타임 잡음 제외 확인 (tests/test_b23_concurrency_summary.py 2건 검증)"
+    },
+    {
+      "id": "B24",
+      "verdict": "PASS",
+      "evidence": "apply_promotion 중 IsolationError 발생 시 예외 역추적 없이 promotion: REJECTED 및 14키 요약 규격 유지 확인 (tests/test_b24_rejected_summary.py 검증)"
+    },
+    {
+      "id": "B25",
+      "verdict": "PASS",
+      "evidence": "pilot run 및 reconcile 중 sqlite3.DatabaseError 발생 시 DB_UNAVAILABLE 상태와 복구 힌트를 담은 JSON을 반환하고 비정상 종료 방지 확인 (tests/test_b25_db_unavailable.py 2건 검증)"
+    },
+    {
+      "id": "B26",
+      "verdict": "PASS",
+      "evidence": "실패·타임아웃·미정리 상태 발생 시 summary.json의 next_action에 'pilot reconcile --task <ID>' 명령을 명시 제공 확인 (tests/test_b26_b21_features.py 검증)"
+    },
+    {
+      "id": "B28",
+      "verdict": "PASS",
+      "evidence": "DEFAULT_WATCH_REINCLUDES를 통해 .claude 및 .codex 하위 설정·훅·스킬·에이전트 경로를 상위 제외 규칙보다 우선 재포함 감시 확인 (tests/test_b28_watch_hole.py, test_b28_reinclude.py 검증)"
+    },
+    {
+      "id": "B31",
+      "verdict": "PASS",
+      "evidence": "v7_harness/pilot.py에서 task_scope_id를 'pilot:{task_id}'로 격리하여 동일 work-dir 내 서로 다른 과제 간 예산 소진 간섭 차단 확인 (tests/test_b30_no_change_verdict.py 4과제 연속 성공 검증)"
+    },
+    {
+      "id": "B32",
+      "verdict": "PASS",
+      "evidence": "수정 파일이 없을 경우 accept_cmd 성공 여부와 무관하게 verdict_hint: REWORK 및 reason: NO_CHANGES 처리, --allow-no-changes 지정 시에만 PASS 허용 확인 (tests/test_b30_no_change_verdict.py 4건 검증)"
+    },
+    {
+      "id": "B33",
+      "verdict": "PASS",
+      "evidence": "v7_harness/pilot.py L516-519 및 L557-560에서 비-worker 실행 예외 시 EXECUTION_ERROR 뭉개짐 대신 실제 예외 클래스 및 300자 error_detail 보존 확인"
+    },
+    {
+      "id": "B34",
+      "verdict": "PASS",
+      "evidence": "accept_cmd의 stdout/stderr 결합 출력을 acceptance.log(최대 4000바이트)로 보존하고 summary에 acceptance_log_path 노출 확인 (tests/test_b30_no_change_verdict.py 2건 검증)"
+    },
+    {
+      "id": "B08",
+      "verdict": "PASS",
+      "evidence": "v7_harness/execution/lease.py 및 engine.py의 기본 lease duration을 30.0초로 상향하여 고부하 시 하트비트 경쟁 조건 해소 확인 (tests/test_u12_execution.py 검증)"
+    }
+  ],
+  "counterexamples": [
+    {
+      "case": "(a) B21 accept_cmd shell=True 경로의 주입 위험",
+      "finding": "accept_cmd는 조율자(Codex/CLI 호출자)가 직접 공급하므로 프롬프트나 에이전트 생성 문자열에 의한 직접 명령 주입 경로는 차단되어 있음. 단, cwd가 staging_dir이므로 Windows 환경 특성상 staging 내에 pytest.bat/python.exe 등의 바이너리가 에이전트에 의해 생성될 경우 PATH 탐색보다 CWD가 우선되어 의도치 않은 바이너리 선취 실행(CWD binary hijacking) 위험이 존재함 (P2 위험, 조율자가 절대 경로 바이너리 제공 권장).",
+      "severity": "P2"
+    },
+    {
+      "case": "(b) re-include의 .claude 하위 순회 중 junction·대량 파일 시 실패/지연",
+      "finding": "재귀 감시 모드에서는 candidate가 junction/reparse일 경우 WatchScanUnavailableError로 즉시 fail-closed 됨. 얕은(shallow) 감시 모드에서는 os.walk로 하위 파일을 순회하며 전수 SHA256 해싱을 수행하므로, 사용자가 .claude/skills 등에 node_modules나 가상환경 등 대용량 패키지를 포함한 경우 WATCH_ROOT_BUDGET_EXCEEDED(파일 수 초과) 또는 WATCH_FINGERPRINT_BUDGET_EXCEEDED(50MB 초과)로 감시가 차단될 수 있음 (P2 위험, fail-closed는 보장되나 가용성 저하 가능).",
+      "severity": "P2"
+    },
+    {
+      "case": "(c) B32가 읽기 전용 과제에서 오판하는 경우",
+      "finding": "코드 수정 없이 진단·감사·평가만 수행하는 읽기 전용 과제의 경우 changed_files가 비어 있으므로, accept_cmd가 0으로 통과해도 기본값이 allow_no_changes=False이므로 REWORK(reason: NO_CHANGES)로 강제 오판됨. 따라서 조율자는 읽기 전용 과제 호출 시 반드시 --allow-no-changes 플래그를 명시적으로 인가해야 함 (P2 운영 요구사항).",
+      "severity": "P2"
+    },
+    {
+      "case": "(d) task별 budget 분리로 인한 동일 task 재시도 한도 소멸 여부",
+      "finding": "한도가 사라지지 않고 정상 유지됨. scope_id가 'pilot:{task_id}'로 지정되어 동일 task_id로 reconcile 후 재시도할 때마다 execution_budget_usage의 attempts 카운터가 누적되며, 3회 초과(attempt 4) 시 reserve_retry_budget에서 CircuitOpenError('RETRY_BUDGET_EXHAUSTED')가 정확히 발생함을 확인.",
+      "severity": "NONE"
+    }
+  ],
+  "blocking_p1": [],
+  "next_steps": [
+    {
+      "order": 1,
+      "task": "동일 과제·동일 모델 A/B 재측정",
+      "owner": "Antigravity (IDE)",
+      "action": "격리된 harness staging 환경에서 동일 모델/동일 프롬프트 기준 pilot 실행 성능 및 토큰/지연 실측 수행"
+    },
+    {
+      "order": 2,
+      "task": "PLAN 및 BACKLOG 갱신",
+      "owner": "Antigravity (IDE)",
+      "action": "B20~B26 및 B30S(B28 완결, B31~B34, B08) 완료 상태 및 반례 분석 결과를 의도 원장과 문서에 반영"
+    },
+    {
+      "order": 3,
+      "task": "Codex 인계 메모 작성",
+      "owner": "Antigravity (IDE)",
+      "action": ".coord/runs/VERIFY/independent_verify_r2.json 형태의 독립 검증 증거 및 반례 대응 가이드(읽기전용 과제 시 --allow-no-changes 필수 등) 인계"
+    },
+    {
+      "order": 4,
+      "task": "U03/U04 전역 원본 반영",
+      "owner": "Codex & Antigravity (사용자 명시 승인 필요)",
+      "action": "글로벌 안전 규칙에 따라 원본 저장소 변경 전 사용자 승인을 득한 후 최종 프로모션 적용"
+    }
+  ],
+  "meta": {
+    "verifier": "Antigravity agy gemini-3.8-flash-high --mode plan (read-only)",
+    "date": "2026-09-18",
+    "claude_note": "B08 evidence overstates: only test lease duration changed (tests/test_u12_execution.py), engine/lease defaults unchanged. Verdict unaffected."
+  }
+}

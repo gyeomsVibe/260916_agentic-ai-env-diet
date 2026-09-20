@@ -1,0 +1,124 @@
+{
+  "verification_target": "B20-B28 Independent Pipeline Verification",
+  "verified_at": "2026-09-18T14:15:00+09:00",
+  "coordinator": "Antigravity (Autonomous Zero-Confirmation Mode)",
+  "peer": "Claude Code",
+  "verdict": "PASS",
+  "total_verified_items": 8,
+  "items": {
+    "B20": {
+      "title": "--model flag propagation",
+      "description": "Expose --model CLI flag and forward to AgyRequest / agy launcher",
+      "implementation": [
+        "v7_harness/cli.py (argparse --model)",
+        "v7_harness/pilot.py (PilotConfig.model, AgyRequest.model)"
+      ],
+      "tests": [
+        "tests/test_b20_model_flag.py::test_cli_parses_model_argument",
+        "tests/test_b20_model_flag.py::test_pilot_config_stores_model",
+        "tests/test_b20_model_flag.py::test_pilot_run_passes_model_to_agy_request"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    },
+    "B21": {
+      "title": "--accept-cmd shell operators support",
+      "description": "Execute acceptance command via shell=True when pipes or operators (| && ; > <) are present",
+      "implementation": [
+        "v7_harness/pilot.py (_run_acceptance_command shell execution check)"
+      ],
+      "tests": [
+        "tests/test_b26_b21_features.py::test_accept_cmd_shell_support"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    },
+    "B22": {
+      "title": "work-dir sibling isolation",
+      "description": "Ensure files created as siblings in work_dir/stage trigger external write guard and block promotion",
+      "implementation": [
+        "v7_harness/pilot.py (watch_roots includes (work_dir / 'stage').resolve())"
+      ],
+      "tests": [
+        "tests/test_m2_pilot.py::test_direct_sibling_file_in_staging_is_detected_and_blocked"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    },
+    "B23": {
+      "title": "Broker concurrency error summary & runtime noise exclusion",
+      "description": "Capture BrokerAlreadyRunning in CLI as 14-key compact JSON with exit 1; exclude transient runtime noise",
+      "implementation": [
+        "v7_harness/cli.py (cmd_pilot_run traps BrokerAlreadyRunning)",
+        "v7_harness/isolation/security.py (DEFAULT_WATCH_EXCLUDES claude/codex transient paths)"
+      ],
+      "tests": [
+        "tests/test_b23_concurrency_summary.py::test_default_watch_excludes_includes_claude_runtime_paths",
+        "tests/test_b23_concurrency_summary.py::test_cmd_pilot_run_catches_broker_already_running"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    },
+    "B24": {
+      "title": "Isolation error promotion rejection summary",
+      "description": "Capture IsolationError during apply_promotion into 14-key REJECTED summary with exit 1",
+      "implementation": [
+        "v7_harness/pilot.py (apply_promotion traps IsolationError)"
+      ],
+      "tests": [
+        "tests/test_b24_rejected_summary.py::test_apply_promotion_catches_isolation_error_and_returns_rejected_summary"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    },
+    "B25": {
+      "title": "Database corruption error recovery hint",
+      "description": "Trap sqlite3.DatabaseError in CLI into DB_UNAVAILABLE 14-key summary with reconcile recovery hint",
+      "implementation": [
+        "v7_harness/cli.py (cmd_pilot_run and cmd_pilot_reconcile trap sqlite3.DatabaseError)"
+      ],
+      "tests": [
+        "tests/test_b25_db_unavailable.py::test_cmd_pilot_run_catches_database_error",
+        "tests/test_b25_db_unavailable.py::test_cmd_pilot_reconcile_catches_database_error"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    },
+    "B26": {
+      "title": "TIMEOUT and unreconciled next_action hint",
+      "description": "Inject actionable next_action reconcile hint on TIMEOUT and failed ledger states",
+      "implementation": [
+        "v7_harness/pilot.py (pilot_summary next_action injection on failure)"
+      ],
+      "tests": [
+        "tests/test_b26_b21_features.py::test_timeout_injects_next_action_reconcile_hint"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    },
+    "B28": {
+      "title": "Protected Configuration Guard for agent config files",
+      "description": "Ensure critical agent config files (~/.claude/settings.json, ~/.codex/config.toml, rules) are never excluded and trigger external write detection, while runtime noise remains excluded",
+      "implementation": [
+        "v7_harness/isolation/security.py (PROTECTED_WATCH_FILES, is_protected_watch_path, shallow/recursive inspection)"
+      ],
+      "tests": [
+        "tests/test_b28_watch_hole.py::test_protected_watch_files_are_not_excluded",
+        "tests/test_b28_watch_hole.py::test_noise_files_remain_excluded",
+        "tests/test_b28_watch_hole.py::test_shallow_watch_root_detects_claude_settings_mutation",
+        "tests/test_b28_watch_hole.py::test_shallow_watch_root_detects_codex_config_mutation",
+        "tests/test_b28_watch_hole.py::test_shallow_watch_root_ignores_runtime_noise",
+        "tests/test_b28_watch_hole.py::test_recursive_watch_root_detects_rules_mutation"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    }
+  },
+  "full_suite_summary": {
+    "total_tests_ran": 228,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "status": "ALL_PASS"
+  }
+}

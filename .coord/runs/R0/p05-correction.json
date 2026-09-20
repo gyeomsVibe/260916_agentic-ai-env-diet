@@ -1,0 +1,113 @@
+{
+  "raw_source_path": ".coord/runs/P05/ab.json",
+  "raw_source_sha256": "F844872FFA0DAC9AEC39430C288603C374763038EA8B3D52F2F03914CEA940AF",
+  "raw_source_hash_status": "unchanged",
+  "source_path": ".coord/runs/P05/ab.json",
+  "task": "P05",
+  "task_description": "Add power and reciprocal functions with 3+ unit tests each",
+  "A_codex_only": {
+    "label": "P05-A-codex-only",
+    "exit": 0,
+    "wall_s": 81.6,
+    "tool_call_events": 6,
+    "usage": {
+      "input_tokens": 97270,
+      "cached_input_tokens": 83968,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 1339,
+      "reasoning_output_tokens": 173
+    },
+    "codex_5h_used_percent_first": null,
+    "codex_5h_used_percent_last": null,
+    "errors": [],
+    "events": ".coord/runs/codex-measure/P05-A-codex-only.jsonl",
+    "acceptance_exit": 0,
+    "test_count": 12
+  },
+  "B_codex_one_turn": {
+    "label": "P05-B-one-turn",
+    "classification": "INVALID_SETUP",
+    "status": "INVALID_SETUP",
+    "exit": 0,
+    "wall_s": 915.7,
+    "tool_call_events": 0,
+    "usage": {
+      "input_tokens": 367347,
+      "cached_input_tokens": 355072,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 1240,
+      "reasoning_output_tokens": 395
+    },
+    "codex_5h_used_percent_first": null,
+    "codex_5h_used_percent_last": null,
+    "errors": [
+      "helper_unknown_error"
+    ],
+    "events": ".coord/runs/codex-measure/P05-B-one-turn.jsonl",
+    "pilot_summary": null,
+    "sample_acceptance_exit": 0,
+    "test_count": 6
+  },
+  "comparison": {
+    "classification": "INVALID_MEASUREMENT",
+    "status": "INVALID_MEASUREMENT",
+    "measured_verdict": "INVALID_MEASUREMENT",
+    "savings": "UNMEASURED",
+    "token_savings": "UNMEASURED",
+    "wall_savings": "UNMEASURED",
+    "cost_savings": "UNMEASURED",
+    "task_identical": true,
+    "starting_state_identical": true,
+    "quality_gate": "FAIL",
+    "codex_input_tokens": {
+      "A_codex_only": 97270,
+      "B_codex_one_turn": 367347,
+      "reduction_pct": "UNMEASURED"
+    },
+    "codex_wall_seconds": {
+      "A_codex_only": 81.6,
+      "B_codex_one_turn": 915.7,
+      "reduction_pct": "UNMEASURED"
+    },
+    "tests_passed": {
+      "A_codex_only": 12,
+      "B_codex_one_turn": 6
+    },
+    "root_cause": "The B worker never launched the pilot. Helper unknown errors during environment initialization caused 0 tool executions and pilot_summary was null. Existing 6 tests alone passed without implementing required power/reciprocal functions. The recorded quality gate and savings comparisons were invalid."
+  },
+  "pilot_runs": {
+    "R0V1": {
+      "bundle_id": "f9fc991730c250a3655573e35f4329c9fe381f0a0e7a4cbc63eb6d619cb3f8ba",
+      "status": "SUPERSEDED_SOURCE_DIVERGENCE",
+      "verdict_hint": "PASS",
+      "promotion": "DRY_RUN_PASSED",
+      "approval_state": "never approved"
+    },
+    "R6FIX3": {
+      "bundle_id": "db31d25d9554433023a4d4dd077f2f4c551d0f9d3b13abfd214d935ca7da3fc9",
+      "status": "SUCCEEDED",
+      "verdict_hint": "PASS",
+      "promotion": "APPLIED",
+      "acceptance_exit": 0,
+      "changes": [
+        ".coord/runs/measure_p05.py",
+        "v7_harness/isolation/security.py"
+      ],
+      "freshness_gate": {
+        "pre_run_attempt_ids": "enforced",
+        "fixed_tests": [
+          "test_stale_ledger_from_before_the_b_run_is_rejected (INVALID_STALE_RUN)",
+          "test_missing_pre_run_snapshot_is_rejected (INVALID_STALE_RUN)"
+        ]
+      }
+    }
+  },
+  "verification": {
+    "codex_r0_tests": "12/12 OK",
+    "b46_tests": "3/3 OK",
+    "full_regression_tests": "279 OK, 1 skipped",
+    "compileall_exit": 0,
+    "raw_ab_hash": "F844872FFA0DAC9AEC39430C288603C374763038EA8B3D52F2F03914CEA940AF",
+    "raw_ab_hash_status": "unchanged"
+  }
+}

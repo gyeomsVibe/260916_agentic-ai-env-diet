@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:coord:result:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "attempt_id", "status", "acceptance_hash", "effect_state", "retryable", "evidence_hash", "receipt_ref"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "enum": ["SUCCEEDED", "FAILED", "ERROR", "PARTIAL", "NEEDS_RECONCILIATION"]},
+    "acceptance_hash": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "[0-9a-fA-F]{64}"},
+    "effect_state": {"type": "string", "enum": ["NONE", "INTENDED", "CONFIRMED", "UNKNOWN", "RECONCILED"]},
+    "retryable": {"type": "boolean"},
+    "evidence_hash": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "[0-9a-fA-F]{64}"},
+    "receipt_ref": {"type": "string", "minLength": 1}
+  }
+}

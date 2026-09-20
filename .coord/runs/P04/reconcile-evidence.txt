@@ -1,0 +1,6 @@
+command: python -m v7_harness.cli pilot reconcile --task P04 --work-dir .coord/pilot
+before-observed: P04-a002 transitioned from RUNNING/CLAIMED/ACTIVE to SUCCEEDED/ACKED/RELEASED before reconcile acquired state
+stdout: {"state":"NOTHING_TO_RECONCILE","reconciled_attempts":0}
+exit: 0
+after: P04-a002 SUCCEEDED; P04-cmd-r2 ACKED; lease-P04-cmd-r2-1 RELEASED
+

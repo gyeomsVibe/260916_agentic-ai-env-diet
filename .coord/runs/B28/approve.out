@@ -1,0 +1,26 @@
+{
+  "state": "SUCCEEDED",
+  "error_class": "NONE",
+  "effect_state": "CONFIRMED",
+  "promotion": "APPROVAL_MISMATCH",
+  "bundle_id": "e49ca849b213065fdd8bdafbaa5c155cb677a3c407334b2296d3f4580cbb8a1a",
+  "changed_files": [
+    "tests/test_b28_reinclude.py",
+    "v7_harness/isolation/security.py"
+  ],
+  "conversation_id": "2e6d0729-cdcd-434e-8eae-048019cf3d59",
+  "agy_usage": {
+    "input_tokens": 200965,
+    "output_tokens": 59054,
+    "thinking_tokens": 45499,
+    "cache_read_tokens": 1558850,
+    "total_tokens": 260019
+  },
+  "agy_workspace": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_pilot_work_B28\\stage\\B28",
+  "raw_stdout_path": "..\\260916_pilot_work_B28\\runs\\B28\\B28-a001.json",
+  "raw_stderr_path": "..\\260916_pilot_work_B28\\runs\\B28\\B28-a001.err",
+  "summary_path": "..\\260916_pilot_work_B28\\runs\\B28\\summary.json",
+  "acceptance_exit": 0,
+  "verdict_hint": "PASS",
+  "replayed": true
+}

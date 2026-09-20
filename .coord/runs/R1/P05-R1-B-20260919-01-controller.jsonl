@@ -1,0 +1,16 @@
+2026-09-19T02:46:21.067843Z  WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/
+2026-09-19T02:46:21.067943Z  WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/
+2026-09-19T02:46:21.082447Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell
+{"type":"thread.started","thread_id":"01a0b78e-c06e-7cc3-9eec-8e097c590910"}
+{"type":"turn.started"}
+2026-09-19T02:46:22.432325Z  WARN codex_core_plugins::remote::remote_installed_plugin_sync: failed to download remote installed plugin bundle remote_plugin_id=plugin_asdk_app_698429b2c5fc8191bb997f52cb2a413a plugin=marcopolo marketplace=openai-curated-remote error=plugin.json name `app-698429b2c5fc8191bb997f52cb2a413a` does not match marketplace plugin name `marcopolo`
+2026-09-19T02:46:22.666219Z  WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/
+2026-09-19T02:46:22.666253Z  WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"지정한 SQLite pilot 명령을 정확히 한 번 실행해 완료까지 기다린 뒤, summary.json도 정확히 한 번만 읽어 조건에 맞을 때만 동일 명령에 승인 옵션을 붙여 재생하겠습니다."}}
+2026-09-19T02:47:00.861526Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "Rejected(\"Failed to create unified exec process: helper_unknown_error: setup refresh had errors\")" }
+2026-09-19T02:47:01.060336Z  WARN codex_skills::interface: ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/
+2026-09-19T02:47:01.060371Z  WARN codex_skills::interface: ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/
+{"type":"item.completed","item":{"id":"item_1","type":"reasoning","text":"**Assessing command execution failure**\n**Planning command retry attempt**"}}
+2026-09-19T02:47:11.777264Z ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: "Rejected(\"Failed to create unified exec process: helper_unknown_error: setup refresh had errors\")" }
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"BLOCKED, NOT_APPROVED, bundle=N/A"}}
+{"type":"turn.completed","usage":{"input_tokens":56609,"cached_input_tokens":48640,"cache_write_input_tokens":0,"output_tokens":708,"reasoning_output_tokens":162}}

@@ -1,0 +1,1 @@
+{"A": {"exit": 2, "wall_s": 0.2, "tool_call_events": 0, "usage": {}, "acceptance_exit": 0}, "B": {"exit": 2, "wall_s": 0.1, "tool_call_events": 0, "usage": {}, "sample_acceptance_exit": 0}}

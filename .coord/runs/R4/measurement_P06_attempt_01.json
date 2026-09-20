@@ -1,0 +1,229 @@
+{
+  "schema": "r4-measurement-v1",
+  "task": "P06",
+  "title": "stats 7 functions",
+  "suffix": "01",
+  "task_id_b": "P06-R4-B-01",
+  "models": {
+    "codex": "gpt-5.6-sol",
+    "codex_reasoning": "low",
+    "antigravity": "gemini-3.7-flash-high"
+  },
+  "baseline_source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+  "pre_run_manifests": {
+    "A": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+    "B": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616"
+  },
+  "preflight": {
+    "status": "PASS",
+    "attempt": 1,
+    "wall_s": 9.734,
+    "usage": {
+      "input_tokens": 17966,
+      "cached_input_tokens": 14592,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 5,
+      "reasoning_output_tokens": 0
+    },
+    "errors": []
+  },
+  "A": {
+    "label": "R4-P06-A-codex-direct-01",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "exit": 0,
+    "wall_s": 91.848,
+    "started_at_unix": 1789803910.8364813,
+    "finished_at_unix": 1789804002.684777,
+    "events": ".coord\\runs\\R4\\R4-P06-A-codex-direct-01.jsonl",
+    "usage": {
+      "input_tokens": 94018,
+      "cached_input_tokens": 84480,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 2601,
+      "reasoning_output_tokens": 238
+    },
+    "tool_call_events": 6,
+    "errors": [],
+    "acceptance_exit": 0,
+    "test_count": 31,
+    "stderr_tail": "----------------------------------------------------------------------\nRan 31 tests in 0.002s\n\nOK\n",
+    "accept_script_exit": 0,
+    "accept_script_passed": true,
+    "accept_script_stdout": "P06_ACCEPT_OK\n",
+    "accept_script_stderr": "",
+    "task": "P06",
+    "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+    "changes": {
+      "modified": [],
+      "added": [
+        "stats.py",
+        "test_stats.py"
+      ],
+      "deleted": []
+    }
+  },
+  "B_pre_run_attempt_ids": [],
+  "B": {
+    "receipt": {
+      "ok": true,
+      "exit_code": 0,
+      "error_class": null,
+      "task_id": "P06-R4-B-01",
+      "run_id": "P06-R4-B-01-a001",
+      "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+      "bundle_id": "216872d4f323a6bfdfef1504304b696176a8a12e7c1da12c528200e02dd4a6fb",
+      "promotion": "APPLIED",
+      "post_acceptance_exit": 0,
+      "pilot_invocations": 1,
+      "approval_invocations": 1,
+      "fallback_used": false,
+      "active_model": "gemini-3.7-flash-high"
+    },
+    "wall_s": 72.81,
+    "antigravity_usage": {
+      "input_tokens": 72288,
+      "output_tokens": 8696,
+      "thinking_tokens": 4731,
+      "cache_read_tokens": 195691,
+      "total_tokens": 80984
+    },
+    "codex_coordinator": {
+      "label": "P06-R4-B-01-coordinator",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "low",
+      "exit": 0,
+      "wall_s": 9.927,
+      "started_at_unix": 1789804076.2158263,
+      "finished_at_unix": 1789804086.1430132,
+      "events": ".coord\\runs\\R4\\P06-R4-B-01-coordinator.jsonl",
+      "usage": {
+        "input_tokens": 18623,
+        "cached_input_tokens": 11648,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 45,
+        "reasoning_output_tokens": 0
+      },
+      "tool_call_events": 0,
+      "errors": []
+    },
+    "acceptance_exit": 0,
+    "test_count": 37,
+    "stderr_tail": "----------------------------------------------------------------------\nRan 37 tests in 0.001s\n\nOK\n",
+    "accept_script_exit": 0,
+    "accept_script_passed": true,
+    "accept_script_stdout": "P06_ACCEPT_OK\n",
+    "accept_script_stderr": "",
+    "task": "P06",
+    "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+    "changes": {
+      "modified": [],
+      "added": [
+        "stats.py",
+        "test_stats.py"
+      ],
+      "deleted": []
+    },
+    "pilot_summary": {
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "APPLIED",
+      "bundle_id": "216872d4f323a6bfdfef1504304b696176a8a12e7c1da12c528200e02dd4a6fb",
+      "changed_files": [
+        "stats.py",
+        "test_stats.py"
+      ],
+      "conversation_id": "2630bc8f-7ec1-425a-9b01-add8e9fecc45",
+      "agy_usage": {
+        "input_tokens": 72288,
+        "output_tokens": 8696,
+        "thinking_tokens": 4731,
+        "cache_read_tokens": 195691,
+        "total_tokens": 80984
+      },
+      "agy_workspace": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.work\\260916_pilot_work_R4_P06_B_01\\stage\\P06-R4-B-01",
+      "raw_stdout_path": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.work\\260916_pilot_work_R4_P06_B_01\\runs\\P06-R4-B-01\\P06-R4-B-01-a001.json",
+      "raw_stderr_path": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.work\\260916_pilot_work_R4_P06_B_01\\runs\\P06-R4-B-01\\P06-R4-B-01-a001.err",
+      "summary_path": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.work\\260916_pilot_work_R4_P06_B_01\\runs\\P06-R4-B-01\\summary.json",
+      "acceptance_exit": 0,
+      "verdict_hint": "PASS",
+      "acceptance_log_path": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.work\\260916_pilot_work_R4_P06_B_01\\runs\\P06-R4-B-01\\acceptance.log",
+      "replayed": true,
+      "task_id": "P06-R4-B-01",
+      "run_id": "P06-R4-B-01-a001",
+      "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616"
+    },
+    "ledger_terminal": {
+      "task_id": "P06-R4-B-01",
+      "run_id": "P06-R4-B-01-a001",
+      "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+      "bundle_id": "216872d4f323a6bfdfef1504304b696176a8a12e7c1da12c528200e02dd4a6fb",
+      "attempt_state": "SUCCEEDED",
+      "delivery_state": "ACKED",
+      "lease_state": "RELEASED"
+    },
+    "pre_run_attempt_ids": [],
+    "post_apply_acceptance_exit": 0
+  },
+  "token_accounting": {
+    "codex": {
+      "A_input_tokens": 94018,
+      "A_cached_input_tokens": 84480,
+      "A_noncached_tokens": 9538,
+      "A_output_tokens": 2601,
+      "B_coordinator_input_tokens": 18623,
+      "B_coordinator_cached_tokens": 11648,
+      "B_coordinator_noncached_tokens": 6975,
+      "B_coordinator_output_tokens": 45
+    },
+    "antigravity": {
+      "A_input_tokens": 0,
+      "B_worker_input_tokens": 72288,
+      "B_worker_cached_read_tokens": 195691,
+      "B_worker_output_tokens": 8696,
+      "B_worker_total_tokens": 80984
+    },
+    "notes": "Gate comparison evaluates pure Codex tokens (A vs B). Antigravity worker tokens reported separately."
+  },
+  "comparison": {
+    "status": "MEASURED_AND_VERIFIED",
+    "task_identical": true,
+    "starting_state_identical": true,
+    "savings": {
+      "wall_reduction_pct": 9.9,
+      "input_token_reduction_pct": 80.2,
+      "noncached_input_token_reduction_pct": 26.9,
+      "output_token_reduction_pct": 98.3
+    },
+    "codex_input_tokens": {
+      "A_codex_only": 94018,
+      "B_codex_one_turn": 18623,
+      "reduction_pct": 80.2
+    },
+    "codex_wall_seconds": {
+      "A_codex_only": 91.848,
+      "B_codex_one_turn": 82.737,
+      "reduction_pct": 9.9
+    },
+    "quality_gate": "PASS",
+    "diagnostics": {
+      "tool_call_events": {
+        "A_codex_only": 6,
+        "B_codex_one_turn": 0
+      },
+      "tests_passed": {
+        "A_codex_only": 31,
+        "B_codex_one_turn": 37
+      },
+      "hidden_acceptance": {
+        "A": true,
+        "B": true
+      }
+    },
+    "interpretation": {
+      "status": "MEASURED_AND_VERIFIED for P06",
+      "note": "A (Codex gpt-5.6-sol) vs B (Antigravity gemini-3.7-flash-high via deterministic control layer)"
+    }
+  }
+}

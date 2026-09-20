@@ -1,0 +1,45 @@
+{
+  "verification_target": "R6 (Stale Attempt Freshness Gate & Narrowed TEMP Excludes) Independent Verification",
+  "verified_at": "2026-09-19T11:15:30+09:00",
+  "verifier": "Antigravity (Autonomous Direct Execution)",
+  "coordinator": "Codex",
+  "peer_critic": "Claude Code",
+  "verdict": "PASS",
+  "items": {
+    "R6_FRESHNESS": {
+      "title": "Freshness gate for B live run via pre_run_attempt_ids",
+      "description": "Enforces that B run cannot borrow an earlier successful attempt; returns INVALID_STALE_RUN if run_id is missing from new attempts or was present in pre_run_attempt_ids snapshot.",
+      "implementation": [
+        ".coord/runs/measure_p05.py (evaluate_measurement freshness check, pre_run_attempt_ids snapshot)"
+      ],
+      "tests": [
+        "tests/test_r0_measurement_validity.py::test_stale_ledger_from_before_the_b_run_is_rejected",
+        "tests/test_r0_measurement_validity.py::test_missing_pre_run_snapshot_is_rejected"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    },
+    "B46_NARROW": {
+      "title": "Narrowed TEMP exclusion patterns",
+      "description": "Refined TEMP excludes to target specific background downloader logs and hex temp files without overly broad wildcards.",
+      "implementation": [
+        "v7_harness/isolation/security.py (DEFAULT_WATCH_EXCLUDES)"
+      ],
+      "tests": [
+        "tests/test_b44_live_identity.py",
+        "tests/test_b41_bundle.py"
+      ],
+      "status": "VERIFIED",
+      "exit_code": 0
+    }
+  },
+  "regression_summary": {
+    "total_tests_ran": 279,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "duration_seconds": 55.07,
+    "compileall_exit": 0,
+    "overall_status": "ALL_PASS"
+  }
+}

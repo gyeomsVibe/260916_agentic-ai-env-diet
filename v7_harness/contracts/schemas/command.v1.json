@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CommandV1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "command_id",
+    "task_id",
+    "action",
+    "idempotency_key",
+    "payload",
+    "created_at",
+    "caller"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "command_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "claim",
+        "dispatch",
+        "cancel",
+        "verify",
+        "reconcile",
+        "probe",
+        "fence",
+        "ack"
+      ]
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "payload": {
+      "type": "object"
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "caller": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

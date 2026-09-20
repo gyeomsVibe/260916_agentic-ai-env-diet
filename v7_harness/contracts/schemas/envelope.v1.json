@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EnvelopeV1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "attempt_id",
+    "root_task_id",
+    "call_depth",
+    "max_hops",
+    "caller",
+    "callee",
+    "mode",
+    "purpose",
+    "fencing_token",
+    "budget",
+    "allowed_effects",
+    "scope",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "attempt_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "parent_task_id": {
+      "type": ["string", "null"]
+    },
+    "root_task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "call_depth": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_hops": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "caller": {
+      "type": "string",
+      "minLength": 1
+    },
+    "callee": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["managed", "standalone", "imported"]
+    },
+    "purpose": {
+      "type": "string",
+      "enum": ["advice", "review", "execution"]
+    },
+    "fencing_token": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "budget": {
+      "type": "object",
+      "required": ["max_turns", "max_tokens", "max_elapsed_ms", "max_tool_calls"],
+      "properties": {
+        "max_turns": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_elapsed_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_tool_calls": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "allowed_effects": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "scope": {
+      "type": "object",
+      "required": [
+        "paths",
+        "ports",
+        "databases",
+        "caches",
+        "build_artifacts",
+        "environment",
+        "external_effects"
+      ],
+      "properties": {
+        "paths": {
+          "type": "array"
+        },
+        "ports": {
+          "type": "array"
+        },
+        "databases": {
+          "type": "array"
+        },
+        "caches": {
+          "type": "array"
+        },
+        "build_artifacts": {
+          "type": "array"
+        },
+        "environment": {
+          "type": "array"
+        },
+        "external_effects": {
+          "type": "array"
+        }
+      },
+      "additionalProperties": false
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

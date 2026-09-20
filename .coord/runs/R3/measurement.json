@@ -1,0 +1,276 @@
+{
+  "schema": "r3-p05-measurement-v2",
+  "task": "P05",
+  "suffix": "03",
+  "task_id_b": "P05-R3-B-03",
+  "models": {
+    "codex": "gpt-5.6-sol",
+    "codex_reasoning": "low",
+    "antigravity": "gemini-3.7-flash-high"
+  },
+  "measurement_window": "spawned Codex process start through final response after acceptance",
+  "baseline_source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+  "pre_run_manifests": {
+    "A": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+    "B": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616"
+  },
+  "historical_ab_sha256_before": "f844872ffa0dac9aec39430c288603c374763038ea8b3d52f2f03914cea940af",
+  "historical_judgment": {
+    "B": "INVALID_SETUP",
+    "comparison": "INVALID_MEASUREMENT",
+    "savings": "UNMEASURED"
+  },
+  "attempt_01": {
+    "status": "INVALID_CODEX_EXECUTION",
+    "reason": "Codex execution failed (A=1, B=1)",
+    "savings": "UNMEASURED",
+    "note": "Codex quota reached; resets at 16:08 KST. Full B pilot evidence succeeded (receipt: ok=true, exit=0, wall=40.09s, 12 tests OK).",
+    "b_receipt": {
+      "ok": true,
+      "exit_code": 0,
+      "error_class": null,
+      "task_id": "P05-R3-B-01",
+      "run_id": "P05-R3-B-01-a001",
+      "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+      "bundle_id": "44322af2a8556c54ff0069ec1183c32a27061b8f9b8515bf61809766560060fe",
+      "promotion": "APPLIED",
+      "post_acceptance_exit": 0,
+      "pilot_invocations": 1,
+      "approval_invocations": 1
+    },
+    "b_antigravity_usage": {
+      "input_tokens": 68924,
+      "output_tokens": 4048,
+      "thinking_tokens": 2141,
+      "cache_read_tokens": 162566,
+      "total_tokens": 72972
+    }
+  },
+  "attempt_02": {
+    "status": "INVALID_CODEX_EXECUTION",
+    "reason": "Codex execution failed (A=1, B=0)",
+    "savings": "UNMEASURED",
+    "note": "A ran at 16:08:05 prior to OpenAI quota reset at 16:09:00. B coordinator ran at 16:09:17 and succeeded (exit=0, 18548 tokens).",
+    "b_coordinator": {
+      "label": "P05-R3-B-02-coordinator",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "low",
+      "exit": 0,
+      "wall_s": 12.427,
+      "started_at_unix": 1789801744.5783281,
+      "finished_at_unix": 1789801757.0057504,
+      "events": ".coord\\runs\\R3\\P05-R3-B-02-coordinator.jsonl",
+      "usage": {
+        "input_tokens": 18548,
+        "cached_input_tokens": 11648,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 46,
+        "reasoning_output_tokens": 0
+      },
+      "tool_call_events": 0,
+      "errors": []
+    },
+    "b_receipt": {
+      "ok": true,
+      "exit_code": 0,
+      "error_class": null,
+      "task_id": "P05-R3-B-02",
+      "run_id": "P05-R3-B-02-a001",
+      "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+      "bundle_id": "dbd14ea299c1018d3f9bd3e4c3a913252b9da6c3876a808cc8d066ad5284e680",
+      "promotion": "APPLIED",
+      "post_acceptance_exit": 0,
+      "pilot_invocations": 1,
+      "approval_invocations": 1
+    }
+  },
+  "A": {
+    "label": "R3-P05-A-codex-direct-03",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "exit": 0,
+    "wall_s": 60.556,
+    "started_at_unix": 1789801780.6568313,
+    "finished_at_unix": 1789801841.2130408,
+    "events": ".coord\\runs\\R3\\R3-P05-A-codex-direct-03.jsonl",
+    "usage": {
+      "input_tokens": 70433,
+      "cached_input_tokens": 63488,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 755,
+      "reasoning_output_tokens": 14
+    },
+    "tool_call_events": 4,
+    "errors": [],
+    "acceptance_exit": 0,
+    "discovery_exit": 0,
+    "test_count": 12,
+    "behavior_exit": 0,
+    "acceptance_stderr_tail": "----------------------------------------------------------------------\nRan 12 tests in 0.000s\n\nOK\n",
+    "behavior_stderr_tail": "",
+    "task": "P05",
+    "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+    "changes": {
+      "modified": [
+        "calc.py",
+        "test_calc.py"
+      ],
+      "added": [],
+      "deleted": []
+    }
+  },
+  "B_pre_run_attempt_ids": [],
+  "B": {
+    "receipt": {
+      "ok": true,
+      "exit_code": 0,
+      "error_class": null,
+      "task_id": "P05-R3-B-03",
+      "run_id": "P05-R3-B-03-a001",
+      "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+      "bundle_id": "3282ea3273d0c3e6fc9584f945771757b37a3b1628bb39f460210a7e73b67d46",
+      "promotion": "APPLIED",
+      "post_acceptance_exit": 0,
+      "pilot_invocations": 1,
+      "approval_invocations": 1
+    },
+    "wall_s": 40.52,
+    "started_at_unix": 1789801841.5253968,
+    "finished_at_unix": 1789801882.044987,
+    "antigravity_usage": {
+      "input_tokens": 70352,
+      "output_tokens": 3457,
+      "thinking_tokens": 1531,
+      "cache_read_tokens": 146707,
+      "total_tokens": 73809
+    },
+    "codex_coordinator": {
+      "label": "P05-R3-B-03-coordinator",
+      "model": "gpt-5.6-sol",
+      "reasoning_effort": "low",
+      "exit": 0,
+      "wall_s": 16.134,
+      "started_at_unix": 1789801882.364404,
+      "finished_at_unix": 1789801898.498083,
+      "events": ".coord\\runs\\R3\\P05-R3-B-03-coordinator.jsonl",
+      "usage": {
+        "input_tokens": 18548,
+        "cached_input_tokens": 11648,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 46,
+        "reasoning_output_tokens": 0
+      },
+      "tool_call_events": 0,
+      "errors": []
+    },
+    "acceptance_exit": 0,
+    "discovery_exit": 0,
+    "test_count": 12,
+    "behavior_exit": 0,
+    "acceptance_stderr_tail": "----------------------------------------------------------------------\nRan 12 tests in 0.000s\n\nOK\n",
+    "behavior_stderr_tail": "",
+    "task": "P05",
+    "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+    "changes": {
+      "modified": [
+        "calc.py",
+        "test_calc.py"
+      ],
+      "added": [],
+      "deleted": []
+    },
+    "pilot_summary": {
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "APPLIED",
+      "bundle_id": "3282ea3273d0c3e6fc9584f945771757b37a3b1628bb39f460210a7e73b67d46",
+      "changed_files": [
+        "calc.py",
+        "test_calc.py"
+      ],
+      "conversation_id": "406b3abf-dfef-4631-9a6d-239b5a592918",
+      "agy_usage": {
+        "input_tokens": 70352,
+        "output_tokens": 3457,
+        "thinking_tokens": 1531,
+        "cache_read_tokens": 146707,
+        "total_tokens": 73809
+      },
+      "agy_workspace": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.work\\260916_pilot_work_R3_P05_B_03\\stage\\P05-R3-B-03",
+      "raw_stdout_path": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.work\\260916_pilot_work_R3_P05_B_03\\runs\\P05-R3-B-03\\P05-R3-B-03-a001.json",
+      "raw_stderr_path": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.work\\260916_pilot_work_R3_P05_B_03\\runs\\P05-R3-B-03\\P05-R3-B-03-a001.err",
+      "summary_path": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.work\\260916_pilot_work_R3_P05_B_03\\runs\\P05-R3-B-03\\summary.json",
+      "acceptance_exit": 0,
+      "verdict_hint": "PASS",
+      "acceptance_log_path": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.work\\260916_pilot_work_R3_P05_B_03\\runs\\P05-R3-B-03\\acceptance.log",
+      "replayed": true,
+      "task_id": "P05-R3-B-03",
+      "run_id": "P05-R3-B-03-a001",
+      "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616"
+    },
+    "ledger_terminal": {
+      "task_id": "P05-R3-B-03",
+      "run_id": "P05-R3-B-03-a001",
+      "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+      "bundle_id": "3282ea3273d0c3e6fc9584f945771757b37a3b1628bb39f460210a7e73b67d46",
+      "attempt_state": "SUCCEEDED",
+      "delivery_state": "ACKED",
+      "lease_state": "RELEASED"
+    },
+    "pre_run_attempt_ids": [],
+    "post_apply_acceptance_exit": 0
+  },
+  "token_accounting": {
+    "codex": {
+      "A_input_tokens": 70433,
+      "A_cached_input_tokens": 63488,
+      "B_coordinator_input_tokens": 18548,
+      "B_coordinator_cached_tokens": 11648
+    },
+    "antigravity": {
+      "A_input_tokens": 0,
+      "B_worker_input_tokens": 70352,
+      "B_worker_cached_read_tokens": 146707,
+      "B_worker_output_tokens": 3457,
+      "B_worker_total_tokens": 73809
+    },
+    "notes": "Gate comparison evaluates pure Codex tokens (A vs B). Antigravity worker tokens are reported separately as cross-provider reference."
+  },
+  "historical_ab_sha256_after": "f844872ffa0dac9aec39430c288603c374763038ea8b3d52f2f03914cea940af",
+  "comparison": {
+    "status": "MEASURED_AND_VERIFIED",
+    "task_identical": true,
+    "starting_state_identical": true,
+    "savings": {
+      "wall_reduction_pct": 6.4,
+      "input_token_reduction_pct": 73.7,
+      "noncached_input_token_reduction_pct": 0.6
+    },
+    "codex_input_tokens": {
+      "A_codex_only": 70433,
+      "B_codex_one_turn": 18548,
+      "reduction_pct": 73.7
+    },
+    "codex_wall_seconds": {
+      "A_codex_only": 60.556,
+      "B_codex_one_turn": 56.654,
+      "reduction_pct": 6.4
+    },
+    "quality_gate": "PASS",
+    "diagnostics": {
+      "tool_call_events": {
+        "A_codex_only": 4,
+        "B_codex_one_turn": 0
+      },
+      "tests_passed": {
+        "A_codex_only": 12,
+        "B_codex_one_turn": 12
+      }
+    },
+    "interpretation": {
+      "status": "MEASURED_AND_VERIFIED for this single pair",
+      "note": "A (Codex gpt-5.6-sol) vs B (Antigravity gemini-3.7-flash-high via deterministic control layer)"
+    }
+  }
+}

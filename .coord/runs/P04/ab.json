@@ -1,0 +1,51 @@
+{
+  "task": "P04",
+  "B_codex_one_turn": {
+    "label": "P04-B-one-turn",
+    "exit": 0,
+    "wall_s": 25.4,
+    "tool_call_events": 4,
+    "usage": {
+      "input_tokens": 60108,
+      "cached_input_tokens": 47104,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 445,
+      "reasoning_output_tokens": 126
+    },
+    "codex_5h_used_percent_first": null,
+    "codex_5h_used_percent_last": null,
+    "errors": [],
+    "events": ".coord\\runs\\codex-measure\\P04-B-one-turn.jsonl",
+    "pilot_summary": {
+      "state": "SUCCEEDED",
+      "error_class": "NONE",
+      "effect_state": "CONFIRMED",
+      "promotion": "APPLIED",
+      "bundle_id": "fbe107f71fa3c22adb53244e3d2f1076ae7bb5a9750b09fddf342bb2d6d7ac63",
+      "changed_files": [
+        "calc.py",
+        "test_calc.py"
+      ],
+      "agy_usage": {
+        "input_tokens": 43160,
+        "output_tokens": 5165,
+        "total_tokens": 48325
+      },
+      "acceptance_exit": 0,
+      "verdict_hint": "PASS"
+    },
+    "sample_acceptance_exit": 0
+  },
+  "baseline_P01_B": {
+    "tool_calls": 147,
+    "input_tokens": 16614049,
+    "codex_5h_pct_delta": 8
+  },
+  "comparison": {
+    "quality_gate": "PASS",
+    "cost_savings": "UNMEASURED",
+    "token_savings": "UNMEASURED",
+    "reason": "P04 uses a different prompt/task and gemini-3.7-flash-high wrapper, while P01 includes repair overhead and P03 A is a different task; 5h before/after snapshots are unavailable."
+  },
+  "notes": "Measured values only. P04 B is a normal-path one-turn measurement, not an apples-to-apples savings proof against P01 or P03 A."
+}

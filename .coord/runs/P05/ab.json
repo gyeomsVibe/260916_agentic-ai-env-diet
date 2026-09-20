@@ -1,0 +1,63 @@
+{
+  "task": "P05",
+  "task_description": "Add power and reciprocal functions with 3+ unit tests each",
+  "A_codex_only": {
+    "label": "P05-A-codex-only",
+    "exit": 0,
+    "wall_s": 81.6,
+    "tool_call_events": 6,
+    "usage": {
+      "input_tokens": 97270,
+      "cached_input_tokens": 83968,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 1339,
+      "reasoning_output_tokens": 173
+    },
+    "codex_5h_used_percent_first": null,
+    "codex_5h_used_percent_last": null,
+    "errors": [],
+    "events": ".coord\\runs\\codex-measure\\P05-A-codex-only.jsonl",
+    "acceptance_exit": 0,
+    "test_count": 12
+  },
+  "B_codex_one_turn": {
+    "label": "P05-B-one-turn",
+    "exit": 0,
+    "wall_s": 915.7,
+    "tool_call_events": 0,
+    "usage": {
+      "input_tokens": 367347,
+      "cached_input_tokens": 355072,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 1240,
+      "reasoning_output_tokens": 395
+    },
+    "codex_5h_used_percent_first": null,
+    "codex_5h_used_percent_last": null,
+    "errors": [],
+    "events": ".coord\\runs\\codex-measure\\P05-B-one-turn.jsonl",
+    "pilot_summary": null,
+    "sample_acceptance_exit": 0,
+    "test_count": 6
+  },
+  "comparison": {
+    "task_identical": true,
+    "starting_state_identical": true,
+    "quality_gate": "PASS",
+    "codex_input_tokens": {
+      "A_codex_only": 97270,
+      "B_codex_one_turn": 367347,
+      "reduction_pct": -277.7
+    },
+    "codex_wall_seconds": {
+      "A_codex_only": 81.6,
+      "B_codex_one_turn": 915.7,
+      "reduction_pct": -1022.2
+    },
+    "tests_passed": {
+      "A_codex_only": 12,
+      "B_codex_one_turn": 6
+    },
+    "measured_verdict": "MEASURED_AND_VERIFIED"
+  }
+}

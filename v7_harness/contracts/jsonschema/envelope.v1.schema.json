@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:coord:envelope:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "attempt_id", "fencing_token", "requested_workspace", "observed_cwd", "isolation_mode", "scope_manifest_hash", "status", "error_class", "partial", "stderr_hash", "receipt_ref"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "fencing_token": {"type": "integer", "minimum": 1},
+    "requested_workspace": {"type": "string", "minLength": 1},
+    "observed_cwd": {"type": "string", "minLength": 1},
+    "isolation_mode": {"type": "string", "enum": ["WORKTREE", "STAGING", "READ_ONLY", "UNVERIFIED"]},
+    "scope_manifest_hash": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "[0-9a-fA-F]{64}"},
+    "status": {"type": "string", "enum": ["PENDING", "RUNNING", "SUCCEEDED", "ERROR", "PARTIAL"]},
+    "error_class": {"type": "string", "enum": ["NONE", "TRANSIENT_CAPACITY", "PERMISSION", "TIMEOUT", "CONTRACT", "UNKNOWN"]},
+    "partial": {"type": "boolean"},
+    "stderr_hash": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "[0-9a-fA-F]{64}"},
+    "receipt_ref": {"type": "string", "minLength": 1}
+  }
+}

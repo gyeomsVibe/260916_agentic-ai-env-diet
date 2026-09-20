@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>코드를 덜 읽고도 책임지는 AI 작업환경 — 기사 분석과 v7 설계</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #61708a;
+      --paper: #f5f7fb;
+      --card: #ffffff;
+      --line: #dbe2ee;
+      --navy: #172b4d;
+      --blue: #2457d6;
+      --cyan: #dff5f4;
+      --amber: #fff1c7;
+      --red: #fee7e7;
+      --green: #e5f5e9;
+      --shadow: 0 12px 34px rgba(32, 55, 92, .09);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Pretendard, "Noto Sans KR", "Segoe UI", sans-serif;
+      line-height: 1.72;
+    }
+    a { color: var(--blue); }
+    p, li, td, a, strong { overflow-wrap: anywhere; word-break: keep-all; }
+    .hero {
+      color: white;
+      background: linear-gradient(135deg, #101d35 0%, #1f3f79 68%, #187f88 100%);
+      padding: 76px 24px 64px;
+    }
+    .wrap { width: min(1040px, calc(100% - 36px)); margin: 0 auto; }
+    .eyebrow { margin: 0 0 12px; font-size: .82rem; letter-spacing: .14em; font-weight: 800; text-transform: uppercase; color: #9fe3de; }
+    h1 { max-width: 820px; margin: 0; font-size: clamp(2.2rem, 5vw, 4.6rem); line-height: 1.08; letter-spacing: -.045em; }
+    .dek { max-width: 760px; margin: 24px 0 0; color: #dce7fb; font-size: 1.13rem; }
+    .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+    .pill { border: 1px solid rgba(255,255,255,.24); border-radius: 999px; padding: 7px 12px; font-size: .82rem; background: rgba(255,255,255,.08); }
+    main { padding: 38px 0 80px; }
+    .summary { display: grid; grid-template-columns: 1.15fr .85fr; gap: 20px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 26px; box-shadow: var(--shadow); }
+    .card, .summary > *, .grid-2 > *, .grid-3 > * { min-width: 0; }
+    h2 { margin: 54px 0 18px; color: var(--navy); font-size: clamp(1.55rem, 3vw, 2.25rem); letter-spacing: -.025em; }
+    h3 { margin: 0 0 10px; color: var(--navy); font-size: 1.15rem; }
+    p { margin: 0 0 14px; }
+    ul, ol { margin: 10px 0 0; padding-left: 1.25rem; }
+    li + li { margin-top: 8px; }
+    .verdict { border-left: 6px solid #18a097; }
+    .warning { background: var(--amber); border-color: #efd58b; box-shadow: none; }
+    .unknown { background: var(--red); border-color: #efbdbd; box-shadow: none; }
+    .takeaway { background: var(--cyan); border-color: #a8deda; box-shadow: none; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .num { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: var(--navy); color: white; font-weight: 800; margin-bottom: 14px; }
+    table { width: 100%; border-collapse: collapse; overflow: hidden; background: white; border: 1px solid var(--line); border-radius: 14px; }
+    th, td { padding: 13px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    th { background: #eaf0fa; color: var(--navy); font-size: .88rem; }
+    tr:last-child td { border-bottom: 0; }
+    code { background: #edf1f7; border-radius: 6px; padding: 2px 6px; font-family: "Cascadia Code", monospace; font-size: .9em; }
+    pre { overflow: auto; background: #111b2d; color: #d9e4f7; border-radius: 16px; padding: 20px; line-height: 1.55; }
+    .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; align-items: stretch; }
+    .flow div { position: relative; padding: 17px 13px; border-radius: 12px; background: white; border: 1px solid var(--line); font-size: .91rem; }
+    .flow strong { display: block; color: var(--blue); margin-bottom: 4px; }
+    .source-list { font-size: .93rem; color: var(--muted); }
+    .small { color: var(--muted); font-size: .9rem; }
+    footer { padding: 28px 0 46px; color: var(--muted); border-top: 1px solid var(--line); }
+    @media (max-width: 800px) {
+      .summary, .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr; }
+      .hero { padding-top: 54px; }
+      .card { padding: 22px; }
+      h1 { font-size: clamp(2rem, 11vw, 3rem); }
+      th:nth-child(3), td:nth-child(3) { display: none; }
+    }
+    @media print {
+      body { background: white; }
+      .hero { padding: 36px 0; }
+      .card { box-shadow: none; break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <p class="eyebrow">MIA Strategic Report · U06</p>
+      <h1>코드를 덜 읽고도<br>책임지는 AI 작업환경</h1>
+      <p class="dek">“아직도 코드를 읽나요?”가 던진 질문을 Codex–Antigravity 운영 규칙으로 번역한 사용자용 보고서. 핵심은 코드 읽기의 폐지가 아니라, 의도와 검증을 더 강한 형태로 보존하는 것입니다.</p>
+      <div class="meta">
+        <span class="pill">기준일 2026-09-16</span>
+        <span class="pill">대상: 비전문 사용자</span>
+        <span class="pill">형식: 핵심 우선·자동 진행</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="summary">
+      <article class="card verdict">
+        <h3>한 문장 결론</h3>
+        <p><strong>사람이 모든 코드를 읽는 부담을 없애려면, AI에게 더 많은 문서를 먹이는 것이 아니라 목표·결정 근거·검증 시나리오를 분리하고 필요한 순간에만 정확히 공급해야 합니다.</strong></p>
+        <p>우리 환경에서는 Codex가 의도와 검증 계약을 소유하고, Antigravity가 단계별 전용 대화창에서 구현·조사·테스트를 무승인 수행하는 구조가 가장 맞습니다.</p>
+      </article>
+      <aside class="card warning">
+        <h3>링크 확인 결과</h3>
+        <p>사용자가 준 GeekNews ID <code>33727</code>은 확인되지 않았습니다. 동일 제목의 실제 페이지는 <a href="https://news.hada.io/topic?id=33735">33735</a>이며, 원문은 Marek Chotoborski의 글입니다. 공유 링크와 해당 요약을 같은 기사로 분석했습니다.</p>
+      </aside>
+    </section>
+
+    <h2>1. 기사가 말하는 두 가지 개발 방식</h2>
+    <section class="grid-2">
+      <article class="card">
+        <h3>가속형 개발자</h3>
+        <p>AI가 코드를 많이 만들더라도 사람이 구현을 이해하고, 변경 결과를 설명할 수 있는 상태를 유지합니다.</p>
+        <ul>
+          <li>장점: 장애 대응과 장기 유지보수에 강함</li>
+          <li>비용: AI의 생성 속도를 사람의 읽기 속도가 따라가지 못함</li>
+          <li>부채: 이해가 따라가지 못하면 <strong>인지 부채</strong>가 쌓임</li>
+        </ul>
+      </article>
+      <article class="card">
+        <h3>바이브코더</h3>
+        <p>구현을 AI에 맡기고 사람은 원하는 동작, 제약, 결과의 합격 여부에 집중합니다.</p>
+        <ul>
+          <li>장점: 높은 생성 속도와 폭넓은 자동화</li>
+          <li>비용: 좋은 명세·시나리오·평가 하네스가 필요함</li>
+          <li>부채: “왜 그렇게 만들었는지”가 사라지는 <strong>의도 부채</strong></li>
+        </ul>
+      </article>
+    </section>
+
+    <div class="card takeaway" style="margin-top:16px">
+      <h3>우리가 택할 제3의 방식</h3>
+      <p>사용자가 코드를 전부 읽지도, AI를 맹신하지도 않습니다. <strong>Codex가 의도·위험·검증을 구조화하고, Antigravity가 구현하며, 결정적 테스트와 위험 표본만 Codex가 확인</strong>합니다. 읽기의 대상을 코드 전체에서 “중요한 결정과 실패 증거”로 옮깁니다.</p>
+    </div>
+
+    <h2>2. 모르는 것을 모르는 사용자가 놓치기 쉬운 것</h2>
+    <section class="grid-3">
+      <article class="card">
+        <div class="num">1</div>
+        <h3>작동한다고 맞는 것은 아니다</h3>
+        <p>테스트가 통과해도 사용자가 원한 문제와 다른 문제를 풀 수 있습니다. 먼저 검증해야 할 것은 코드보다 목표입니다.</p>
+      </article>
+      <article class="card">
+        <div class="num">2</div>
+        <h3>코드에는 이유가 남지 않는다</h3>
+        <p><code>expiry = 6h</code>를 읽어도 그것이 요구사항인지, 관례인지, AI의 추측인지 알 수 없습니다. 결정 근거를 별도로 보존해야 합니다.</p>
+      </article>
+      <article class="card">
+        <div class="num">3</div>
+        <h3>더 많은 맥락은 더 많은 진실이 아니다</h3>
+        <p>과거 문서와 폐기된 결정을 한꺼번에 넣으면 AI는 낡은 내용을 현재 규칙으로 오해합니다. 컨텍스트에는 유효기간과 권위가 필요합니다.</p>
+      </article>
+    </section>
+
+    <h2>3. 기사에서 우리 로직으로 가져올 설계</h2>
+    <table>
+      <thead><tr><th>기사의 문제</th><th>우리의 장치</th><th>작동 방식</th></tr></thead>
+      <tbody>
+        <tr><td>인지 부채</td><td><strong>Risk-based proof ladder</strong></td><td>저위험은 테스트, 중위험은 위험 diff, 고위험만 깊은 검토</td></tr>
+        <tr><td>의도 부채</td><td><strong>Intent ledger</strong></td><td>요구사항·결정·근거·추측·폐기 조건을 코드와 별도로 기록</td></tr>
+        <tr><td>컨텍스트 오염</td><td><strong>Context lease</strong></td><td>자료마다 권위·범위·작성일·만료·대체 문서를 기록</td></tr>
+        <tr><td>AI가 자기 시험을 쉽게 만듦</td><td><strong>Holdout scenarios</strong></td><td>구현자가 보지 못하거나 수정하지 못하는 외부 인수 시나리오 유지</td></tr>
+        <tr><td>대화창마다 다른 현실</td><td><strong>Single state ledger</strong></td><td>대화는 UI, `.coord` 원장이 계획·소유자·상태의 정본</td></tr>
+        <tr><td>사람에게 긴 보고서 전가</td><td><strong>Output budget</strong></td><td>결과·증거·위험·다음 자동 행동만 보고하고 원문은 링크로 보존</td></tr>
+      </tbody>
+    </table>
+
+    <h2>4. 컨텍스트는 창고가 아니라 작업대다</h2>
+    <p>현재 작업에 필요한 정보만 작업대에 올리고, 나머지는 검색 가능한 보관소에 둡니다. 삭제가 아니라 <strong>선택적 로딩</strong>입니다.</p>
+    <pre>Tier 0 — 항상: 사용자 목표, 현재 승인 경계, 활성 카드
+Tier 1 — 단계: 허용 파일, 인수 기준, 직접 의존 결정
+Tier 2 — 필요 시: 관련 설계·과거 장애·도메인 자료
+Archive — 기본 제외: 오래된 로그, 폐기 설계, 완료된 단계 전문
+
+각 항목: authority + scope + created_at + supersedes + expires_at</pre>
+    <div class="card unknown">
+      <h3>금지할 패턴</h3>
+      <ul>
+        <li>“관련 있어 보인다”는 이유로 docs 전체를 프롬프트에 넣기</li>
+        <li>오래된 보고서의 결정을 현재 규칙보다 우선하기</li>
+        <li>요약만 남기고 원문 포인터·근거를 버리기</li>
+        <li>작업자가 자기 출력을 요약한 문장을 완료 증거로 사용하기</li>
+      </ul>
+    </div>
+
+    <h2>5. 하나의 계획, 단계별 전용 대화창</h2>
+    <div class="flow">
+      <div><strong>Codex</strong>목표·비목표·위험·인수 기준</div>
+      <div><strong>[U##] 카드</strong>소유자·범위·컨텍스트·예산</div>
+      <div><strong>전용 대화창</strong>단일 소유자가 무승인 수행</div>
+      <div><strong>Proof</strong>테스트·시나리오·diff·receipt</div>
+      <div><strong>Codex</strong>DONE/재작업/차단 후 다음 단계 자동 진행</div>
+    </div>
+    <p class="small" style="margin-top:14px">Antigravity의 위임 실행도 Codex 프로젝트의 해당 `[U##]` 전용 대화창 실행으로 간주합니다. 같은 단계·파일·DB·포트에는 소유자 한 명만 둡니다.</p>
+
+    <h2>6. 사용자에게 보여줄 보고의 기본값</h2>
+    <section class="grid-2">
+      <article class="card">
+        <h3>기본 화면 — 7줄 이내</h3>
+        <ol>
+          <li>결과</li>
+          <li>무엇이 바뀌었는지</li>
+          <li>검증 결과</li>
+          <li>남은 위험</li>
+          <li>AI가 다음에 자동 수행할 단계</li>
+        </ol>
+        <p>사용자 행동이 없으면 “할 일 없음”이라고 명시합니다.</p>
+      </article>
+      <article class="card">
+        <h3>상세 근거 — 접어서 보관</h3>
+        <p>긴 로그, 전체 조사, 테스트 전문은 파일·작업 카드·링크로 남깁니다. 사용자가 요청하거나 실패 원인을 판단할 때만 펼칩니다.</p>
+        <p><strong>짧게 쓰는 것과 증거를 버리는 것은 다릅니다.</strong></p>
+      </article>
+    </section>
+
+    <h2>7. 무승인 자동 진행 계약</h2>
+    <table>
+      <thead><tr><th>상황</th><th>AI 행동</th><th>사용자 개입</th></tr></thead>
+      <tbody>
+        <tr><td>카드 범위 안 조사·편집·테스트</td><td>계속 진행</td><td>없음</td></tr>
+        <tr><td>검증 실패</td><td>같은 오류 지문 최대 2회 보완 후 재계획</td><td>없음</td></tr>
+        <tr><td>단계 DONE</td><td>다음 READY 단계의 새 `[U##]` 대화창 생성</td><td>없음</td></tr>
+        <tr><td>범위·목표를 바꿔야 함</td><td>BLOCKED와 선택지 보고</td><td>결정 필요</td></tr>
+        <tr><td>삭제·push·배포·결제·계정/권한 변경</td><td>행동 직전 정지</td><td>명시적 승인 필요</td></tr>
+      </tbody>
+    </table>
+
+    <h2>8. 코드 리뷰를 없애지 말고 검증을 재배치한다</h2>
+    <p>StrongDM의 Software Factory는 사람이 코드를 쓰거나 전통적으로 리뷰하지 않는 대신, 코드 밖의 행동 시나리오와 디지털 트윈으로 결과를 검증합니다. 여기서 배울 점은 “코드를 보지 말자”가 아니라 <strong>검증 장치 없이는 코드를 보지 않는 선택을 할 수 없다</strong>는 것입니다.</p>
+    <section class="grid-3">
+      <article class="card"><h3>Low risk</h3><p>포맷·문서·격리된 변환. 스키마와 자동 테스트가 통과하면 완료.</p></article>
+      <article class="card"><h3>Medium risk</h3><p>기능·리팩터링. 시나리오, 회귀 테스트, 위험 diff 표본 검토.</p></article>
+      <article class="card"><h3>High risk</h3><p>인증·결제·데이터·배포. 전체 위험 검토와 별도 사용자 승인.</p></article>
+    </section>
+
+    <h2>9. v7에 고정할 최소 규칙</h2>
+    <ol class="card">
+      <li>Codex가 하나의 계획·상태·예산·최종 판정을 소유한다.</li>
+      <li>실제 수행은 `[U##]` 전용 대화창의 단일 소유자가 한다.</li>
+      <li>Antigravity 위임은 범위 안에서 무승인 자율 실행한다.</li>
+      <li>대화창은 정본이 아니며 `.coord` 원장을 가리키는 포인터다.</li>
+      <li>컨텍스트는 최소 로딩하며 오래된 자료는 권위·만료·대체 관계를 확인한다.</li>
+      <li>코드와 별도로 의도·결정 근거·가정·폐기 조건을 보존한다.</li>
+      <li>완료는 설명이 아니라 외부 검증 receipt로 판정한다.</li>
+      <li>사용자 보고는 짧게, 상세 증거는 파일에 보존한다.</li>
+      <li>사용자 행동이 필요하지 않으면 AI가 다음 단계를 자동 진행한다.</li>
+      <li>삭제·배포·push·결제·계정/권한 변경만 행동별 승인을 받는다.</li>
+    </ol>
+
+    <h2>10. MIA 결정</h2>
+    <section class="summary">
+      <article class="card verdict">
+        <h3>GO</h3>
+        <p>컨텍스트 계층화, intent ledger, proof ladder, 짧은 사용자 보고, 단계별 전용 대화창, 정상 단계 자동 진행을 v7 설계에 반영합니다.</p>
+      </article>
+      <article class="card unknown">
+        <h3>아직 주장하지 않을 것</h3>
+        <p>토큰·시간 절감률은 로컬 A/B 벤치마크 전까지 <code>UNMEASURED</code>입니다. “모든 코드를 읽지 않아도 안전하다”는 보편 결론도 내리지 않습니다.</p>
+      </article>
+    </section>
+
+    <h2>출처와 증거 등급</h2>
+    <div class="card source-list">
+      <ul>
+        <li><strong>원문:</strong> <a href="https://zanlib.dev/blog/do-you-still-read-the-code/">Marek Chotoborski, “Do You Still Read the Code?”</a></li>
+        <li><strong>한국어 요약·댓글:</strong> <a href="https://news.hada.io/topic?id=33735">GeekNews, 아직도 코드를 읽나요?</a></li>
+        <li><strong>연구:</strong> <a href="https://arxiv.org/abs/2603.22106">From Technical Debt to Cognitive and Intent Debt</a></li>
+        <li><strong>사례:</strong> <a href="https://www.strongdm.com/blog/the-strongdm-software-factory-building-software-with-ai">StrongDM Software Factory</a>, <a href="https://factory.strongdm.ai/techniques">Techniques</a></li>
+        <li><strong>고전 연구:</strong> <a href="https://www.sciencedirect.com/science/article/pii/0005109883900468">Bainbridge, Ironies of Automation</a></li>
+      </ul>
+      <p>원문·논문·공식 사례는 설계 근거로, GeekNews와 커뮤니티 댓글은 반례와 사용자 관점 발견용 보조 자료로 사용했습니다.</p>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">260916-agentic-ai-env-diet · U06 · Codex–Antigravity unified execution design</div>
+  </footer>
+</body>
+</html>

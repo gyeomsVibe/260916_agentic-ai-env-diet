@@ -1,0 +1,23 @@
+{
+  "classification": {
+    "B_setup": "INVALID_SETUP",
+    "comparison": "INVALID_MEASUREMENT",
+    "savings": "UNMEASURED"
+  },
+  "source": ".coord/runs/P05/ab.json",
+  "source_preserved": true,
+  "evidence": {
+    "codex_exit": 0,
+    "raw_event_lines": 17,
+    "helper_unknown_error_count": 3,
+    "final_reply": "UNKNOWN, NOT_APPROVED",
+    "tool_call_events": 0,
+    "pilot_summary": null,
+    "B_test_count": 6,
+    "A_test_count": 12,
+    "new_behavior_absent_in_B": true,
+    "recorded_quality_gate": "PASS",
+    "recorded_measured_verdict": "MEASURED_AND_VERIFIED"
+  },
+  "reason": "The B worker never launched the pilot. Existing tests alone passed, so the recorded quality gate and savings comparison are not evidence of a completed B treatment."
+}

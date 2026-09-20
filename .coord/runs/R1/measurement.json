@@ -1,0 +1,112 @@
+{
+  "schema": "r1-p05-measurement-v1",
+  "task": "P05",
+  "task_id_b": "P05-R1-B-20260919-01",
+  "models": {
+    "codex": "gpt-5.6-sol",
+    "codex_reasoning": "low",
+    "antigravity": "gemini-3.7-flash-high"
+  },
+  "measurement_window": "spawned Codex process start through final response after acceptance",
+  "baseline_source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+  "pre_run_manifests": {
+    "A": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+    "B": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616"
+  },
+  "historical_ab_sha256_before": "f844872ffa0dac9aec39430c288603c374763038ea8b3d52f2f03914cea940af",
+  "historical_judgment": {
+    "B": "INVALID_SETUP",
+    "comparison": "INVALID_MEASUREMENT",
+    "savings": "UNMEASURED"
+  },
+  "A": {
+    "label": "R1-P05-A-codex-direct-20260919-01",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "exit": 0,
+    "wall_s": 44.882,
+    "started_at_unix": 1789785935.5530367,
+    "finished_at_unix": 1789785980.4351811,
+    "events": ".coord\\runs\\R1\\R1-P05-A-codex-direct-20260919-01.jsonl",
+    "usage": {
+      "input_tokens": 69456,
+      "cached_input_tokens": 40960,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 815,
+      "reasoning_output_tokens": 45
+    },
+    "tool_call_events": 4,
+    "errors": [
+      "helper_unknown_error"
+    ],
+    "acceptance_exit": 0,
+    "discovery_exit": 0,
+    "test_count": 12,
+    "behavior_exit": 0,
+    "acceptance_stderr_tail": "----------------------------------------------------------------------\nRan 12 tests in 0.000s\n\nOK\n",
+    "behavior_stderr_tail": "",
+    "task": "P05",
+    "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+    "changes": {
+      "modified": [
+        "calc.py",
+        "test_calc.py"
+      ],
+      "added": [],
+      "deleted": []
+    }
+  },
+  "B_pre_run_attempt_ids": [],
+  "B": {
+    "label": "P05-R1-B-20260919-01-controller",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "exit": 0,
+    "wall_s": 53.671,
+    "started_at_unix": 1789785980.7526686,
+    "finished_at_unix": 1789786034.4232628,
+    "events": ".coord\\runs\\R1\\P05-R1-B-20260919-01-controller.jsonl",
+    "usage": {
+      "input_tokens": 56609,
+      "cached_input_tokens": 48640,
+      "cache_write_input_tokens": 0,
+      "output_tokens": 708,
+      "reasoning_output_tokens": 162
+    },
+    "tool_call_events": 0,
+    "errors": [],
+    "acceptance_exit": 0,
+    "discovery_exit": 0,
+    "test_count": 6,
+    "behavior_exit": 1,
+    "acceptance_stderr_tail": "----------------------------------------------------------------------\nRan 6 tests in 0.000s\n\nOK\n",
+    "behavior_stderr_tail": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\n    import calc; assert calc.power(2, 3) == 8; assert calc.power(9, 0) == 1; assert calc.power(4, -1) == 0.25; assert calc.reciprocal(4) == 0.25; assert calc.reciprocal(-2) == -0.5;\n                        ^^^^^^^^^^\nAttributeError: module 'calc' has no attribute 'power'\n",
+    "task": "P05",
+    "source_hash": "sha256:678c321ca6188e4d3363e195d18a17a93ee8d03b038a10abfa348c63fcf30616",
+    "changes": {
+      "modified": [],
+      "added": [],
+      "deleted": []
+    },
+    "pre_run_attempt_ids": [],
+    "pilot_summary": null,
+    "ledger_terminal": null,
+    "post_apply_acceptance_exit": 0
+  },
+  "B_infrastructure_review": {
+    "controller_command_attempts": 2,
+    "pilot_worker_started": false,
+    "pilot_work_dir_created": false,
+    "summary_exists": false,
+    "identity_exists": false,
+    "ledger_exists": false,
+    "violation": "The controller retried after the first helper failure despite the fixed single-call instruction.",
+    "evidence": ".coord\\runs\\R1\\P05-R1-B-20260919-01-controller.jsonl"
+  },
+  "comparison": {
+    "status": "INVALID_INFRASTRUCTURE",
+    "reason": "B Codex controller hit helper_unknown_error (setup refresh had errors) twice before the SQLite pilot could start; no work-dir, summary, identity, or ledger exists. Controller exit 0 and raw timing/token values are not performance evidence.",
+    "savings": "UNMEASURED"
+  },
+  "historical_ab_sha256_after": "f844872ffa0dac9aec39430c288603c374763038ea8b3d52f2f03914cea940af"
+}
