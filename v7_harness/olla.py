@@ -547,7 +547,8 @@ PLAN_HINT = (
     "olla (local model, 0 paid tokens) is up. Before acting, split this task: reading a file over ~3k tokens -> "
     "`olla digest`, drafts/summaries/commit messages -> `olla ask --ko` with format+example, exact edits -> `olla edit`, "
     "semantic search -> `olla find`. Do the rest yourself; verify local output, never let it judge. "
-    "Output rule: no text between tool calls; end with one Korean report of at most 3 short lines."
+    "Output rule: no text between tool calls; end with one Korean report: line 1 `**결과**: <conclusion>`, "
+    "then at most 3 one-line bullets `- <one fact with numbers>`, `- **남은 일**: ...` only if the user must act."
 )
 # 출력 규칙은 시스템 규칙 파일에 있어도 매 턴 어겼다(실측: Claude 턴당 진행 설명 0~9개, Codex 2~33개).
 # 생성 직전에 다시 보이는 이 줄이 가장 가깝다. 지켰는지는 Stop 훅(hook-stop)이 기록해 `olla stats`로 본다.
@@ -637,8 +638,8 @@ def usage_stats(lines: list[str]) -> dict:
             row[event] += 1
         if event == "turn_shape":
             row["turns"] += 1
-            # 규칙: 도구 호출 사이 글 0개, 최종 보고 3줄 이내
-            row["turns_within_rule"] += 1 if rec.get("narration_blocks", 1) == 0 and rec.get("final_lines", 9) <= 3 else 0
+            # 규칙(v5.16.0): 도구 호출 사이 글 0개, 최종 보고는 결론 1줄 + 글머리 최대 3줄 + 남은 일 1줄 = 5줄 이내
+            row["turns_within_rule"] += 1 if rec.get("narration_blocks", 1) == 0 and rec.get("final_lines", 9) <= 5 else 0
         if event == "digest":
             row["digest_cached"] += 1 if rec.get("cached") else 0
             row["paid_tokens_saved"] += max(0, rec.get("paid_tokens_if_read", 0) - rec.get("paid_tokens_digest", 0))
