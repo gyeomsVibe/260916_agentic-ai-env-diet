@@ -1,0 +1,131 @@
+{
+  "schema": "u17-digest-recall-v1",
+  "model": "qwen2.5-coder:7b",
+  "runs": [
+    {
+      "chunk_lines": 300,
+      "recall": 1.0,
+      "hits": 8,
+      "total": 8,
+      "avg_saved_pct": 92.4,
+      "wall_s": 412.8,
+      "rows": [
+        {
+          "file": "v7_harness/pilot.py",
+          "question": "where is the approved bundle applied to the source",
+          "truth": [
+            436,
+            659
+          ],
+          "hit": true,
+          "hit_width_lines": 26,
+          "file_lines": 753,
+          "digest": "# digest: D:/D_Workspace_NB/-agentic-ai-workspace/260916_agentic-ai-env-diet/v7_harness/pilot.py (753 lines)\n- L1-3: Imports necessary modules and classes for the script.\n- L5-11: Defines a custom SQLite3 connection class to automatically close read-only connections.\n- L13-14: Imports custom dataclass and constants.\n- L16-30: Imports various modules and classes from the `v7_harness` package.\n- L32-34: Replaces the original `sqlite3.connect` with the patched version.\n- L36-67: Defines a `PilotConfig` dataclass to hold configuration parameters for the pilot.\n- L69-70: Defines a set of known Python interpreter names.\n- L72-105: Defines utility functions for resolving accept tokens, deriving isolation mode, writing summaries and identities, normalizing hex values, recording checkpoints, and event logging.\n- L107-120: Defines a function to release active leases.\n- L122-285: Defines the `reconcile_pilot` function to reconcile pilot attempts.\n- L287-305: Defines the `run_pilot` function to run the pilot with the provided configuration.\n- L301-325: Function to handle cases where the bundle needs reconciliation.\n- L327-335: Function to set quota state.\n- L337-376: Function to define and prepare the command for execution.\n- L377-405: Function to handle command enqueue and potential replay.\n- L406-456: Function to handle replay of a previously executed command.\n- L457-460: Function to set up the staging directory.\n- L461-472: Function to create an AgyRequest object.\n- L473-487: Function to watch roots snapshot.\n- L488-512: Function to handle watch roots invariant check and return structured summary if watch scan is unavailable.\n- L513-589: Function to execute the command and handle outcomes, including bundle creation and promotion.\n- L601-628: Checks if the command contains shell operators and runs the command accordingly, capturing the output and handling exceptions.\n- L632-644: Saves the acceptance log and determines the verdict hint based on the acceptance exit code.\n- L645-652: Handles the case where a dry run passed, setting the acceptance exit and verdict hint accordingly.\n- L653-678: Handles approval promotion based on the bundle ID and config settings, applying or rejecting promotions and setting the promotion state.\n- L679-702: Handles cases where the run failed, setting the state, promotion, and error details.\n- L703-723: Constructs the summary dictionary with various details about the run, including state, error class, promotion, and acceptance exit.\n- L724-742: Adds additional details to the summary based on the state and error class.\n- L743-750: Writes the summary to a file and returns it.\n",
+          "digest_tokens": 880,
+          "file_tokens": 10464,
+          "wall_s": 71.2
+        },
+        {
+          "file": "v7_harness/pilot.py",
+          "question": "where is the acceptance command executed in staging",
+          "truth": [
+            608,
+            617
+          ],
+          "hit": true,
+          "hit_width_lines": 28,
+          "file_lines": 753,
+          "digest": "# digest: D:/D_Workspace_NB/-agentic-ai-workspace/260916_agentic-ai-env-diet/v7_harness/pilot.py (753 lines)\n- L1-31: Imports and setup for the module, including dataclasses, hashing, and file handling.\n- L33-47: Custom SQLite3 connection class to automatically close read-only connections.\n- L49-66: Dataclass `PilotConfig` to store configuration for the pilot run.\n- L68-86: Function `_resolve_accept_tokens` to resolve and replace Python interpreter in the acceptance command.\n- L88-106: Function `_derive_isolation_mode` to determine the isolation mode based on the workspace.\n- L108-126: Functions `_write_summary` and `_write_identity` to write JSON summaries atomically.\n- L128-154: Function `_normalize_hex64` to normalize hexadecimal values.\n- L156-185: Function `_record_checkpoint_and_identity` to record checkpoints and identities.\n- L187-201: Function `_event` to log events in the database.\n- L203-224: Function `_release_active_leases` to release active leases.\n- L226-285: Function `reconcile_pilot` to reconcile pilot runs.\n- L287-304: Function `run_pilot` to execute the pilot run, including setup and reconciliation.\n- L301-326: Defines the process for handling tasks that need reconciliation, setting up the staging directory, and preparing the command for execution.\n- L327-376: Generates a unique command ID and constructs the command payload for the task.\n- L377-405: Enqueues the command for execution and handles any potential replay scenarios.\n- L406-456: Checks for watch roots and handles any errors that occur during the scan.\n- L457-521: Initializes the launcher and execution engine, executes the command, and handles any errors that occur during execution.\n- L522-589: Checks the outcome of the execution, creates a patch bundle if successful, and handles any post-execution checks and promotions.\n- L590-599: Handles the case where a dry run is passed and the acceptance command is executed if provided.\n- L601-628: Checks if the acceptance command contains shell operators and executes it accordingly using `subprocess.run`.\n- L632-638: Saves the last 4000 characters of combined stdout and stderr to an acceptance log file.\n- L640-643: Determines the verdict hint based on the acceptance exit code.\n- L644-647: Handles the case when a dry run passes.\n- L648-652: Applies the \"no-change\" verdict unless `allow_no_changes` is set.\n- L653-678: Handles approval promotion based on the bundle ID and config settings.\n- L679-702: Sets the state, promotion, and error details based on the outcome and exceptions.\n- L703-723: Constructs the summary dictionary with various details and persists it to a file.\n",
+          "digest_tokens": 878,
+          "file_tokens": 10464,
+          "wall_s": 57.8
+        },
+        {
+          "file": "v7_harness/pilot.py",
+          "question": "where does a run with no changed files become REWORK",
+          "truth": [
+            649,
+            726
+          ],
+          "hit": true,
+          "hit_width_lines": 40,
+          "file_lines": 753,
+          "digest": "# digest: D:/D_Workspace_NB/-agentic-ai-workspace/260916_agentic-ai-env-diet/v7_harness/pilot.py (753 lines)\n- L1-3: Imports necessary modules and libraries for the script.\n- L5-11: Defines a custom SQLite3 connection class to automatically close read-only connections.\n- L13-15: Imports custom modules and classes from the `v7_harness` package.\n- L17-20: Defines constants and utility functions for handling SQLite3 connections, isolation modes, and file paths.\n- L22-24: Defines functions for writing summaries and identities to JSON files atomically.\n- L26-31: Defines a function to normalize hexadecimal values or compute a SHA-256 hash.\n- L33-159: Defines a function to record checkpoints and identities in a database.\n- L161-183: Defines a function to log events in a database.\n- L185-201: Defines a function to release active leases in a database.\n- L203-285: Defines a function to reconcile pilot runs, handling cases where no changed files are detected.\n- L287-304: Defines the main function `run_pilot` to execute the pilot run with the given configuration.\n- L301-325: Function to handle runs with no changed files, setting summary to \"FAILED\" and \"NEEDS_RECONCILIATION\".\n- L327-334: Function to set quota state for the task.\n- L336-345: Command definition and handling of existing attempts and dead deliveries.\n- L346-358: Check if a summary file exists and if the task has already succeeded.\n- L359-376: Logic to determine attempt and command IDs based on task history.\n- L377-403: Creation of command payload and enqueueing it.\n- L404-412: Handling of replayed commands, checking for approval mismatches, and applying promotions.\n- L413-456: Staging directory setup and AgyRequest creation.\n- L457-491: Watch roots snapshot and error handling.\n- L492-512: Launcher and execution engine setup and execution.\n- L513-560: Success check, bundle creation, and handling of external writes and watch errors.\n- L561-600: Final success check, promotion handling, and dry run promotion.\n- L601-753: Function to determine the outcome of a run based on changed files and acceptance criteria.\n- L601-629: Executes a command and captures its output, handling timeouts and exceptions.\n- L632-640: Saves the acceptance log and determines the verdict hint based on the command's exit code.\n- L641-643: Sets the verdict hint to \"REWORK\" if there are no changed files and the verdict is not already \"REWORK\" or \"BLOCKED\".\n- L644-683: Handles approval promotion based on the bundle ID and config settings.\n- L684-702: Sets error details and summary information based on the run outcome.\n- L703-750: Writes the summary to a file and returns it.\n- L751-753: Ensures the core is closed after the run.\n",
+          "digest_tokens": 897,
+          "file_tokens": 10464,
+          "wall_s": 60.5
+        },
+        {
+          "file": "v7_harness/cli.py",
+          "question": "where is the pilot run command registered in the parser",
+          "truth": [
+            357
+          ],
+          "hit": true,
+          "hit_width_lines": 20,
+          "file_lines": 580,
+          "digest": "# digest: D:/D_Workspace_NB/-agentic-ai-workspace/260916_agentic-ai-env-diet/v7_harness/cli.py (580 lines)\n- L1-12: Module documentation and imports.\n- L13-168: Function definitions for various commands (`cmd_lease_check`, `cmd_ledger_append`, etc.).\n- L169-268: Function definition for `cmd_pilot_run`, which includes detailed logic for pilot run command execution.\n- L269-286: Function definition for `cmd_pilot_reconcile`.\n- L287-290: Function definition for `build_parser`, which sets up the command-line argument parser and registers the pilot run command.\n- L301-374: Defines the parser for various subcommands including `ledger-append`, `ledger-verify`, `receipt-run`, `snapshot`, `eval-next`, `benchmark`, `report`, and `pilot`.\n- L355-374: Registers the `pilot` subcommand with its own subcommands `run` and `reconcile`.\n- L375-421: Defines the `record_pilot_in_stream` function to log pilot results in the coordination stream.\n- L422-477: Defines the `resolve_worker_command` function to determine the worker for a task.\n- L478-505: Defines the `cmd_coord_log` function to log an event in the coordination stream.\n- L506-527: Defines the `cmd_coord_brief` function to generate a brief summary for coordination.\n- L528-562: Defines the `cmd_coord_notify` function to notify Codex about changes.\n- L563-570: Defines the `cmd_coord_archive` function to archive settled events.\n- L571-580: Defines the `main` function to parse arguments and call the appropriate command function.\n",
+          "digest_tokens": 495,
+          "file_tokens": 8351,
+          "wall_s": 40.0
+        },
+        {
+          "file": "v7_harness/cli.py",
+          "question": "where is the local worker command chosen",
+          "truth": [
+            465
+          ],
+          "hit": true,
+          "hit_width_lines": 42,
+          "file_lines": 580,
+          "digest": "# digest: D:/D_Workspace_NB/-agentic-ai-workspace/260916_agentic-ai-env-diet/v7_harness/cli.py (580 lines)\n- L1-12: Module documentation for the v7 harness command-line interface.\n- L14-16: Import statements for necessary modules and types.\n- L17-31: Imports for specific components from submodules.\n- L33-54: Function `cmd_lease_check`: Validates context leases.\n- L56-70: Function `cmd_ledger_append`: Appends entries to an intent ledger.\n- L72-83: Function `cmd_ledger_verify`: Verifies the integrity of an intent ledger.\n- L85-102: Function `cmd_receipt_run`: Executes a command with proof receipt.\n- L104-115: Function `cmd_snapshot`: Captures a deterministic snapshot.\n- L117-131: Function `cmd_eval_next`: Evaluates next-stage eligibility.\n- L133-145: Function `cmd_benchmark`: Executes an A/B benchmark.\n- L147-164: Function `cmd_report`: Generates a concise report.\n- L166-267: Function `cmd_pilot_run`: Runs a pilot task with worker advice.\n- L269-286: Function `cmd_pilot_reconcile`: Reconciles a pilot task.\n- L288-291: Function `build_parser`: Builds the argument parser for the CLI.\n- L301-310: Define arguments for the `ledger-append` command.\n- L311-315: Define arguments for the `ledger-verify` command.\n- L316-322: Define arguments for the `receipt-run` command.\n- L323-330: Define arguments for the `snapshot` command.\n- L331-338: Define arguments for the `eval-next` command.\n- L339-343: Define arguments for the `benchmark` command.\n- L344-352: Define arguments for the `report` command.\n- L353-375: Define arguments for the `pilot` command, including subcommands like `run` and `reconcile`.\n- L376-420: Define functions related to the `pilot` command, including `record_pilot_in_stream`.\n- L421-463: Define the `resolve_worker_command` function to choose the local worker command.\n- L464-505: Define the `cmd_coord_log` function to log events in the coordination stream.\n- L506-526: Define the `cmd_coord_brief` function to generate a brief summary for Codex.\n- L527-561: Define the `cmd_coord_notify` function to notify Codex about changes.\n- L562-565: Define the `cmd_coord_archive` function to archive settled events.\n- L574-580: Define the `main` function to parse arguments and call the appropriate command function.\n",
+          "digest_tokens": 748,
+          "file_tokens": 8351,
+          "wall_s": 72.0
+        },
+        {
+          "file": "v7_harness/cli.py",
+          "question": "where are pilot results written to the coordination stream",
+          "truth": [
+            423
+          ],
+          "hit": true,
+          "hit_width_lines": 42,
+          "file_lines": 580,
+          "digest": "# digest: D:/D_Workspace_NB/-agentic-ai-workspace/260916_agentic-ai-env-diet/v7_harness/cli.py (580 lines)\n- L1-12: Module documentation for the v7 harness command-line interface.\n- L14-15: Import statements for necessary modules and types.\n- L16-31: Imports for specific functionalities like benchmark hooks, context leases, intent ledgers, proof receipts, reporting, snapshots, and stage evaluators.\n- L33-167: Functions for various commands including lease check, ledger append, ledger verify, receipt run, snapshot, eligibility evaluation, benchmark, report, pilot run, and pilot reconcile.\n- L168-267: Detailed implementation of the `cmd_pilot_run` function, which handles the execution and coordination of pilot tasks.\n- L268-286: Implementation of the `cmd_pilot_reconcile` function, which handles the reconciliation of pilot tasks.\n- L289-291: Function to build the argument parser for the CLI, defining subcommands and their arguments.\n- L301-370: Defines subparsers for various commands including `ledger-append`, `ledger-verify`, `receipt-run`, `snapshot`, `eval-next`, `benchmark`, `report`, and `pilot`.\n- L375-381: Defines subcommands for `pilot` including `run` and `reconcile`.\n- L382-420: Defines subcommands for `coord` including `log`, `brief`, `notify`, and `archive`.\n- L422-463: Defines `record_pilot_in_stream` function to record pilot results in the coordination stream.\n- L465-477: Defines `resolve_worker_command` function to determine the worker for a task.\n- L479-505: Defines `cmd_coord_log` function to log an event in the coordination stream.\n- L507-526: Defines `cmd_coord_brief` function to generate a brief summary for Codex.\n- L528-561: Defines `cmd_coord_notify` function to notify Codex about changes.\n- L563-570: Defines `cmd_coord_archive` function to archive settled events.\n- L572-580: Main function to parse arguments and call the appropriate command function.\n",
+          "digest_tokens": 634,
+          "file_tokens": 8351,
+          "wall_s": 60.7
+        },
+        {
+          "file": "v7_harness/coord/stream.py",
+          "question": "where are settled events moved to the archive",
+          "truth": [
+            201
+          ],
+          "hit": true,
+          "hit_width_lines": 19,
+          "file_lines": 288,
+          "digest": "# digest: D:/D_Workspace_NB/-agentic-ai-workspace/260916_agentic-ai-env-diet/v7_harness/coord/stream.py (288 lines)\n- L1-27: Documentation for the coordination stream, including design principles and constraints.\n- L29-37: Regular expressions to detect secret patterns in event summaries.\n- L39-41: Custom exceptions for stream errors.\n- L43-51: Locking mechanism to ensure exclusive access to the stream.\n- L53-181: Dataclass `Event` and functions to validate and create events.\n- L183-201: Function `archive_settled` to move settled events to the archive.\n- L203-282: Function `append_event` to append new events to the stream.\n",
+          "digest_tokens": 210,
+          "file_tokens": 3662,
+          "wall_s": 23.2
+        },
+        {
+          "file": "v7_harness/coord/stream.py",
+          "question": "where is the verdict actor restriction enforced",
+          "truth": [
+            151
+          ],
+          "hit": true,
+          "hit_width_lines": 31,
+          "file_lines": 288,
+          "digest": "# digest: D:/D_Workspace_NB/-agentic-ai-workspace/260916_agentic-ai-env-diet/v7_harness/coord/stream.py (288 lines)\n- L1-27: Documentation and import statements for the coordination stream.\n- L29-37: Constants for actors, kinds, and evidence requirements.\n- L39-41: Custom exceptions for stream errors.\n- L43-78: Locking mechanism to ensure exclusive access to the stream.\n- L80-108: Dataclass definition for an event.\n- L110-140: Helper functions for stream directory, lock, and path management.\n- L142-172: Validation functions for event data.\n- L174-181: Function to generate a unique event ID.\n- L183-200: Function to read events from the stream.\n- L202-240: Function to archive settled events.\n- L242-282: Function to append a new event to the stream, including validation and locking.\n",
+          "digest_tokens": 264,
+          "file_tokens": 3662,
+          "wall_s": 27.4
+        }
+      ]
+    }
+  ]
+}

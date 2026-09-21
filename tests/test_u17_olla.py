@@ -122,9 +122,34 @@ class OllaBudgetTests(unittest.TestCase):
         self.big_tokens = round(self.big.stat().st_size / olla.BYTES_PER_TOKEN)
         self.small = self.base / "small.py"
         self.small.write_text("x = 1\n", encoding="utf-8")
+        # 요약본 캐시는 시험마다 비운 임시 폴더로 — 실제 사용자 캐시를 건드리지 않는다
+        cache = mock.patch.object(olla, "DIGEST_CACHE_DIR", self.base / "cache")
+        cache.start()
+        self.addCleanup(cache.stop)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
+
+    def test_digest_cache_skips_the_model_until_the_file_changes(self) -> None:
+        calls = []
+
+        def fake(model, prompt, timeout):
+            calls.append(prompt)
+            return ("- L1-300: x", {"input_tokens": 1, "output_tokens": 1})
+
+        def run() -> str:
+            err = io.StringIO()
+            with mock.patch.object(olla.worker, "_generate", side_effect=fake):
+                with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                    self.assertEqual(0, olla.main(["digest", "-f", str(self.small), "--focus", "q"]))
+            return err.getvalue()
+
+        self.assertIn('"cached": false', run())
+        self.assertIn('"cached": true', run())
+        self.assertEqual(1, len(calls))
+        self.small.write_text("y = 2\n", encoding="utf-8")
+        self.assertIn('"cached": false', run())
+        self.assertEqual(2, len(calls))
 
     def test_estimate_counts_rereads(self) -> None:
         cost = olla.estimate_tokens([str(self.big)])

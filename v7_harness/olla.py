@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import hashlib
 import json
 import math
 import os
@@ -314,6 +315,20 @@ def digest_file(path: Path, focus: str, model: str, timeout: int) -> tuple[str, 
     return header + "\n" + "\n".join(parts) + "\n", usage_total
 
 
+# 같은 파일·같은 질문을 세 도구가 따로 요약하면 로컬 몇 분이 매번 다시 든다(U17 실측 파일당 약 1분).
+# 내용 해시로 묶으므로 파일이 바뀌면 자동으로 무효가 되고, 프로젝트를 가리지 않는다.
+DIGEST_CACHE_DIR = Path(os.environ.get("OLLA_CACHE", Path.home() / ".cache" / "olla" / "digest"))
+DIGEST_PROMPT_VERSION = "1"
+
+
+def _digest_cache_path(path: Path, focus: str, model: str) -> Path:
+    key = hashlib.sha256()
+    for part in (DIGEST_PROMPT_VERSION, str(CHUNK_LINES), model, focus):
+        key.update(f"{len(part)}:{part}".encode("utf-8"))  # 길이 접두로 경계를 모호하지 않게
+    key.update(path.read_bytes())
+    return DIGEST_CACHE_DIR / f"{key.hexdigest()}.json"
+
+
 def cmd_estimate(args: argparse.Namespace) -> int:
     print(json.dumps(estimate_tokens(args.file, args.prompt or ""), ensure_ascii=False))
     return 0
@@ -330,11 +345,22 @@ def cmd_digest(args: argparse.Namespace) -> int:
         if not path.is_file():
             print(f"no such file: {raw}", file=sys.stderr)
             return 2
-        try:
-            digest, usage = digest_file(path, args.focus or "", args.model, args.timeout)
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            print(f"ollama unreachable: {exc}", file=sys.stderr)
-            return 1
+        cache = _digest_cache_path(path, args.focus or "", args.model)
+        cached = not args.no_cache and cache.is_file()
+        if cached:
+            saved = json.loads(cache.read_text(encoding="utf-8"))
+            digest, usage = saved["digest"].replace(saved["path"], path.as_posix(), 1), {"input_tokens": 0, "output_tokens": 0}
+        else:
+            try:
+                digest, usage = digest_file(path, args.focus or "", args.model, args.timeout)
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                print(f"ollama unreachable: {exc}", file=sys.stderr)
+                return 1
+            try:
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                cache.write_text(json.dumps({"path": path.as_posix(), "digest": digest}, ensure_ascii=False), encoding="utf-8")
+            except OSError:
+                pass  # 캐시는 편의일 뿐, 못 써도 요약본은 낸다
         before = round(path.stat().st_size / BYTES_PER_TOKEN)
         after = round(len(digest.encode("utf-8")) / BYTES_PER_TOKEN)
         sys.stdout.write(digest)
@@ -344,6 +370,7 @@ def cmd_digest(args: argparse.Namespace) -> int:
             "paid_tokens_digest": after,
             "saved_pct": round((1 - after / before) * 100, 1) if before else 0.0,
             "local_tokens": usage,
+            "cached": cached,
         }, ensure_ascii=False), file=sys.stderr)
     return 0
 
@@ -385,6 +412,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--focus", default="")
     p.add_argument("--model", default=CHAT_MODEL)
     p.add_argument("--timeout", type=int, default=900)
+    p.add_argument("--no-cache", action="store_true", help="같은 내용·질문의 이전 요약본을 쓰지 않음")
     p.set_defaults(func=cmd_digest)
 
     p = sub.add_parser("find")
