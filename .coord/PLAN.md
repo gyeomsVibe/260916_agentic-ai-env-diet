@@ -2,7 +2,7 @@
 
 상태 기준: `READY → ACTIVE → REVIEW → DONE`; 한 번에 활성 단계 하나, 단계별 단일 소유자 한 명.
 
-참여 도구 고정(2026-09-17 사용자 지시): 이 계획은 **Codex(조율·판정)와 Antigravity(실행·독립 검증)만** 참여한다. Claude Code는 계획 밖 독립 도구이며, U13·M1의 Claude 대행 기록은 역사 기록일 뿐 이후 경로가 아니다.
+참여 도구(2026-09-21 사용자 지정으로 갱신): Codex(조율·판정)·Antigravity(실행·독립 검증)·로컬 Ollama(작업자)에 더해 **Claude Code는 Codex와 동등한 부지휘자**다. Codex 부재 중(한도·정지) Claude가 계획·승인·판정을 대행하고, 대행 산출물은 아래 「Codex 복귀 재검토 목록」에 올린다. Codex 활동 중에는 Claude가 Codex 지시를 받는다. (이전 2026-09-17 고정 — "Codex·Antigravity만 참여" — 은 이 지정으로 대체됨)
 
 | ID | 상태 | 소유자 | 산출물/판정 |
 |---|---|---|---|
@@ -22,6 +22,7 @@
 | U14 | DONE (=M1) | Claude(M1 구현)·Antigravity(V2 독립검증) | P1 6건 수정; U14 32·U10-14 123·전체 178·compileall exit 0; Antigravity V2 PASS(6/6 FIXED); 비차단 2건 BACKLOG |
 | U15 | REVIEW (S1~S13 완료, 하루 창 집계 PARTIAL_MEASURED·Codex 재검토 대기) | Claude Code 단독 구현(사용자 지시)·Codex 재검토 | S1 `.coord/stream`·`codex_brief.md` manifest 제외 + 격리 테스트 5. S2 `v7_harness/coord/stream.py`(권한 매트릭스·증거 강제·비밀 차단·파일 잠금 append) + 테스트 10. S3 `coord/brief.py`(고정 헤더·마지막 판정 이후만·60줄/6KB 상한·결정적) + 테스트 7. S4 `coord/notify.py`(`codex queue` 전달, 해시 커서·분당 1건·일 24건·[DATA] 헤더) + 테스트 10. 전체 367 OK(1 skip), compileall 0, 고정 테스트 해시 불변. S5 실배달 성공(2026-09-20 20:18, thread 01a0b77f…, 큐 메시지 01a0be89…, 커서 기록). S7 coord CLI·S8 메모 색인 추가(전체 371 OK). S6 부분 실측: 브리핑 828자(메모 평균 1,552자 대비 −46.6%), 큐 메시지 81자, 중복 차단 확인, 상한 준수. Codex 소비 시각·판정 지연·실토큰은 UNKNOWN 유지 — `.coord/tasks/U15-coordination-stream.md` |
 | U16 | REVIEW (구현·1회 실측 완료, Codex 재검토 대기) | Claude Code 단독 구현 | 로컬 Ollama 작업자: `v7_harness/adapters/ollama_worker.py` + `pilot run --worker local`. 형식 이탈·경로 이탈·서버 부재 차단 테스트 9건. 실측 WL03 — qwen2.5-coder:7b가 전역 규칙 4파일 패치를 6분 43초에 작성해 인수 통과, 승인 반영·배포 ALIGNED, 계정 한도 소모 0. 성공률은 표본 부족으로 UNMEASURED — `docs/16_260920_로컬모델_Ollama_작업자_도입과_실측.md` |
+| U17 | REVIEW (Claude 대행 구현·실측, Codex 재검토 대기) | Claude Code 단독 구현 | `olla` 공용 명령(`v7_harness/olla.py`, PATH `olla`): status·ask·edit(백업·diff·범위 밖 거부)·find·estimate·route·digest(내용 해시 캐시)·hook-read(Read 직전 알림, 비차단). 실측: pilot.py 요약본 −91.8%, 위치 질문 적중 8/8(구간 19~42줄)·150줄 조각 7/8·3b 모델 6/8, 캐시 52초→0초. U17 테스트 21. 자율 사용으로 인한 실제 유료 토큰 절감은 UNMEASURED — `docs/ollama/README.md`, `.coord/runs/U17/` |
 | M2 | DONE | Codex | P1 해소, P01 APPLIED·6/6, A/B 기록, 독립 검증 PASS, M2 18·U10~U14 124·전체 197·compileall exit 0 — .coord/tasks/M2-live-pilot.md |
 | M3 | DONE | Codex | 백업·정확한 diff 후 프로젝트/Codex/Gemini/양쪽 MIA 규칙 반영, 신규 P02 세션 pilot run 자동 라우팅 PASS — .coord/tasks/M3-global-application.md |
 | M4 | DONE (효율 판정 INVALID_MEASUREMENT → UNMEASURED, R0 정정) | Codex 조율·Antigravity 구현/독립검증 | 기능·안전성 12/12 PASS, blocking P1 0. 동일 P05에서 B가 A 대비 Codex input +277.7%, wall +1022.2%로 절약 목표 실패; 현 pilot 기본화·추가 튜닝 STOP |
@@ -112,3 +113,17 @@
 - 2026-09-17: M3는 승인된 5개 원본을 선백업하고 프로젝트 4줄·Codex 1줄·Gemini 1줄·양쪽 MIA 폴백 각 1줄을 적용했다. 원본→적용본 unified diff exact match, 양쪽 skill validation exit 0, 새 작업 `01a0af1b-f9a6-7d22-9d44-f7470b5c103d`의 `P02 과제 해줘` 한 줄이 SQLite `pilot run`을 자동 선택했고 `--approve` 없이 원본 미반영을 확인했다. 수행자 상태는 `REVIEW`; DONE은 조율자 판정으로 남긴다.
 
 - 2026-09-17 21:3x: Codex 사용량 한도(재설정 09-18 00:15) 중 사용자 지시로 M4를 대행 진행했다. M4는 REVIEW이며 Codex 복귀 시 `docs/claude-assist/14`를 읽고 판정·A 측정·P04 재측정을 수행한다.
+
+## Codex 복귀 재검토 목록 (2026-09-22 작성, 9/24 전후 복귀 예정)
+
+Claude 대행 중 반영된 것. 만든 이가 유일한 검증자가 되지 않도록(자기 선호 편향, arXiv:2410.21819) Codex가 아래 명령을 **직접 돌려** 판정한다. 작성 시점 결과는 모두 exit 0.
+
+| 대상 | 커밋 | 합격 명령 | 작성 시점 결과 | 특히 볼 것 |
+|---|---|---|---|---|
+| U15 조율 스트림 | 09086b5·baeeb79 외 | `python -m unittest discover -s tests -t . -p "test_u15_*"` | 58 OK | 단일 잠금 아래 읽기·보관(Windows 동시 append), 판정 행위자 제한, 효과는 UNMEASURED(판정 왕복 미관측) |
+| U16 로컬 작업자 | c8a7f31·dd09c81·40e6c65 | `python -m unittest discover -s tests -t . -p "test_u16_*"` | 19 OK | SEARCH 1회 일치·전건 검증 후 쓰기, 구체성 60점 기준의 근거(벤치 6과제) |
+| U17 olla | 2c9ea32·10faa53·8058ad8·69e11dd·238d0e9 | `python -m unittest discover -s tests -t . -p "test_u17_*"` | 21 OK | 캐시 키(내용 해시·질문·모델·조각), 훅이 절대 막지 않는지, 적중률 표본 8건의 한계 |
+| R4-FINAL 판정 | — | `.coord/tasks/R4-additional-measurements.md` 수치 재계산 | DONE(대행) | 입력 −76.7%·출력 −97.0%의 산식, 한도 절감 UNMEASURED 유지 |
+| B57/B59 고정물 | — | 전체 회귀 `python .coord/runs/run_regression.py` | 433 OK | B59 QUEUE_SATURATED 용량 4→8 변경이 요구사항을 약화하지 않았는지 |
+| 전역 규칙 v5.6~v5.12 | 260718 b8e97e0까지 | `shared/global-rules/scripts/sync-global-rules.ps1 -Mode Check` | PASS·ALIGNED | 무승인 조항이 안전 목록(삭제·push·결제·권한)을 약화하지 않았는지, 로컬 모델이 판정하지 않는 조항 |
+
