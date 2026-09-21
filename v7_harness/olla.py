@@ -85,16 +85,48 @@ def cmd_status(_: argparse.Namespace) -> int:
     return 0
 
 
+# 7b 모델은 영어 지시문 속 "in Korean" 한 마디를 무시했다(1/1 영어). 한국어로 규칙·예시를 주면
+# 3/3 한국어였다(2026-09-22 실측). 그래서 --ko 는 지시 자체를 한국어로 감싸고, 결과를 검사해 한 번 더 시킨다.
+KO_RULES = (
+    "반드시 한국어(한글)로만 답하라. 전문 용어는 한국어로 쓰고 필요하면 영어를 괄호로 병기한다(예: 캐시(cache)).\n"
+    "요청한 결과만 쓰고 머리말·설명·따옴표를 붙이지 마라.\n\n"
+)
+KO_MIN_HANGUL_RATIO = 0.3  # 글자(공백·기호 제외) 중 한글 비율. 코드명·영어 병기를 허용하는 하한
+
+
+def hangul_ratio(text: str) -> float:
+    letters = [c for c in text if c.isalpha()]
+    return sum(1 for c in letters if "가" <= c <= "힣") / len(letters) if letters else 0.0
+
+
 def cmd_ask(args: argparse.Namespace) -> int:
     context = _read_files(args.file) if args.file else ""
     prompt = f"{args.prompt}\n{context}" if context else args.prompt
-    try:
-        text, usage = worker._generate(args.model, prompt, args.timeout)
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        print(f"ollama unreachable: {exc}", file=sys.stderr)
-        return 1
+    if args.ko:
+        prompt = KO_RULES + prompt
+    usage_total = {"input_tokens": 0, "output_tokens": 0}
+    attempts = 2 if args.ko else 1
+    text = ""
+    for attempt in range(attempts):
+        try:
+            text, usage = worker._generate(args.model, prompt, args.timeout)
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            print(f"ollama unreachable: {exc}", file=sys.stderr)
+            return 1
+        for key in usage_total:
+            usage_total[key] += usage.get(key, 0)
+        if not args.ko or hangul_ratio(text) >= KO_MIN_HANGUL_RATIO:
+            break
+        prompt = "직전 답이 한국어가 아니었다. 같은 요청을 한국어로만 다시 답하라.\n\n" + prompt
     print(text.strip())
-    print(json.dumps({"model": args.model, **usage}, ensure_ascii=False), file=sys.stderr)
+    report = {"model": args.model, **usage_total}
+    if args.ko:
+        report["hangul_ratio"] = round(hangul_ratio(text), 2)
+        report["attempts"] = attempt + 1
+    print(json.dumps(report, ensure_ascii=False), file=sys.stderr)
+    if args.ko and hangul_ratio(text) < KO_MIN_HANGUL_RATIO:
+        print("local answer is not Korean after retry — write it yourself", file=sys.stderr)
+        return 4
     return 0
 
 
@@ -474,6 +506,35 @@ def cmd_hook_shell(args: argparse.Namespace) -> int:
     return 0
 
 
+# 규칙이 문맥에 있어도 계획 단계에서 로컬 모델을 빠뜨렸다(2026-09-22, 사용자가 먼저 물어서야 드러남).
+# 그래서 지시가 들어오는 순간(UserPromptSubmit) 분업을 먼저 정하게 한 줄을 넣는다. 서버가 꺼져 있으면 말하지 않는다.
+PLAN_HINT = (
+    "olla (local model, 0 paid tokens) is up. Before acting, split this task: reading a file over ~3k tokens -> "
+    "`olla digest`, drafts/summaries/commit messages -> `olla ask --ko` with format+example, exact edits -> `olla edit`, "
+    "semantic search -> `olla find`. Do the rest yourself; verify local output, never let it judge."
+)
+
+
+def _server_up() -> bool:
+    try:
+        _get("/api/version", timeout=1)
+        return True
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
+def cmd_hook_plan(args: argparse.Namespace) -> int:
+    """Claude Code·Codex 공통 UserPromptSubmit 훅. 어떤 입력에도 0으로 끝나 막지 않는다."""
+    try:
+        event = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        return 0
+    if not isinstance(event, dict) or not _server_up():
+        return 0
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": PLAN_HINT}}))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="olla", description="로컬 Ollama 모델을 어느 프로젝트에서든 부려 쓰는 명령")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -484,6 +545,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("ask")
     p.add_argument("prompt")
     p.add_argument("-f", "--file", action="append", default=[])
+    p.add_argument("--ko", action="store_true", help="한국어 규칙을 붙이고, 한국어가 아니면 한 번 다시 시킴(실패 시 종료 코드 4)")
     p.add_argument("--model", default=CHAT_MODEL)
     p.add_argument("--timeout", type=int, default=900)
     p.set_defaults(func=cmd_ask)
@@ -519,6 +581,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("hook-shell", help="Codex PostToolUse(Bash) 훅: 큰 파일을 통째로 읽었으면 요약본을 권함")
     p.set_defaults(func=cmd_hook_shell)
+
+    p = sub.add_parser("hook-plan", help="UserPromptSubmit 훅: 작업 시작 시 로컬 모델 분업을 먼저 정하게 함")
+    p.set_defaults(func=cmd_hook_plan)
 
     p = sub.add_parser("find")
     p.add_argument("query")

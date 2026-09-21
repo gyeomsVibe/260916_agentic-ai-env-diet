@@ -94,6 +94,36 @@ class OllaAskAndStatusTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual("요약입니다", out.getvalue().strip())
 
+    def _ask_ko(self, replies: list[str]) -> tuple[int, str, str, list[str]]:
+        prompts: list[str] = []
+
+        def fake(model, prompt, timeout):
+            prompts.append(prompt)
+            return replies[len(prompts) - 1], {"input_tokens": 1, "output_tokens": 1}
+
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(olla.worker, "_generate", side_effect=fake):
+            with redirect_stdout(out), redirect_stderr(err):
+                code = olla.main(["ask", "커밋 제목 한 줄", "--ko"])
+        return code, out.getvalue().strip(), err.getvalue(), prompts
+
+    def test_ko_wraps_the_request_in_korean_rules(self) -> None:
+        code, out, _, prompts = self._ask_ko(["feat(olla): 캐시 추가"])
+        self.assertEqual((0, "feat(olla): 캐시 추가"), (code, out))
+        self.assertTrue(prompts[0].startswith(olla.KO_RULES))
+        self.assertEqual(1, len(prompts))
+
+    def test_ko_retries_once_when_the_answer_is_english(self) -> None:
+        code, out, err, prompts = self._ask_ko(["feat(olla): add cache", "feat(olla): 캐시 추가"])
+        self.assertEqual((0, "feat(olla): 캐시 추가"), (code, out))
+        self.assertEqual(2, len(prompts))
+        self.assertIn('"attempts": 2', err)
+
+    def test_ko_gives_up_with_code_4_so_the_caller_writes_it(self) -> None:
+        code, _, err, _ = self._ask_ko(["add cache", "still english"])
+        self.assertEqual(4, code)
+        self.assertIn("write it yourself", err)
+
     def test_ask_reports_a_down_server(self) -> None:
         err = io.StringIO()
         with mock.patch.object(olla.worker, "_generate", side_effect=OSError("refused")):
@@ -282,6 +312,29 @@ class OllaShellHookTests(unittest.TestCase):
             with mock.patch("sys.stdin", io.StringIO(stdin)), redirect_stdout(out):
                 self.assertEqual(0, olla.main(["hook-shell"]))
             self.assertEqual("", out.getvalue())
+
+
+class OllaPlanHookTests(unittest.TestCase):
+    """작업 시작 훅: 서버가 살아 있을 때만 분업 한 줄을 넣고, 막지 않는다."""
+
+    def _hook(self, stdin: str, up: bool) -> tuple[int, str]:
+        out = io.StringIO()
+        with mock.patch.object(olla, "_server_up", return_value=up), \
+                mock.patch("sys.stdin", io.StringIO(stdin)), redirect_stdout(out):
+            code = olla.main(["hook-plan"])
+        return code, out.getvalue()
+
+    def test_task_prompt_gets_the_split_reminder(self) -> None:
+        code, out = self._hook(json.dumps({"prompt": "니가 할 수 있는 일을 찾아봐"}), up=True)
+        self.assertEqual(0, code)
+        payload = json.loads(out)["hookSpecificOutput"]
+        self.assertEqual("UserPromptSubmit", payload["hookEventName"])
+        self.assertIn("olla ask --ko", payload["additionalContext"])
+
+    def test_silent_when_the_server_is_down_or_input_is_garbage(self) -> None:
+        self.assertEqual((0, ""), self._hook(json.dumps({"prompt": "x"}), up=False))
+        for stdin in ("not json", "[]"):
+            self.assertEqual((0, ""), self._hook(stdin, up=True))
 
 
 class OllaFindTests(unittest.TestCase):

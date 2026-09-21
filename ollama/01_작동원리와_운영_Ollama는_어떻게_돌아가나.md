@@ -224,6 +224,14 @@ python -m v7_harness.cli pilot run --task T01 --source <폴더>   --prompt-file 
 {"hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "olla hook-shell", "timeout": 5}]}]}}
 ```
 
+**한국어로 시키기(`olla ask --ko`)**: 7b 모델은 영어 지시문 속 "in Korean" 한 마디를 무시하고 영어로 답했습니다(1/1). 한국어로 규칙·형식·예시 2개를 주자 3/3 한국어였습니다. 그래서 `--ko`는 요청 앞에 한국어 규칙을 붙이고, 답의 한글 비율이 30% 미만이면 한 번 다시 시키고, 그래도 아니면 종료 코드 4로 "직접 쓰라"고 돌려줍니다. 실측 3/3 첫 시도 통과. 교훈: **로컬이 틀리면 먼저 내 지시가 모호했는지 본다.**
+
+**작업 시작 훅(`olla hook-plan`)**: 규칙이 문맥에 있어도 지휘자가 계획 단계에서 로컬을 빠뜨렸습니다. 그래서 지시가 들어오는 순간(UserPromptSubmit) "읽기→digest, 초안→ask --ko, 정확한 수정→edit, 찾기→find로 먼저 나눠라"를 한 줄(약 70토큰) 넣습니다. 서버가 꺼져 있으면 말하지 않습니다(확인 0.5초). Codex는 `~/.codex/hooks.json`에 등록(`/hooks`에서 신뢰 필요), Claude Code 등록 문구:
+
+```json
+{"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "olla hook-plan", "timeout": 5}]}], "PreToolUse": [{"matcher": "Read", "hooks": [{"type": "command", "command": "olla hook-read", "timeout": 5}]}]}}
+```
+
 **요약본 캐시**: 요약본 하나에 로컬 모델이 파일당 약 1분을 씁니다. 같은 파일 내용·같은 질문·같은 모델이면 `~/.cache/olla/digest/`의 이전 요약본을 즉시 돌려줍니다(보고에 `"cached": true`). 키가 파일 **내용**의 해시라서 한 글자만 바뀌어도 새로 만들고, 세 도구와 모든 프로젝트가 함께 씁니다. 새로 만들게 하려면 `--no-cache`, 위치를 바꾸려면 환경 변수 `OLLA_CACHE`.
 
 `olla route` 실측: "pilot.py 승인 판정 설명" → 요약본 먼저(재전송 포함 약 41,948토큰 절약 추정), "config.py TIMEOUT_S 30→90" → 로컬 수정, "이 모듈 설계를 어떻게 바꿀지 판단" → 직접.
