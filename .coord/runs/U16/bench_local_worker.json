@@ -1,12 +1,12 @@
 {
   "schema": "u16-local-worker-bench-v2",
   "models": [
-    "qwen2.5-coder:3b"
+    "qwen2.5-coder:7b"
   ],
   "cases": [
     {
       "case": "easy",
-      "model": "qwen2.5-coder:3b",
+      "model": "qwen2.5-coder:7b",
       "verdict": "PASS",
       "state": "SUCCEEDED",
       "error_class": "NONE",
@@ -15,14 +15,14 @@
         "config.py"
       ],
       "usage": {
-        "input_tokens": 198,
+        "input_tokens": 197,
         "output_tokens": 26
       },
-      "wall_s": 1.7
+      "wall_s": 10.3
     },
     {
       "case": "medium",
-      "model": "qwen2.5-coder:3b",
+      "model": "qwen2.5-coder:7b",
       "verdict": "PASS",
       "state": "SUCCEEDED",
       "error_class": "NONE",
@@ -32,14 +32,14 @@
         "writer.py"
       ],
       "usage": {
-        "input_tokens": 248,
+        "input_tokens": 247,
         "output_tokens": 52
       },
-      "wall_s": 2.1
+      "wall_s": 5.1
     },
     {
       "case": "hard",
-      "model": "qwen2.5-coder:3b",
+      "model": "qwen2.5-coder:7b",
       "verdict": "PASS",
       "state": "SUCCEEDED",
       "error_class": "NONE",
@@ -48,14 +48,14 @@
         "stats.py"
       ],
       "usage": {
-        "input_tokens": 255,
-        "output_tokens": 101
+        "input_tokens": 254,
+        "output_tokens": 91
       },
-      "wall_s": 2.8
+      "wall_s": 7.4
     },
     {
       "case": "large_file",
-      "model": "qwen2.5-coder:3b",
+      "model": "qwen2.5-coder:7b",
       "verdict": "PASS",
       "state": "SUCCEEDED",
       "error_class": "NONE",
@@ -64,30 +64,30 @@
         "big.py"
       ],
       "usage": {
-        "input_tokens": 2013,
-        "output_tokens": 1834
+        "input_tokens": 2021,
+        "output_tokens": 29
       },
-      "wall_s": 30.7
+      "wall_s": 15.8
     },
     {
       "case": "ambiguous",
-      "model": "qwen2.5-coder:3b",
-      "verdict": "REWORK",
+      "model": "qwen2.5-coder:7b",
+      "verdict": "PASS",
       "state": "SUCCEEDED",
       "error_class": "NONE",
-      "acceptance_exit": 1,
+      "acceptance_exit": 0,
       "changed_files": [
         "cache.py"
       ],
       "usage": {
-        "input_tokens": 199,
-        "output_tokens": 77
+        "input_tokens": 198,
+        "output_tokens": 35
       },
-      "wall_s": 2.4
+      "wall_s": 4.0
     },
     {
       "case": "multi_file_refactor",
-      "model": "qwen2.5-coder:3b",
+      "model": "qwen2.5-coder:7b",
       "verdict": "PASS",
       "state": "SUCCEEDED",
       "error_class": "NONE",
@@ -98,35 +98,37 @@
         "util.py"
       ],
       "usage": {
-        "input_tokens": 255,
+        "input_tokens": 252,
         "output_tokens": 63
       },
-      "wall_s": 2.4
+      "wall_s": 5.9
     }
   ],
   "by_model": {
-    "qwen2.5-coder:3b": {
-      "passed": 5,
+    "qwen2.5-coder:7b": {
+      "passed": 6,
       "total": 6,
-      "wall_s": 42.1
+      "wall_s": 48.5
     }
   },
   "passed_by_case": {
     "easy": [
-      "qwen2.5-coder:3b"
+      "qwen2.5-coder:7b"
     ],
     "medium": [
-      "qwen2.5-coder:3b"
+      "qwen2.5-coder:7b"
     ],
     "hard": [
-      "qwen2.5-coder:3b"
+      "qwen2.5-coder:7b"
     ],
     "large_file": [
-      "qwen2.5-coder:3b"
+      "qwen2.5-coder:7b"
     ],
-    "ambiguous": [],
+    "ambiguous": [
+      "qwen2.5-coder:7b"
+    ],
     "multi_file_refactor": [
-      "qwen2.5-coder:3b"
+      "qwen2.5-coder:7b"
     ]
   },
   "note": "판정은 파일럿 인수 게이트가 한 것이며, 표본은 (모델, 과제)당 1회다."

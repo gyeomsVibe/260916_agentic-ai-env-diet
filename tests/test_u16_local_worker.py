@@ -81,6 +81,41 @@ class LocalWorkerBehaviourTests(unittest.TestCase):
         self.assertEqual("ERROR", payload["status"])
         self.assertIn("ollama unreachable", payload["error"])
 
+    def test_edit_block_replaces_exactly_one_occurrence(self) -> None:
+        (self.workspace / "big.py").write_text("TIMEOUT_S = 30\nA = 1\nB = 2\n", encoding="utf-8")
+        payload = self._run(
+            "===EDIT: big.py===\n<<<<<<< SEARCH\nTIMEOUT_S = 30\n=======\nTIMEOUT_S = 90\n>>>>>>> REPLACE",
+            prompt="In `big.py`, change TIMEOUT_S.",
+        )
+        self.assertEqual("SUCCESS", payload["status"])
+        self.assertEqual("TIMEOUT_S = 90\nA = 1\nB = 2\n", (self.workspace / "big.py").read_text(encoding="utf-8"))
+
+    def test_edit_search_not_found_changes_nothing(self) -> None:
+        (self.workspace / "big.py").write_text("TIMEOUT_S = 30\n", encoding="utf-8")
+        payload = self._run("===EDIT: big.py===\n<<<<<<< SEARCH\nTIMEOUT = 30\n=======\nTIMEOUT = 90\n>>>>>>> REPLACE")
+        self.assertEqual("ERROR", payload["status"])
+        self.assertTrue(payload["error"].startswith("EDIT_SEARCH_NOT_FOUND"))
+        self.assertEqual("TIMEOUT_S = 30\n", (self.workspace / "big.py").read_text(encoding="utf-8"))
+
+    def test_ambiguous_edit_is_refused(self) -> None:
+        (self.workspace / "big.py").write_text("x = 1\nx = 1\n", encoding="utf-8")
+        payload = self._run("===EDIT: big.py===\n<<<<<<< SEARCH\nx = 1\n=======\nx = 2\n>>>>>>> REPLACE")
+        self.assertEqual("ERROR", payload["status"])
+        self.assertTrue(payload["error"].startswith("EDIT_SEARCH_AMBIGUOUS"))
+        self.assertEqual("x = 1\nx = 1\n", (self.workspace / "big.py").read_text(encoding="utf-8"))
+
+    def test_one_bad_edit_blocks_every_edit(self) -> None:
+        (self.workspace / "a.py").write_text("A = 1\n", encoding="utf-8")
+        (self.workspace / "b.py").write_text("B = 1\n", encoding="utf-8")
+        payload = self._run(
+            "===EDIT: a.py===\n<<<<<<< SEARCH\nA = 1\n=======\nA = 2\n>>>>>>> REPLACE\n"
+            "===EDIT: b.py===\n<<<<<<< SEARCH\nNOPE\n=======\nB = 2\n>>>>>>> REPLACE"
+        )
+        self.assertEqual("ERROR", payload["status"])
+        # 첫 편집은 맞았지만 둘째가 틀렸으므로 어느 파일도 바뀌면 안 된다.
+        self.assertEqual("A = 1\n", (self.workspace / "a.py").read_text(encoding="utf-8"))
+        self.assertEqual("B = 1\n", (self.workspace / "b.py").read_text(encoding="utf-8"))
+
     def test_envelope_matches_what_the_pilot_expects(self) -> None:
         payload = self._run("===FILE: VERSION===\n2.0.0")
         for key in ("status", "response", "usage", "conversation_id"):
