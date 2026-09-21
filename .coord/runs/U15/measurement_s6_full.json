@@ -1,0 +1,45 @@
+{
+  "schema": "u15-daily-measure-v1",
+  "window": {
+    "from": "2026-09-20T20:45:21+09:00",
+    "to": "2026-09-21T22:07:33+09:00",
+    "span_h": 25.4,
+    "samples": 4,
+    "gaps_h": [
+      1.9,
+      0.1,
+      23.4
+    ]
+  },
+  "events": {
+    "start": 7,
+    "end": 21,
+    "added": 14,
+    "by_kind_end": {
+      "BLOCKED": 3,
+      "NOTE": 3,
+      "PLAN": 1,
+      "RUN": 14
+    }
+  },
+  "brief": {
+    "chars_min": 828,
+    "chars_max": 1450,
+    "lines_max": 28,
+    "limit_ok": true
+  },
+  "deliveries": {
+    "max_per_day_seen": 2,
+    "daily_limit": 24
+  },
+  "codex_consumption": [
+    "NOT_SEEN",
+    "UNKNOWN"
+  ],
+  "status": "PARTIAL_MEASURED",
+  "caveats": [
+    "표본 4건, 최대 공백 23.4시간: 세션이 쉬는 동안 수집이 멈췄다. 보간하지 않았다.",
+    "Codex가 큐 메시지를 소비한 시각은 끝내 확인하지 못했다(UNKNOWN/NOT_SEEN). 판정 지연은 측정 불가.",
+    "Codex가 9/24까지 한도 상태여서 이 창에는 실제 판정 왕복이 없었다."
+  ]
+}

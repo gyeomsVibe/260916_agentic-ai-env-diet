@@ -1,33 +1,33 @@
 {
   "schema": "u15-coordination-measure-v1",
-  "measured_at": "2026-09-20T20:25:13+09:00",
+  "measured_at": "2026-09-21T22:07:47+09:00",
   "sample": {
-    "events_in_stream": 6,
-    "stream_bytes": 1975,
-    "memos_total": 78,
+    "events_in_stream": 21,
+    "stream_bytes": 7226,
+    "memos_total": 80,
     "memos_sampled": 10
   },
   "per_handoff_payload": {
-    "baseline_memo_chars": 1552,
-    "baseline_memo_tokens_est": 621,
-    "brief_chars": 828,
-    "brief_tokens_est": 331,
-    "brief_lines": 25,
+    "baseline_memo_chars": 2140,
+    "baseline_memo_tokens_est": 856,
+    "brief_chars": 1450,
+    "brief_tokens_est": 580,
+    "brief_lines": 28,
     "queue_message_chars": 81,
     "queue_message_tokens_est": 32,
-    "reduction_pct_vs_memo": 46.6
+    "reduction_pct_vs_memo": 32.2
   },
   "dedup": {
-    "cursor_hash": "a7953c4fcd51",
-    "brief_hash": "a7953c4fcd51",
+    "cursor_hash": "7f4a2a704ff1",
+    "brief_hash": "7f4a2a704ff1",
     "repeat_send_blocked": true,
     "repeat_reason": "NO_CHANGE"
   },
   "delivery": {
-    "last_sent_at": "2026-09-20T20:18:26+09:00",
+    "last_sent_at": "2026-09-20T21:17:37+09:00",
     "thread": "01a0b77f-cbc2-7930-878e-4b18186813e1",
-    "queued_message_id": "01a0be89-d401-7980-8d4b-66a34518685e",
-    "queue_accepted": true,
+    "queued_message_id": "",
+    "queue_accepted": false,
     "codex_consumed_at": "UNKNOWN",
     "verdict_latency_s": "UNKNOWN"
   },
