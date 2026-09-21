@@ -261,7 +261,8 @@ def append_event(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     with _exclusive(stream_lock(project)):
-        existing = {event.get("id", "") for event in read_events(project)}
+        existing_events = read_events(project)
+        existing = {event.get("id", "") for event in existing_events}
         event = Event(
             id=_next_id(existing, actor, moment),
             ts=moment.isoformat(timespec="seconds"),
@@ -278,4 +279,10 @@ def append_event(
             os.write(handle, line.encode("utf-8"))
         finally:
             os.close(handle)
+        snapshot = [*existing_events, json.loads(line)]
+
+    # 일이 일어난 자리에서 운용 표본을 남긴다(U15 S14). 잠금 밖에서, 실패해도 무시한다.
+    from v7_harness.coord.metrics import maybe_sample
+
+    maybe_sample(project, events=snapshot)
     return event
