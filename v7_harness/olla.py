@@ -1,6 +1,6 @@
 """olla — 세 도구가 어느 프로젝트에서든 로컬 Ollama 모델을 부려 쓰는 공용 명령.
 
-설계 근거(`docs/ollama/README.md` §10, `shared/global-rules/REFERENCES.md`):
+설계 근거(`ollama/01_작동원리와_운영_Ollama는_어떻게_돌아가나.md` §10, `shared/global-rules/REFERENCES.md`):
 - FrugalGPT(arXiv:2305.05176)·RouteLLM(ICLR 2025): 싼 모델을 먼저 쓰고 부족할 때만 비싼 모델로
   올리면 비용을 크게 줄이면서 품질을 지킬 수 있다(캐스케이드).
 - GitHub의 Ollama 위임 도구들(claude-sidekick, mcp-local-llm 등)의 공통 분업:
