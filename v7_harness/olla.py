@@ -209,6 +209,145 @@ def cmd_find(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- 토큰 0 활용: 추정·요약본·경로 결정 -------------------------------------------------
+#
+# 로컬 모델의 토큰은 0이다. 그러므로 비싼 모델이 무언가를 "읽기 전에" 로컬이 먼저 읽고 줄이는
+# 것이 가장 큰 절감이다(LLMLingua, EMNLP 2023: 작은 모델로 입력 최대 20배 압축, 손실 적음).
+# 에이전트는 매 턴 문맥을 다시 보내므로 한 번 읽은 큰 파일은 여러 번 과금된다.
+
+# UTF-8 바이트 ÷ 이 값 ≈ 토큰. 한국어·영어·코드가 섞인 이 저장소에서 보수적으로 잡은 값이다
+# (tiktoken 같은 토크나이저 없이 O(1)로 추정; 영어 위주면 실제보다 많게, 한국어 위주면 적게 나온다).
+BYTES_PER_TOKEN = 3.0
+# 이만큼 넘는 읽기는 먼저 로컬 요약본을 만든다. 요약본(약 40줄) 자체가 수백 토큰이므로
+# 이보다 작은 파일은 요약하는 편이 오히려 손해다.
+DIGEST_MIN_TOKENS = 3000
+# 에이전트는 읽은 내용을 이후 턴마다 다시 보낸다. 몇 턴 더 이어진다고 볼지.
+REREAD_TURNS = 3
+CHUNK_LINES = 300
+
+LOCAL_KINDS = {
+    "summarize": ("요약", "정리", "설명", "summar", "explain", "overview", "describe"),
+    "classify": ("분류", "판별", "태그", "classif", "categor", "label"),
+    "draft": ("초안", "작성", "문서", "docstring", "주석", "draft", "boilerplate", "readme", "changelog", "commit message"),
+    "find": ("찾", "어디", "검색", "find", "where", "locate", "search"),
+}
+
+
+def estimate_tokens(paths: list[str], prompt: str = "") -> dict:
+    """비싼 모델이 이 파일들을 읽을 때 드는 토큰을 추정한다."""
+    per_file = []
+    total_bytes = len(prompt.encode("utf-8"))
+    for raw in paths:
+        path = Path(raw)
+        size = path.stat().st_size if path.is_file() else 0
+        total_bytes += size
+        per_file.append({"file": raw.replace(os.sep, "/"), "tokens": round(size / BYTES_PER_TOKEN)})
+    once = round(total_bytes / BYTES_PER_TOKEN)
+    return {"read_once": once, "with_rereads": once * (1 + REREAD_TURNS), "files": per_file}
+
+
+def _kind(task: str) -> str:
+    lowered = task.lower()
+    for kind, words in LOCAL_KINDS.items():
+        if any(word in lowered for word in words):
+            return kind
+    return "other"
+
+
+def decide_route(task: str, paths: list[str]) -> dict:
+    """사용자 지시 없이 도구가 스스로 정하는 경로.
+
+    - local-digest-then-self: 읽을 양이 크면 로컬이 먼저 요약본을 만들고, 비싼 모델은 그것만 읽는다.
+    - local-edit: 수정 지시가 구체적이면(worker_advice 60점 이상) 로컬이 고친다.
+    - local-answer: 요약·분류·초안·찾기는 로컬이 답하고 비싼 모델은 검토만 한다.
+    - self: 판단이 필요하고 읽을 양도 작으면 비싼 모델이 직접.
+    """
+    from v7_harness.adapters.worker_advice import advise
+
+    cost = estimate_tokens(paths, task)
+    kind = _kind(task)
+    advice = advise(task)
+    edit_like = any(w in task.lower() for w in ("change", "rename", "replace", "add", "remove", "fix", "바꿔", "변경", "추가", "삭제", "수정", "교체"))
+
+    if cost["read_once"] >= DIGEST_MIN_TOKENS and kind in ("summarize", "find", "other"):
+        route = "local-digest-then-self"
+        why = f"읽기 약 {cost['read_once']:,}토큰(재전송 포함 {cost['with_rereads']:,}) — 로컬 요약본을 먼저 읽는다"
+    elif edit_like and advice.worker == "local":
+        route = "local-edit"
+        why = f"수정 지시 구체성 {advice.specificity}/100 — 로컬이 고치고 결과만 검증한다"
+    elif kind in ("summarize", "classify", "draft", "find"):
+        route = "local-answer"
+        why = f"{kind} 과제 — 로컬이 답하고 검토만 한다"
+    else:
+        route = "self"
+        why = f"판단이 필요한 과제(구체성 {advice.specificity}/100)이고 읽을 양이 작다"
+    saved = cost["with_rereads"] if route != "self" else 0
+    return {"route": route, "reason": why, "kind": kind, "estimated_paid_tokens": cost, "tokens_saved_estimate": saved}
+
+
+def _digest_chunks(text: str) -> list[tuple[int, int, str]]:
+    lines = text.splitlines()
+    return [
+        (start + 1, min(start + CHUNK_LINES, len(lines)), "\n".join(lines[start:start + CHUNK_LINES]))
+        for start in range(0, max(len(lines), 1), CHUNK_LINES)
+    ]
+
+
+def digest_file(path: Path, focus: str, model: str, timeout: int) -> tuple[str, dict]:
+    """줄 번호가 달린 요약본. 비싼 모델은 이걸 보고 필요한 구간만 연다."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    parts: list[str] = []
+    usage_total = {"input_tokens": 0, "output_tokens": 0}
+    for first, last, chunk in _digest_chunks(text):
+        numbered = "\n".join(f"{first + i}: {line}" for i, line in enumerate(chunk.splitlines()))
+        prompt = (
+            "Summarize this part of a file for another engineer who will decide which lines to open.\n"
+            "Output at most 8 bullet lines. Each bullet: `L<start>-<end>: <what is there>`.\n"
+            "Name functions, classes, constants, and anything related to the focus. No prose outside bullets.\n"
+            f"Focus: {focus or 'general structure'}\n\n{numbered}"
+        )
+        answer, usage = worker._generate(model, prompt, timeout)
+        usage_total["input_tokens"] += usage.get("input_tokens", 0)
+        usage_total["output_tokens"] += usage.get("output_tokens", 0)
+        parts.append(answer.strip())
+    header = f"# digest: {path.as_posix()} ({len(text.splitlines())} lines)"
+    return header + "\n" + "\n".join(parts) + "\n", usage_total
+
+
+def cmd_estimate(args: argparse.Namespace) -> int:
+    print(json.dumps(estimate_tokens(args.file, args.prompt or ""), ensure_ascii=False))
+    return 0
+
+
+def cmd_route(args: argparse.Namespace) -> int:
+    print(json.dumps(decide_route(args.task, args.file), ensure_ascii=False))
+    return 0
+
+
+def cmd_digest(args: argparse.Namespace) -> int:
+    for raw in args.file:
+        path = Path(raw)
+        if not path.is_file():
+            print(f"no such file: {raw}", file=sys.stderr)
+            return 2
+        try:
+            digest, usage = digest_file(path, args.focus or "", args.model, args.timeout)
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            print(f"ollama unreachable: {exc}", file=sys.stderr)
+            return 1
+        before = round(path.stat().st_size / BYTES_PER_TOKEN)
+        after = round(len(digest.encode("utf-8")) / BYTES_PER_TOKEN)
+        sys.stdout.write(digest)
+        print(json.dumps({
+            "file": path.as_posix(),
+            "paid_tokens_if_read": before,
+            "paid_tokens_digest": after,
+            "saved_pct": round((1 - after / before) * 100, 1) if before else 0.0,
+            "local_tokens": usage,
+        }, ensure_ascii=False), file=sys.stderr)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="olla", description="로컬 Ollama 모델을 어느 프로젝트에서든 부려 쓰는 명령")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -230,6 +369,23 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", default=CHAT_MODEL)
     p.add_argument("--timeout", type=int, default=900)
     p.set_defaults(func=cmd_edit)
+
+    p = sub.add_parser("estimate", help="비싼 모델이 이 파일들을 읽을 때 드는 토큰 추정")
+    p.add_argument("-f", "--file", action="append", default=[])
+    p.add_argument("--prompt", default="")
+    p.set_defaults(func=cmd_estimate)
+
+    p = sub.add_parser("route", help="이 과제를 로컬로 보낼지 스스로 정함")
+    p.add_argument("task")
+    p.add_argument("-f", "--file", action="append", default=[])
+    p.set_defaults(func=cmd_route)
+
+    p = sub.add_parser("digest", help="큰 파일의 줄 번호 요약본(비싼 모델이 읽기 전에)")
+    p.add_argument("-f", "--file", action="append", required=True)
+    p.add_argument("--focus", default="")
+    p.add_argument("--model", default=CHAT_MODEL)
+    p.add_argument("--timeout", type=int, default=900)
+    p.set_defaults(func=cmd_digest)
 
     p = sub.add_parser("find")
     p.add_argument("query")

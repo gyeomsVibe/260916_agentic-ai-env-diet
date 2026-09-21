@@ -110,6 +110,72 @@ class OllaAskAndStatusTests(unittest.TestCase):
         self.assertIn('"ok": false', out.getvalue())
 
 
+class OllaBudgetTests(unittest.TestCase):
+    """토큰 0 활용: 추정, 경로 결정, 요약본."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self.tmp.name)
+        self.big = self.base / "big.py"
+        self.big.write_text("x = 1\n" * 4000, encoding="utf-8")
+        # Windows 는 줄바꿈을 \r\n 으로 저장한다. 기대값은 실제 파일 크기에서 계산한다.
+        self.big_tokens = round(self.big.stat().st_size / olla.BYTES_PER_TOKEN)
+        self.small = self.base / "small.py"
+        self.small.write_text("x = 1\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_estimate_counts_rereads(self) -> None:
+        cost = olla.estimate_tokens([str(self.big)])
+        self.assertEqual(self.big_tokens, cost["read_once"])
+        self.assertEqual(self.big_tokens * (1 + olla.REREAD_TURNS), cost["with_rereads"])
+
+    def test_large_read_goes_through_a_local_digest(self) -> None:
+        decision = olla.decide_route("이 파일 구조를 설명해줘", [str(self.big)])
+        self.assertEqual("local-digest-then-self", decision["route"])
+        self.assertGreater(decision["tokens_saved_estimate"], 0)
+
+    def test_specific_edit_goes_local(self) -> None:
+        decision = olla.decide_route("In `config.py`, change TIMEOUT_S from 30 to 90.", [])
+        self.assertEqual("local-edit", decision["route"])
+
+    def test_small_judgement_task_stays_with_the_paid_model(self) -> None:
+        decision = olla.decide_route("이 모듈 설계를 어떻게 바꿀지 판단해줘", [str(self.small)])
+        self.assertEqual("self", decision["route"])
+        self.assertEqual(0, decision["tokens_saved_estimate"])
+
+    def test_draft_task_goes_local_answer(self) -> None:
+        decision = olla.decide_route("write a commit message for this change", [str(self.small)])
+        self.assertEqual("local-answer", decision["route"])
+
+    def test_digest_keeps_line_anchors_per_chunk(self) -> None:
+        calls = []
+
+        def fake(model, prompt, timeout):
+            calls.append(prompt)
+            return ("- L1-10: assignments", {"input_tokens": 10, "output_tokens": 3})
+
+        with mock.patch.object(olla.worker, "_generate", side_effect=fake):
+            digest, usage = olla.digest_file(self.big, "x", "m", 60)
+        # 4,000줄 → 300줄씩 14조각, 조각마다 줄 번호가 붙어 넘어간다
+        self.assertEqual(14, len(calls))
+        self.assertIn("\n1: x = 1", calls[0])
+        self.assertIn("\n301: x = 1", calls[1])
+        self.assertTrue(digest.startswith("# digest:"))
+        self.assertEqual(140, usage["input_tokens"])
+
+    def test_digest_cli_reports_savings(self) -> None:
+        err = io.StringIO()
+        with mock.patch.object(olla.worker, "_generate", return_value=("- L1-300: x", {"input_tokens": 1, "output_tokens": 1})):
+            with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                code = olla.main(["digest", "-f", str(self.big)])
+        self.assertEqual(0, code)
+        report = err.getvalue()
+        self.assertIn("saved_pct", report)
+        self.assertIn(f'"paid_tokens_if_read": {self.big_tokens}', report)
+
+
 class OllaFindTests(unittest.TestCase):
     def test_ranks_files_by_similarity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
