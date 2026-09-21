@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -199,6 +200,41 @@ class OllaBudgetTests(unittest.TestCase):
         report = err.getvalue()
         self.assertIn("saved_pct", report)
         self.assertIn(f'"paid_tokens_if_read": {self.big_tokens}', report)
+
+
+class OllaReadHookTests(unittest.TestCase):
+    """Read 직전 훅: 큰 파일만 알리고, 무슨 입력이 와도 막지 않는다."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.big = Path(self.tmp.name) / "big.py"
+        self.big.write_text("x = 1\n" * 4000, encoding="utf-8")
+        self.small = Path(self.tmp.name) / "small.py"
+        self.small.write_text("x = 1\n", encoding="utf-8")
+
+    def _hook(self, stdin: str) -> tuple[int, str]:
+        out = io.StringIO()
+        with mock.patch("sys.stdin", io.StringIO(stdin)), redirect_stdout(out):
+            code = olla.main(["hook-read"])
+        return code, out.getvalue()
+
+    def test_large_whole_file_read_gets_a_digest_hint(self) -> None:
+        code, out = self._hook(json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(self.big)}}))
+        self.assertEqual(0, code)
+        payload = json.loads(out)
+        self.assertEqual("PreToolUse", payload["hookSpecificOutput"]["hookEventName"])
+        self.assertIn("olla digest", payload["hookSpecificOutput"]["additionalContext"])
+        self.assertNotIn("permissionDecision", payload["hookSpecificOutput"])
+
+    def test_small_or_targeted_reads_stay_silent(self) -> None:
+        for tool_input in ({"file_path": str(self.small)}, {"file_path": str(self.big), "offset": 100, "limit": 40}):
+            code, out = self._hook(json.dumps({"tool_input": tool_input}))
+            self.assertEqual((0, ""), (code, out))
+
+    def test_garbage_input_never_blocks(self) -> None:
+        for stdin in ("", "not json", "[]", json.dumps({"tool_input": {"file_path": "Z:/missing.py"}})):
+            self.assertEqual((0, ""), self._hook(stdin))
 
 
 class OllaFindTests(unittest.TestCase):

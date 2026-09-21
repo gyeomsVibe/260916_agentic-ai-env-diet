@@ -209,6 +209,12 @@ python -m v7_harness.cli pilot run --task T01 --source <폴더>   --prompt-file 
 
 조각을 잘게 쪼개면 오히려 한 곳을 놓쳤습니다(조각마다 앞뒤 맥락이 줄어 "스트림에 기록하는 함수"를 알아보지 못함). 그래서 기본값 300줄을 유지합니다. 구간 폭이 20~40줄이라 "파일 전체를 가리켜서 공짜로 맞힌" 경우는 없었습니다. 표본이 8건이므로 규칙은 그대로 "지도로 쓰고 그 줄은 직접 확인"입니다. 재현: `python .coord/runs/U17/bench_digest.py 300 150`.
 
+**Read 직전 알림 훅**: 문서로만 규칙을 두면 지키는 비율이 25~40%, 훅으로 걸면 약 95%로 보고됩니다(REFERENCES.md §4). 그래서 `olla hook-read`는 Claude Code가 약 3,000토큰 넘는 파일을 통째로 읽으려 할 때 "요약본 먼저"를 한 줄 알려 줍니다. 막지는 않고, 작은 파일·줄 범위 읽기·깨진 입력에는 아무 말도 하지 않습니다. 등록(`~/.claude/settings.json`):
+
+```json
+{"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": [{"type": "command", "command": "olla hook-read", "timeout": 5}]}]}}
+```
+
 **요약본 캐시**: 요약본 하나에 로컬 모델이 파일당 약 1분을 씁니다. 같은 파일 내용·같은 질문·같은 모델이면 `~/.cache/olla/digest/`의 이전 요약본을 즉시 돌려줍니다(보고에 `"cached": true`). 키가 파일 **내용**의 해시라서 한 글자만 바뀌어도 새로 만들고, 세 도구와 모든 프로젝트가 함께 씁니다. 새로 만들게 하려면 `--no-cache`, 위치를 바꾸려면 환경 변수 `OLLA_CACHE`.
 
 `olla route` 실측: "pilot.py 승인 판정 설명" → 요약본 먼저(재전송 포함 약 41,948토큰 절약 추정), "config.py TIMEOUT_S 30→90" → 로컬 수정, "이 모듈 설계를 어떻게 바꿀지 판단" → 직접.

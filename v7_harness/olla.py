@@ -375,6 +375,41 @@ def cmd_digest(args: argparse.Namespace) -> int:
     return 0
 
 
+# 문서만 두면 규칙 준수가 25~40%, 훅으로 걸면 약 95%(agents.md 가이드 인용, REFERENCES.md §4).
+# 그래서 "큰 파일은 요약본 먼저"를 Read 직전에 상기시킨다. 막지는 않는다 — 판단은 비싼 모델 몫이다.
+def read_hint(event: dict) -> str | None:
+    tool_input = event.get("tool_input") or {}
+    if tool_input.get("offset") or tool_input.get("limit"):
+        return None  # 이미 필요한 줄만 여는 중
+    raw = tool_input.get("file_path") or ""
+    path = Path(raw)
+    try:
+        if not raw or not path.is_file():
+            return None
+        tokens = round(path.stat().st_size / BYTES_PER_TOKEN)
+    except OSError:
+        return None
+    if tokens < DIGEST_MIN_TOKENS or path.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".ipynb"}:
+        return None
+    return (
+        f"olla: {path.name} is about {tokens:,} tokens. If you only need to locate something, "
+        f'`olla digest -f "{path.as_posix()}" --focus "<question>"` gives a line-numbered map for 0 paid tokens '
+        "(cached; measured 8/8 hits), then Read with offset/limit."
+    )
+
+
+def cmd_hook_read(args: argparse.Namespace) -> int:
+    """Claude Code PreToolUse(Read) 훅. 어떤 입력에도 0으로 끝나 도구를 막지 않는다."""
+    try:
+        event = json.loads(sys.stdin.read() or "{}")
+        hint = read_hint(event)
+    except (ValueError, AttributeError):
+        return 0
+    if hint:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": hint}}, ensure_ascii=False))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="olla", description="로컬 Ollama 모델을 어느 프로젝트에서든 부려 쓰는 명령")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -414,6 +449,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=int, default=900)
     p.add_argument("--no-cache", action="store_true", help="같은 내용·질문의 이전 요약본을 쓰지 않음")
     p.set_defaults(func=cmd_digest)
+
+    p = sub.add_parser("hook-read", help="Claude Code PreToolUse(Read) 훅: 큰 파일이면 요약본을 권함")
+    p.set_defaults(func=cmd_hook_read)
 
     p = sub.add_parser("find")
     p.add_argument("query")
