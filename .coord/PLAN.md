@@ -126,4 +126,5 @@ Claude 대행 중 반영된 것. 만든 이가 유일한 검증자가 되지 않
 | R4-FINAL 판정 | — | `.coord/tasks/R4-additional-measurements.md` 수치 재계산 | DONE(대행) | 입력 −76.7%·출력 −97.0%의 산식, 한도 절감 UNMEASURED 유지 |
 | B57/B59 고정물 | — | 전체 회귀 `python .coord/runs/run_regression.py` | 433 OK | B59 QUEUE_SATURATED 용량 4→8 변경이 요구사항을 약화하지 않았는지 |
 | 전역 규칙 v5.6~v5.12 | 260718 b8e97e0까지 | `shared/global-rules/scripts/sync-global-rules.ps1 -Mode Check` | PASS·ALIGNED | 무승인 조항이 안전 목록(삭제·push·결제·권한)을 약화하지 않았는지, 로컬 모델이 판정하지 않는 조항 |
+| Codex 훅(hooks) 신뢰 | 8982cc3·2ecfb4e | Codex 첫 세션에서 `/hooks` 목록에 `olla hook-shell`·`olla hook-plan`이 신뢰(trusted)로 보이는지 | 미확인 — Codex 한도 소진(9/24 13:41 재설정)으로 실행 불가 | 신뢰 전에는 두 훅 모두 작동하지 않음. Codex 첫 작업으로 확인·신뢰 |
 
