@@ -223,7 +223,7 @@ BYTES_PER_TOKEN = 3.0
 DIGEST_MIN_TOKENS = 3000
 # 에이전트는 읽은 내용을 이후 턴마다 다시 보낸다. 몇 턴 더 이어진다고 볼지.
 REREAD_TURNS = 3
-CHUNK_LINES = 300
+CHUNK_LINES = 300  # U17 실측: 300줄 8/8 적중(구간 19~42줄), 150줄 7/8 — .coord/runs/U17/bench_digest*.json
 
 LOCAL_KINDS = {
     "summarize": ("요약", "정리", "설명", "summar", "explain", "overview", "describe"),

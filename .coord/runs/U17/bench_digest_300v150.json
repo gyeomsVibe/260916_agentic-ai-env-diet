@@ -1,0 +1,208 @@
+{
+  "schema": "u17-digest-recall-v1",
+  "model": "qwen2.5-coder:7b",
+  "runs": [
+    {
+      "chunk_lines": 300,
+      "recall": 1.0,
+      "hits": 8,
+      "total": 8,
+      "avg_saved_pct": 91.0,
+      "wall_s": 713.5,
+      "rows": [
+        {
+          "file": "v7_harness/pilot.py",
+          "question": "where is the approved bundle applied to the source",
+          "truth": [
+            436,
+            659
+          ],
+          "hit": true,
+          "digest_tokens": 891,
+          "file_tokens": 10464,
+          "wall_s": 113.8
+        },
+        {
+          "file": "v7_harness/pilot.py",
+          "question": "where is the acceptance command executed in staging",
+          "truth": [
+            608,
+            617
+          ],
+          "hit": true,
+          "digest_tokens": 867,
+          "file_tokens": 10464,
+          "wall_s": 109.1
+        },
+        {
+          "file": "v7_harness/pilot.py",
+          "question": "where does a run with no changed files become REWORK",
+          "truth": [
+            649,
+            726
+          ],
+          "hit": true,
+          "digest_tokens": 918,
+          "file_tokens": 10464,
+          "wall_s": 112.5
+        },
+        {
+          "file": "v7_harness/cli.py",
+          "question": "where is the pilot run command registered in the parser",
+          "truth": [
+            357
+          ],
+          "hit": true,
+          "digest_tokens": 638,
+          "file_tokens": 8351,
+          "wall_s": 90.9
+        },
+        {
+          "file": "v7_harness/cli.py",
+          "question": "where is the local worker command chosen",
+          "truth": [
+            465
+          ],
+          "hit": true,
+          "digest_tokens": 792,
+          "file_tokens": 8351,
+          "wall_s": 102.0
+        },
+        {
+          "file": "v7_harness/cli.py",
+          "question": "where are pilot results written to the coordination stream",
+          "truth": [
+            423
+          ],
+          "hit": true,
+          "digest_tokens": 686,
+          "file_tokens": 8351,
+          "wall_s": 95.9
+        },
+        {
+          "file": "v7_harness/coord/stream.py",
+          "question": "where are settled events moved to the archive",
+          "truth": [
+            201
+          ],
+          "hit": true,
+          "digest_tokens": 313,
+          "file_tokens": 3662,
+          "wall_s": 42.6
+        },
+        {
+          "file": "v7_harness/coord/stream.py",
+          "question": "where is the verdict actor restriction enforced",
+          "truth": [
+            151
+          ],
+          "hit": true,
+          "digest_tokens": 445,
+          "file_tokens": 3662,
+          "wall_s": 46.7
+        }
+      ]
+    },
+    {
+      "chunk_lines": 150,
+      "recall": 0.875,
+      "hits": 7,
+      "total": 8,
+      "avg_saved_pct": 88.4,
+      "wall_s": 530.4,
+      "rows": [
+        {
+          "file": "v7_harness/pilot.py",
+          "question": "where is the approved bundle applied to the source",
+          "truth": [
+            436,
+            659
+          ],
+          "hit": true,
+          "digest_tokens": 1162,
+          "file_tokens": 10464,
+          "wall_s": 80.7
+        },
+        {
+          "file": "v7_harness/pilot.py",
+          "question": "where is the acceptance command executed in staging",
+          "truth": [
+            608,
+            617
+          ],
+          "hit": true,
+          "digest_tokens": 1137,
+          "file_tokens": 10464,
+          "wall_s": 88.4
+        },
+        {
+          "file": "v7_harness/pilot.py",
+          "question": "where does a run with no changed files become REWORK",
+          "truth": [
+            649,
+            726
+          ],
+          "hit": true,
+          "digest_tokens": 1131,
+          "file_tokens": 10464,
+          "wall_s": 90.1
+        },
+        {
+          "file": "v7_harness/cli.py",
+          "question": "where is the pilot run command registered in the parser",
+          "truth": [
+            357
+          ],
+          "hit": true,
+          "digest_tokens": 914,
+          "file_tokens": 8351,
+          "wall_s": 78.1
+        },
+        {
+          "file": "v7_harness/cli.py",
+          "question": "where is the local worker command chosen",
+          "truth": [
+            465
+          ],
+          "hit": true,
+          "digest_tokens": 849,
+          "file_tokens": 8351,
+          "wall_s": 66.2
+        },
+        {
+          "file": "v7_harness/cli.py",
+          "question": "where are pilot results written to the coordination stream",
+          "truth": [
+            423
+          ],
+          "hit": false,
+          "digest_tokens": 703,
+          "file_tokens": 8351,
+          "wall_s": 55.9
+        },
+        {
+          "file": "v7_harness/coord/stream.py",
+          "question": "where are settled events moved to the archive",
+          "truth": [
+            201
+          ],
+          "hit": true,
+          "digest_tokens": 582,
+          "file_tokens": 3662,
+          "wall_s": 36.3
+        },
+        {
+          "file": "v7_harness/coord/stream.py",
+          "question": "where is the verdict actor restriction enforced",
+          "truth": [
+            151
+          ],
+          "hit": true,
+          "digest_tokens": 524,
+          "file_tokens": 3662,
+          "wall_s": 34.7
+        }
+      ]
+    }
+  ]
+}
