@@ -25,6 +25,14 @@ from .core import BrokerCore, BrokerError
 MAX_FRAME_BYTES = 16 * 1024
 DEFAULT_REQUEST_TIMEOUT = 1.0
 DEFAULT_RESPONSE_TIMEOUT = 2.0
+# 연결 작업자를 기다리느라 종료 기한을 다 쓰면 디스패처에 0.1초만 남아, 부하 중 SQLite 를 닫는
+# 소유 스레드가 못 끝나 DISPATCHER_STOP_TIMEOUT 으로 자식이 exit 1 했다(B64, 2026-09-22 회귀 로그).
+# 정상 STOP 이 실패로 끝나지 않도록 디스패처 정리에는 따로 최소 시간을 준다.
+DRAIN_FLOOR_S = 2.0
+
+
+def drain_budget(deadline: float, now: float) -> float:
+    return max(DRAIN_FLOOR_S, deadline - now)
 
 
 class BrokerProtocolError(RuntimeError):
@@ -207,7 +215,7 @@ class ForegroundBroker:
                     break
                 for worker in workers:
                     worker.join(timeout=0.05)
-            self._dispatcher.drain(timeout=max(0.1, deadline - time.monotonic()))
+            self._dispatcher.drain(timeout=drain_budget(deadline, time.monotonic()))
 
     def _connection_worker(self, connection: Any) -> None:
         try:
