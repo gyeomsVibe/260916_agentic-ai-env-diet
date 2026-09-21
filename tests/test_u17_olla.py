@@ -237,6 +237,53 @@ class OllaReadHookTests(unittest.TestCase):
             self.assertEqual((0, ""), self._hook(stdin))
 
 
+class OllaShellHookTests(unittest.TestCase):
+    """Codex 읽은 직후 훅: 셸로 큰 파일을 통째로 출력했을 때만 알리고, 막지 않는다."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+        (self.base / "big.py").write_text("x = 1\n" * 4000, encoding="utf-8")
+        (self.base / "small.py").write_text("x = 1\n", encoding="utf-8")
+
+    def _hook(self, command, cwd=None) -> tuple[int, str]:
+        event = {"hook_event_name": "PostToolUse", "tool_name": "Bash",
+                 "cwd": str(cwd or self.base), "tool_input": {"command": command}}
+        out = io.StringIO()
+        with mock.patch("sys.stdin", io.StringIO(json.dumps(event))), redirect_stdout(out):
+            code = olla.main(["hook-shell"])
+        return code, out.getvalue()
+
+    def test_whole_file_dumps_get_a_digest_hint(self) -> None:
+        for command in ("cat big.py", "Get-Content big.py", "cd x && type big.py", f'cat "{self.base / "big.py"}"'):
+            code, out = self._hook(command)
+            self.assertEqual(0, code, command)
+            payload = json.loads(out)["hookSpecificOutput"]
+            self.assertEqual("PostToolUse", payload["hookEventName"])
+            self.assertIn("olla digest", payload["additionalContext"], command)
+
+    def test_ranged_piped_or_small_reads_stay_silent(self) -> None:
+        for command in ("cat small.py", "sed -n '1,40p' big.py", "cat big.py | head -40",
+                        "Get-Content big.py -TotalCount 40", "grep -n def big.py", "cat missing.py"):
+            self.assertEqual((0, ""), self._hook(command), command)
+
+    def test_argv_list_commands_are_read_too(self) -> None:
+        for command in (["cat", "big.py"], ["powershell.exe", "-Command", "Get-Content big.py"], ["bash", "-lc", "cat big.py"],
+                        ["powershell.exe", "-NoProfile", "-Command", "Get-Content big.py"],
+                        'powershell -NoProfile -Command "Get-Content big.py"'):
+            code, out = self._hook(command)
+            self.assertEqual(0, code)
+            self.assertIn("olla digest", out, command)
+
+    def test_garbage_input_never_blocks(self) -> None:
+        for stdin in ("", "not json", "[]", '{"tool_input": {"command": "cat \\"unterminated"}}'):
+            out = io.StringIO()
+            with mock.patch("sys.stdin", io.StringIO(stdin)), redirect_stdout(out):
+                self.assertEqual(0, olla.main(["hook-shell"]))
+            self.assertEqual("", out.getvalue())
+
+
 class OllaFindTests(unittest.TestCase):
     def test_ranks_files_by_similarity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

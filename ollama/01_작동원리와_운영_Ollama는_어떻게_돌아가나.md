@@ -218,6 +218,12 @@ python -m v7_harness.cli pilot run --task T01 --source <폴더>   --prompt-file 
 {"hooks": {"PreToolUse": [{"matcher": "Read", "hooks": [{"type": "command", "command": "olla hook-read", "timeout": 5}]}]}}
 ```
 
+**Codex용 읽은 직후 알림 훅(`olla hook-shell`)**: Codex는 파일을 셸(`cat`, `Get-Content`)로 읽고, 실행 직전 훅(PreToolUse)의 추가 문맥(additionalContext)을 아직 받지 않습니다([공식 hooks 문서](https://learn.chatgpt.com/docs/hooks), [이슈 #19385](https://github.com/openai/codex/issues/19385)). 그래서 **실행 직후(PostToolUse)** 에 "방금 약 N토큰을 통째로 읽었다, 다음엔 요약본 먼저"를 알립니다. 이미 읽은 파일은 늦었지만 이후 재전송과 다음 읽기를 줄입니다. 파이프(`| head`)·범위 지정(`sed -n`, `-TotalCount`)·작은 파일에는 침묵하고, `powershell -Command "..."` 감싸기도 풀어서 봅니다. 등록 위치 `~/.codex/hooks.json`(등록 완료). 새 훅은 Codex에서 `/hooks`로 한 번 신뢰(trust)해야 켜집니다.
+
+```json
+{"hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "olla hook-shell", "timeout": 5}]}]}}
+```
+
 **요약본 캐시**: 요약본 하나에 로컬 모델이 파일당 약 1분을 씁니다. 같은 파일 내용·같은 질문·같은 모델이면 `~/.cache/olla/digest/`의 이전 요약본을 즉시 돌려줍니다(보고에 `"cached": true`). 키가 파일 **내용**의 해시라서 한 글자만 바뀌어도 새로 만들고, 세 도구와 모든 프로젝트가 함께 씁니다. 새로 만들게 하려면 `--no-cache`, 위치를 바꾸려면 환경 변수 `OLLA_CACHE`.
 
 `olla route` 실측: "pilot.py 승인 판정 설명" → 요약본 먼저(재전송 포함 약 41,948토큰 절약 추정), "config.py TIMEOUT_S 30→90" → 로컬 수정, "이 모듈 설계를 어떻게 바꿀지 판단" → 직접.

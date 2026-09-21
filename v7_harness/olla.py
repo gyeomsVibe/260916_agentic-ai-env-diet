@@ -26,6 +26,7 @@ import hashlib
 import json
 import math
 import os
+import shlex
 import shutil
 import sys
 import urllib.error
@@ -410,6 +411,69 @@ def cmd_hook_read(args: argparse.Namespace) -> int:
     return 0
 
 
+# Codex 는 파일을 셸로 읽는다. 그리고 PreToolUse 의 additionalContext 를 아직 받지 않으므로(공식 hooks 문서)
+# 읽은 직후(PostToolUse)에 알린다. 이미 읽은 파일은 늦었지만, 이후 턴 재전송과 다음 읽기를 줄인다.
+WHOLE_FILE_READERS = {"cat", "type", "get-content", "gc", "more", "bat"}
+SHELL_WRAPPERS = {"powershell", "pwsh", "bash", "sh", "cmd", "zsh"}
+RANGE_FLAGS = {"-totalcount", "-head", "-tail", "-first", "-last", "-n", "--lines"}
+
+
+def shell_read_targets(command: str) -> list[str]:
+    """`cat big.py`처럼 파일을 통째로 출력하는 명령의 대상. 파이프·범위 지정은 이미 줄인 것으로 본다."""
+    targets: list[str] = []
+    for segment in command.replace("&&", ";").replace("||", ";").split(";"):
+        if "|" in segment:
+            continue
+        try:
+            words = shlex.split(segment, posix=False)
+        except ValueError:
+            continue
+        # `powershell -NoProfile -Command "Get-Content x"` 같은 감싸기를 벗긴다
+        if words and Path(words[0]).stem.lower() in SHELL_WRAPPERS:
+            words = words[1:]
+            while words and words[0][:1] in "-/":
+                words = words[1:]
+            if len(words) == 1 and " " in words[0]:
+                targets.extend(shell_read_targets(words[0].strip("'\"")))
+                continue
+        if not words or words[0].lower() not in WHOLE_FILE_READERS:
+            continue
+        args = words[1:]
+        if any(a.lower() in RANGE_FLAGS for a in args):
+            continue
+        targets.extend(a.strip("'\"") for a in args if not a.startswith("-"))
+    return targets
+
+
+def shell_read_hint(event: dict) -> str | None:
+    command = (event.get("tool_input") or {}).get("command") or ""
+    if isinstance(command, list):
+        # ["powershell", "-Command", "Get-Content x"] 처럼 셸이 감싼 형태면 실제 명령만 꺼낸다
+        parts = [str(part) for part in command]
+        if parts and Path(parts[0]).stem.lower() in SHELL_WRAPPERS:
+            parts = [part for part in parts[1:] if part[:1] not in "-/"]
+        command = " ".join(parts)
+    base = Path(event.get("cwd") or ".")
+    for raw in shell_read_targets(str(command)):
+        path = Path(raw) if Path(raw).is_absolute() else base / raw
+        hint = read_hint({"tool_input": {"file_path": str(path)}})
+        if hint:
+            return hint.replace("then Read with offset/limit.", "then print only those lines (e.g. `sed -n 'A,Bp'`).")
+    return None
+
+
+def cmd_hook_shell(args: argparse.Namespace) -> int:
+    """Codex PostToolUse(Bash) 훅. 어떤 입력에도 0으로 끝나 도구를 막지 않는다."""
+    try:
+        event = json.loads(sys.stdin.read() or "{}")
+        hint = shell_read_hint(event) if isinstance(event, dict) else None
+    except (ValueError, AttributeError, TypeError):
+        return 0
+    if hint:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": hint}}, ensure_ascii=False))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="olla", description="로컬 Ollama 모델을 어느 프로젝트에서든 부려 쓰는 명령")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -452,6 +516,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("hook-read", help="Claude Code PreToolUse(Read) 훅: 큰 파일이면 요약본을 권함")
     p.set_defaults(func=cmd_hook_read)
+
+    p = sub.add_parser("hook-shell", help="Codex PostToolUse(Bash) 훅: 큰 파일을 통째로 읽었으면 요약본을 권함")
+    p.set_defaults(func=cmd_hook_shell)
 
     p = sub.add_parser("find")
     p.add_argument("query")
