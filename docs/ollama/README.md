@@ -180,7 +180,7 @@ python -m v7_harness.cli pilot run --task T01 --source <폴더>   --prompt-file 
 
 ## 7-2. 어디서나 부려 쓰기: `olla`
 
-파일럿은 이 프로젝트 안에서만 돕니다. 세 도구가 **다른 프로젝트를 하는 중에도** 로컬 모델을 쓰도록 공용 명령 `olla`를 PATH(`D:\AI-Modelsin`)에 두었습니다. bash와 cmd 양쪽에서 불립니다.
+파일럿은 이 프로젝트 안에서만 돕니다. 세 도구가 **다른 프로젝트를 하는 중에도** 로컬 모델을 쓰도록 공용 명령 `olla`를 PATH 폴더 `D:/AI-Models/bin`에 두었습니다. bash와 cmd 양쪽에서 불립니다.
 
 | 명령 | 쓰임 | 안전장치 |
 |---|---|---|
