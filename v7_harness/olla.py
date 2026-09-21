@@ -56,6 +56,36 @@ def _get(path: str, timeout: int = 10) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+# "실제 세션에서 얼마를 아꼈나"는 기록이 없으면 영원히 UNMEASURED 다. 호출·알림을 한 줄씩 남긴다.
+# 여러 도구가 동시에 쓰므로 조율 스트림과 같은 파일 잠금을 쓴다(Windows 동시 append 는 줄을 잃는다).
+USAGE_LOG = Path(os.environ.get("OLLA_USAGE", Path.home() / ".cache" / "olla" / "usage.jsonl"))
+
+
+def _caller() -> str:
+    names = os.environ.keys()
+    if "CLAUDECODE" in names:
+        return "claude"
+    if any(n.upper().startswith("CODEX_") for n in names):
+        return "codex"
+    if any(n.upper().startswith(("ANTIGRAVITY", "GEMINI_CLI")) for n in names):
+        return "antigravity"
+    return "unknown"
+
+
+def log_usage(event: str, **fields) -> None:
+    """최선 노력 기록. 실패해도 명령·훅은 그대로 진행한다."""
+    from v7_harness.coord.stream import _exclusive
+
+    record = {"ts": datetime.now().isoformat(timespec="seconds"), "event": event, "caller": _caller(), **fields}
+    try:
+        USAGE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with _exclusive(USAGE_LOG.with_suffix(".lock")):
+            with USAGE_LOG.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001 — 기록 실패가 작업을 막으면 안 된다
+        pass
+
+
 def _read_files(paths: list[str]) -> str:
     chunks = []
     for raw in paths:
@@ -124,6 +154,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         report["hangul_ratio"] = round(hangul_ratio(text), 2)
         report["attempts"] = attempt + 1
     print(json.dumps(report, ensure_ascii=False), file=sys.stderr)
+    log_usage("ask", ko=args.ko, attempts=attempt + 1, **usage_total)
     if args.ko and hangul_ratio(text) < KO_MIN_HANGUL_RATIO:
         print("local answer is not Korean after retry — write it yourself", file=sys.stderr)
         return 4
@@ -201,6 +232,7 @@ def cmd_edit(args: argparse.Namespace) -> int:
     for path, new_text in after.items():
         path.write_text(new_text, encoding="utf-8")
     print(json.dumps({"applied": True, "backup": str(backup), **usage}, ensure_ascii=False), file=sys.stderr)
+    log_usage("edit", files=len(files), **usage)
     return 0
 
 
@@ -405,6 +437,7 @@ def cmd_digest(args: argparse.Namespace) -> int:
             "local_tokens": usage,
             "cached": cached,
         }, ensure_ascii=False), file=sys.stderr)
+        log_usage("digest", file=str(path.resolve()), paid_tokens_if_read=before, paid_tokens_digest=after, cached=cached)
     return 0
 
 
@@ -440,6 +473,7 @@ def cmd_hook_read(args: argparse.Namespace) -> int:
         return 0
     if hint:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": hint}}, ensure_ascii=False))
+        log_usage("hint_read", file=str(Path((event.get("tool_input") or {}).get("file_path", "")).resolve()))
     return 0
 
 
@@ -503,6 +537,7 @@ def cmd_hook_shell(args: argparse.Namespace) -> int:
         return 0
     if hint:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": hint}}, ensure_ascii=False))
+        log_usage("hint_shell")
     return 0
 
 
@@ -532,6 +567,49 @@ def cmd_hook_plan(args: argparse.Namespace) -> int:
     if not isinstance(event, dict) or not _server_up():
         return 0
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": PLAN_HINT}}))
+    log_usage("hint_plan")
+    return 0
+
+
+FOLLOW_WINDOW_S = 600  # 알림 뒤 10분 안에 같은 파일 요약본을 만들었으면 "따랐다"로 센다
+
+
+def usage_stats(lines: list[str]) -> dict:
+    records = []
+    for line in lines:
+        try:
+            records.append(json.loads(line))
+        except ValueError:
+            continue
+    by_caller: dict[str, dict] = {}
+    for rec in records:
+        row = by_caller.setdefault(rec.get("caller", "unknown"), {
+            "ask": 0, "edit": 0, "digest": 0, "digest_cached": 0, "paid_tokens_saved": 0,
+            "hint_plan": 0, "hint_read": 0, "hint_shell": 0, "hint_read_followed": 0,
+        })
+        event = rec.get("event")
+        if event in row:
+            row[event] += 1
+        if event == "digest":
+            row["digest_cached"] += 1 if rec.get("cached") else 0
+            row["paid_tokens_saved"] += max(0, rec.get("paid_tokens_if_read", 0) - rec.get("paid_tokens_digest", 0))
+    for i, rec in enumerate(records):
+        if rec.get("event") != "hint_read":
+            continue
+        start = datetime.fromisoformat(rec["ts"])
+        for later in records[i + 1:]:
+            if (datetime.fromisoformat(later["ts"]) - start).total_seconds() > FOLLOW_WINDOW_S:
+                break
+            if later.get("event") == "digest" and later.get("file") == rec.get("file") and later.get("caller") == rec.get("caller"):
+                by_caller[rec.get("caller", "unknown")]["hint_read_followed"] += 1
+                break
+    return {"records": len(records), "by_caller": by_caller,
+            "note": "paid_tokens_saved = 한 번 읽기 기준(재전송 제외) 추정치"}
+
+
+def cmd_stats(args: argparse.Namespace) -> int:
+    lines = USAGE_LOG.read_text(encoding="utf-8").splitlines() if USAGE_LOG.is_file() else []
+    print(json.dumps(usage_stats(lines), ensure_ascii=False, indent=2))
     return 0
 
 
@@ -584,6 +662,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("hook-plan", help="UserPromptSubmit 훅: 작업 시작 시 로컬 모델 분업을 먼저 정하게 함")
     p.set_defaults(func=cmd_hook_plan)
+
+    p = sub.add_parser("stats", help="세 도구의 olla 사용 기록 집계(실제 세션 절감 추정)")
+    p.set_defaults(func=cmd_stats)
 
     p = sub.add_parser("find")
     p.add_argument("query")

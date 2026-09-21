@@ -232,6 +232,8 @@ python -m v7_harness.cli pilot run --task T01 --source <폴더>   --prompt-file 
 {"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": "olla hook-plan", "timeout": 5}]}], "PreToolUse": [{"matcher": "Read", "hooks": [{"type": "command", "command": "olla hook-read", "timeout": 5}]}]}}
 ```
 
+**사용 기록과 집계(`olla stats`)**: "실제 세션에서 얼마를 아꼈나"는 기록이 없으면 영원히 UNMEASURED입니다. 그래서 세 도구의 `olla` 호출(ask·edit·digest)과 훅 알림을 `~/.cache/olla/usage.jsonl`에 한 줄씩 남기고(호출 도구는 환경 변수로 구분), `olla stats`가 도구별 사용 횟수·요약본으로 아낀 유료 토큰·"알림 뒤 10분 안에 요약본을 만들었는가(따른 비율)"를 셉니다. 여러 프로세스가 동시에 쓰므로 조율 스트림과 같은 파일 잠금을 쓰며, 이 기능의 병렬 테스트가 잠금의 Windows 결함(B63)을 찾아냈습니다.
+
 **요약본 캐시**: 요약본 하나에 로컬 모델이 파일당 약 1분을 씁니다. 같은 파일 내용·같은 질문·같은 모델이면 `~/.cache/olla/digest/`의 이전 요약본을 즉시 돌려줍니다(보고에 `"cached": true`). 키가 파일 **내용**의 해시라서 한 글자만 바뀌어도 새로 만들고, 세 도구와 모든 프로젝트가 함께 씁니다. 새로 만들게 하려면 `--no-cache`, 위치를 바꾸려면 환경 변수 `OLLA_CACHE`.
 
 `olla route` 실측: "pilot.py 승인 판정 설명" → 요약본 먼저(재전송 포함 약 41,948토큰 절약 추정), "config.py TIMEOUT_S 30→90" → 로컬 수정, "이 모듈 설계를 어떻게 바꿀지 판단" → 직접.

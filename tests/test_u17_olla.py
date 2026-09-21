@@ -20,6 +20,19 @@ from unittest import mock
 
 from v7_harness import olla
 
+# 사용 기록은 실제 사용자 파일(~/.cache/olla/usage.jsonl)을 오염시키면 안 된다(한 번 21줄 섞였다).
+_USAGE_TMP = tempfile.TemporaryDirectory()
+_USAGE_PATCH = mock.patch.object(olla, "USAGE_LOG", Path(_USAGE_TMP.name) / "usage.jsonl")
+
+
+def setUpModule() -> None:
+    _USAGE_PATCH.start()
+
+
+def tearDownModule() -> None:
+    _USAGE_PATCH.stop()
+    _USAGE_TMP.cleanup()
+
 
 class OllaEditTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -335,6 +348,53 @@ class OllaPlanHookTests(unittest.TestCase):
         self.assertEqual((0, ""), self._hook(json.dumps({"prompt": "x"}), up=False))
         for stdin in ("not json", "[]"):
             self.assertEqual((0, ""), self._hook(stdin, up=True))
+
+
+class OllaUsageLogTests(unittest.TestCase):
+    """실제 세션 절감을 재기 위한 기록: 병렬로 써도 줄을 잃지 않고, 집계가 맞는다."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        patch = mock.patch.object(olla, "USAGE_LOG", Path(self.tmp.name) / "usage.jsonl")
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_parallel_writers_lose_no_lines(self) -> None:
+        # 스레드는 한 프로세스 안 잠금으로 직렬화되므로, 세 도구처럼 별도 프로세스 4개로 동시에 쓴다.
+        import subprocess
+        import sys as _sys
+
+        root = Path(__file__).resolve().parents[1]
+        code = ("import sys;from pathlib import Path;from v7_harness import olla;"
+                "olla.USAGE_LOG=Path(sys.argv[1]);[olla.log_usage('ask',w=int(sys.argv[2]),n=i) for i in range(50)]")
+        env = dict(os.environ, PYTHONPATH=str(root))
+        procs = [subprocess.Popen([_sys.executable, "-c", code, str(olla.USAGE_LOG), str(w)], env=env, cwd=root)
+                 for w in range(4)]
+        self.assertEqual([0, 0, 0, 0], [p.wait(timeout=60) for p in procs])
+        lines = olla.USAGE_LOG.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(200, len(lines))
+        self.assertEqual({(w, n) for w in range(4) for n in range(50)},
+                         {(json.loads(line)["w"], json.loads(line)["n"]) for line in lines})
+
+    def test_stats_counts_savings_and_followed_hints(self) -> None:
+        lines = [json.dumps(r) for r in (
+            {"ts": "2026-09-22T10:00:00", "event": "hint_read", "caller": "claude", "file": "a.py"},
+            {"ts": "2026-09-22T10:01:00", "event": "digest", "caller": "claude", "file": "a.py",
+             "paid_tokens_if_read": 10000, "paid_tokens_digest": 800, "cached": False},
+            {"ts": "2026-09-22T10:30:00", "event": "hint_read", "caller": "claude", "file": "b.py"},
+            {"ts": "2026-09-22T10:31:00", "event": "digest", "caller": "codex", "file": "c.py",
+             "paid_tokens_if_read": 5000, "paid_tokens_digest": 400, "cached": True},
+        )] + ["not json"]
+        stats = olla.usage_stats(lines)
+        claude, codex = stats["by_caller"]["claude"], stats["by_caller"]["codex"]
+        self.assertEqual((2, 1, 9200), (claude["hint_read"], claude["hint_read_followed"], claude["paid_tokens_saved"]))
+        self.assertEqual((1, 1, 4600), (codex["digest"], codex["digest_cached"], codex["paid_tokens_saved"]))
+
+    def test_logging_failure_never_breaks_the_command(self) -> None:
+        with mock.patch.object(olla, "USAGE_LOG", Path(self.tmp.name) / "missing_dir_is_file"):
+            (Path(self.tmp.name) / "missing_dir_is_file").mkdir()
+            olla.log_usage("ask")  # 디렉터리에 append 실패 — 예외 없이 지나가야 한다
 
 
 class OllaFindTests(unittest.TestCase):

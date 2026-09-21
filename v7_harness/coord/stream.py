@@ -66,10 +66,13 @@ def _exclusive(lock_path: Path):
         while handle is None:
             try:
                 handle = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            except FileExistsError:
+            except (FileExistsError, PermissionError):
+                # Windows 는 삭제 대기 중인 잠금 파일을 열면 PermissionError 를 낸다(8프로세스 경합에서
+                # 300회당 3~11건 실측). 이것도 "다른 쪽이 잡고 있음"이므로 기다렸다 다시 시도한다.
                 try:
                     age = time.time() - lock_path.stat().st_mtime
-                except FileNotFoundError:
+                except (FileNotFoundError, PermissionError):
+                    time.sleep(0.01)
                     continue
                 if age > LOCK_STALE_S:
                     lock_path.unlink(missing_ok=True)
