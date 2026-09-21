@@ -1,0 +1,81 @@
+{
+  "schema": "u17-paid-path-v1",
+  "model": "qwen2.5-coder:7b",
+  "full_read_tokens": 63769,
+  "digest_path_tokens": 8979,
+  "saved_pct": 85.9,
+  "rows": [
+    {
+      "file": "v7_harness/pilot.py",
+      "question": "where is the approved bundle applied to the source",
+      "full_read": 10464,
+      "digest": 880,
+      "opened_window": 416,
+      "digest_path": 1296,
+      "saved_pct": 87.6
+    },
+    {
+      "file": "v7_harness/pilot.py",
+      "question": "where is the acceptance command executed in staging",
+      "full_read": 10464,
+      "digest": 878,
+      "opened_window": 436,
+      "digest_path": 1314,
+      "saved_pct": 87.4
+    },
+    {
+      "file": "v7_harness/pilot.py",
+      "question": "where does a run with no changed files become REWORK",
+      "full_read": 10464,
+      "digest": 897,
+      "opened_window": 597,
+      "digest_path": 1494,
+      "saved_pct": 85.7
+    },
+    {
+      "file": "v7_harness/cli.py",
+      "question": "where is the pilot run command registered in the parser",
+      "full_read": 8351,
+      "digest": 495,
+      "opened_window": 698,
+      "digest_path": 1193,
+      "saved_pct": 85.7
+    },
+    {
+      "file": "v7_harness/cli.py",
+      "question": "where is the local worker command chosen",
+      "full_read": 8351,
+      "digest": 748,
+      "opened_window": 541,
+      "digest_path": 1289,
+      "saved_pct": 84.6
+    },
+    {
+      "file": "v7_harness/cli.py",
+      "question": "where are pilot results written to the coordination stream",
+      "full_read": 8351,
+      "digest": 634,
+      "opened_window": 592,
+      "digest_path": 1226,
+      "saved_pct": 85.3
+    },
+    {
+      "file": "v7_harness/coord/stream.py",
+      "question": "where are settled events moved to the archive",
+      "full_read": 3662,
+      "digest": 210,
+      "opened_window": 293,
+      "digest_path": 503,
+      "saved_pct": 86.3
+    },
+    {
+      "file": "v7_harness/coord/stream.py",
+      "question": "where is the verdict actor restriction enforced",
+      "full_read": 3662,
+      "digest": 264,
+      "opened_window": 400,
+      "digest_path": 664,
+      "saved_pct": 81.9
+    }
+  ]
+}
