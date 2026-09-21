@@ -546,8 +546,52 @@ def cmd_hook_shell(args: argparse.Namespace) -> int:
 PLAN_HINT = (
     "olla (local model, 0 paid tokens) is up. Before acting, split this task: reading a file over ~3k tokens -> "
     "`olla digest`, drafts/summaries/commit messages -> `olla ask --ko` with format+example, exact edits -> `olla edit`, "
-    "semantic search -> `olla find`. Do the rest yourself; verify local output, never let it judge."
+    "semantic search -> `olla find`. Do the rest yourself; verify local output, never let it judge. "
+    "Output rule: no text between tool calls; end with one Korean report of at most 3 short lines."
 )
+# 출력 규칙은 시스템 규칙 파일에 있어도 매 턴 어겼다(실측: Claude 턴당 진행 설명 0~9개, Codex 2~33개).
+# 생성 직전에 다시 보이는 이 줄이 가장 가깝다. 지켰는지는 Stop 훅(hook-stop)이 기록해 `olla stats`로 본다.
+
+
+def turn_shape(transcript: Path) -> dict | None:
+    """마지막 사용자 지시 이후 어시스턴트 글 덩어리 수와 최종 보고 길이. Claude·Codex 기록 형식 모두."""
+    texts: list[str] | None = None
+    for line in transcript.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        kind, message, payload = row.get("type"), row.get("message") or {}, row.get("payload") or {}
+        content = message.get("content")
+        if kind == "user" and not row.get("isMeta"):
+            if isinstance(content, str) or (isinstance(content, list) and not any(
+                    isinstance(b, dict) and b.get("type") == "tool_result" for b in content)):
+                texts = []
+        elif kind == "event_msg" and payload.get("type") == "task_started":
+            texts = []
+        elif texts is not None and kind == "assistant" and isinstance(content, list):
+            texts += [b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text" and b.get("text", "").strip()]
+        elif texts is not None and kind == "response_item" and payload.get("type") == "message" and payload.get("role") == "assistant":
+            text = "".join(c.get("text", "") for c in payload.get("content", []) if isinstance(c, dict))
+            if text.strip():
+                texts.append(text)
+    if not texts:
+        return None
+    final = [l for l in texts[-1].splitlines() if l.strip()]
+    return {"narration_blocks": len(texts) - 1, "final_lines": len(final), "final_chars": len(texts[-1])}
+
+
+def cmd_hook_stop(args: argparse.Namespace) -> int:
+    """Stop 훅: 이번 턴의 출력 모양을 기록만 한다. 막지 않는다."""
+    try:
+        event = json.loads(sys.stdin.read() or "{}")
+        path = Path(event.get("transcript_path") or "") if isinstance(event, dict) else Path()
+        shape = turn_shape(path) if path.is_file() else None
+    except (ValueError, OSError, AttributeError):
+        return 0
+    if shape:
+        log_usage("turn_shape", **shape)
+    return 0
 
 
 def _server_up() -> bool:
@@ -586,10 +630,15 @@ def usage_stats(lines: list[str]) -> dict:
         row = by_caller.setdefault(rec.get("caller", "unknown"), {
             "ask": 0, "edit": 0, "digest": 0, "digest_cached": 0, "paid_tokens_saved": 0,
             "hint_plan": 0, "hint_read": 0, "hint_shell": 0, "hint_read_followed": 0,
+            "turns": 0, "turns_within_rule": 0,
         })
         event = rec.get("event")
         if event in row:
             row[event] += 1
+        if event == "turn_shape":
+            row["turns"] += 1
+            # 규칙: 도구 호출 사이 글 0개, 최종 보고 3줄 이내
+            row["turns_within_rule"] += 1 if rec.get("narration_blocks", 1) == 0 and rec.get("final_lines", 9) <= 3 else 0
         if event == "digest":
             row["digest_cached"] += 1 if rec.get("cached") else 0
             row["paid_tokens_saved"] += max(0, rec.get("paid_tokens_if_read", 0) - rec.get("paid_tokens_digest", 0))
@@ -662,6 +711,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("hook-plan", help="UserPromptSubmit 훅: 작업 시작 시 로컬 모델 분업을 먼저 정하게 함")
     p.set_defaults(func=cmd_hook_plan)
+
+    p = sub.add_parser("hook-stop", help="Stop 훅: 턴의 진행 설명 수·최종 보고 길이 기록")
+    p.set_defaults(func=cmd_hook_stop)
 
     p = sub.add_parser("stats", help="세 도구의 olla 사용 기록 집계(실제 세션 절감 추정)")
     p.set_defaults(func=cmd_stats)

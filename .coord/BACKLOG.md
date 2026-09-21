@@ -67,3 +67,4 @@
 | B62 | RESOLVED | 승인 화이트리스트(전역 룰 v5.6.0): Claude 가드로 직접 편집이 불가능한 항목을 로컬 Ollama 작업자가 pilot(WL03)에서 작성·인수 통과 → 승인 반영 → 두 도구 배포 ALIGNED → 원격 push. 로컬 모델의 첫 실사용 성공 사례 | 2026-09-20 | — |
 | B63 | RESOLVED | Windows 잠금 경합에서 `PermissionError`가 `coord/stream._exclusive` 밖으로 샘(삭제 대기 중 잠금 파일 열기). 8프로세스×300회 프로세스당 3~11건 → 0건. `tests/test_u15_lock_contention.py`(6프로세스, 수정 전 실패·후 통과). olla 사용 기록 병렬 테스트가 199/200으로 발견 |
 | B64 | OPEN | `test_u11_broker.test_authenticated_roundtrip_and_graceful_stop`이 전체 회귀 중 1회 exitcode 1(2026-09-22 02:00), 단독 3/3 통과. 부하 의존 간헐 실패로 추정, 원인 UNKNOWN |
+| B65 | OPEN | 출력 규칙(진행 설명 0, 보고 3줄) 위반 실측: Claude 최근 11턴 진행 설명 0~9개(규칙 준수 5/11), Codex 최근 5턴 2~33개(0/5). Antigravity 기록 위치 UNKNOWN. 대책: 매 턴 지시 직후 `olla hook-plan`에 출력 규칙 한 줄, Stop 훅 `olla hook-stop`이 턴마다 기록 → `olla stats`의 turns_within_rule로 추적 |

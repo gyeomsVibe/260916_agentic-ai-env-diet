@@ -397,6 +397,46 @@ class OllaUsageLogTests(unittest.TestCase):
             olla.log_usage("ask")  # 디렉터리에 append 실패 — 예외 없이 지나가야 한다
 
 
+class OllaTurnShapeTests(unittest.TestCase):
+    """Stop 훅: 진행 설명 수와 최종 보고 길이를 두 도구 기록 형식에서 모두 잰다."""
+
+    def _write(self, rows: list[dict]) -> Path:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / "t.jsonl"
+        path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
+        return path
+
+    def test_claude_transcript(self) -> None:
+        path = self._write([
+            {"type": "user", "message": {"content": "이전 지시"}},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "옛 보고"}]}},
+            {"type": "user", "message": {"content": "새 지시"}},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "진행 설명"}, {"type": "tool_use"}]}},
+            {"type": "user", "message": {"content": [{"type": "tool_result"}]}},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "결과 1\n결과 2"}]}},
+        ])
+        self.assertEqual({"narration_blocks": 1, "final_lines": 2, "final_chars": 9}, olla.turn_shape(path))
+
+    def test_codex_rollout(self) -> None:
+        msg = lambda t: {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"text": t}]}}
+        path = self._write([{"type": "event_msg", "payload": {"type": "task_started"}}, msg("a"), msg("b"), msg("끝")])
+        self.assertEqual(2, olla.turn_shape(path)["narration_blocks"])
+
+    def test_stats_counts_turns_within_rule(self) -> None:
+        lines = [json.dumps({"ts": "2026-09-22T10:00:00", "event": "turn_shape", "caller": "claude", **shape}) for shape in (
+            {"narration_blocks": 0, "final_lines": 3}, {"narration_blocks": 2, "final_lines": 3}, {"narration_blocks": 0, "final_lines": 7})]
+        row = olla.usage_stats(lines)["by_caller"]["claude"]
+        self.assertEqual((3, 1), (row["turns"], row["turns_within_rule"]))
+
+    def test_hook_never_blocks(self) -> None:
+        for stdin in ("", "x", json.dumps({"transcript_path": "Z:/none.jsonl"})):
+            out = io.StringIO()
+            with mock.patch("sys.stdin", io.StringIO(stdin)), redirect_stdout(out):
+                self.assertEqual(0, olla.main(["hook-stop"]))
+            self.assertEqual("", out.getvalue())
+
+
 class OllaFindTests(unittest.TestCase):
     def test_ranks_files_by_similarity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
