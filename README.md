@@ -127,6 +127,7 @@ python -m v7_harness.cli pilot run --task T01 --source . \
 | `.coord/tasks/` | 단계 카드(설계·인수 기준·결과) |
 | `.coord/runs/` | 측정 드라이버와 결과 |
 | `docs/` | 해설서와 보고서 |
+| `tool-configs/` | 저장소 밖 도구 설정(Claude 규칙·출력 스타일·훅, Codex 훅) [사본](tool-configs/README.md) |
 | `ollama/` | 로컬 모델(Ollama): [과정과 의미](ollama/README.md) · [작동 원리와 운영](ollama/01_작동원리와_운영_Ollama는_어떻게_돌아가나.md) · [도입 근거와 벤치](ollama/02_작업자로_들이기_도입근거와_벤치실측.md) |
 | `docs/claude-assist/` | 도구 간 조율 메모 79건 + [색인](docs/claude-assist/INDEX.md) |
 
