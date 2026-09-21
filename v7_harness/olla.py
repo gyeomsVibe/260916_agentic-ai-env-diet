@@ -547,8 +547,8 @@ PLAN_HINT = (
     "olla (local model, 0 paid tokens) is up. Before acting, split this task: reading a file over ~3k tokens -> "
     "`olla digest`, drafts/summaries/commit messages -> `olla ask --ko` with format+example, exact edits -> `olla edit`, "
     "semantic search -> `olla find`. Do the rest yourself; verify local output, never let it judge. "
-    "Output rule: no text between tool calls; end with one Korean report: line 1 `**결과**: <conclusion>`, "
-    "then at most 3 one-line bullets `- <one fact with numbers>`, `- **남은 일**: ...` only if the user must act."
+    "Report: no text between tool calls; end in Korean with `**결과**:` / `- 과정: A → B → C` / `- 근거:` / "
+    "`- **남은 일**:` only if the user must act."
 )
 # 출력 규칙은 시스템 규칙 파일에 있어도 매 턴 어겼다(실측: Claude 턴당 진행 설명 0~9개, Codex 2~33개).
 # 생성 직전에 다시 보이는 이 줄이 가장 가깝다. 지켰는지는 Stop 훅(hook-stop)이 기록해 `olla stats`로 본다.
