@@ -29,6 +29,7 @@ import os
 import shlex
 import shutil
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -76,7 +77,10 @@ def log_usage(event: str, **fields) -> None:
     """최선 노력 기록. 실패해도 명령·훅은 그대로 진행한다."""
     from v7_harness.coord.stream import _exclusive
 
-    record = {"ts": datetime.now().isoformat(timespec="seconds"), "event": event, "caller": _caller(), **fields}
+    # 세션별로 "올라마를 제대로 썼나"를 재려면 세션 번호가 필요하다(Biz항해 세션 분석은 기록을 시간으로만 가를 수 있었다).
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("CODEX_SESSION_ID") or ""
+    record = {"ts": datetime.now().isoformat(timespec="seconds"), "event": event, "caller": _caller(),
+              **({"session": session} if session else {}), **fields}
     try:
         USAGE_LOG.parent.mkdir(parents=True, exist_ok=True)
         with _exclusive(USAGE_LOG.with_suffix(".lock")):
@@ -466,11 +470,54 @@ def read_hint(event: dict) -> str | None:
         return None
     if tokens < DIGEST_MIN_TOKENS or path.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".ipynb"}:
         return None
+    # 알림만으로는 안 썼다(Biz항해 세션: 알림 도착 후에도 olla 0건). 그래서 로컬이 먼저 일한다:
+    # 요약본이 캐시에 있으면 그 자리에서 건네고, 없으면 뒤에서 만들어 두어 다음 읽기부터 쓰게 한다.
+    try:
+        cached = _digest_cache_path(path, "", CHAT_MODEL)
+    except OSError:
+        return None
+    if cached.is_file():
+        try:
+            digest = json.loads(cached.read_text(encoding="utf-8"))["digest"]
+        except (OSError, ValueError, KeyError):
+            digest = ""
+        if digest:
+            return (f"olla digest of {path.name} (~{tokens:,} tokens, cached, 0 paid tokens). "
+                    f"Read only the lines you need with offset/limit:\n{digest[:DIGEST_INLINE_MAX]}")
+    started = _prewarm_digest(path, cached)
     return (
-        f"olla: {path.name} is about {tokens:,} tokens. If you only need to locate something, "
-        f'`olla digest -f "{path.as_posix()}" --focus "<question>"` gives a line-numbered map for 0 paid tokens '
-        "(cached; measured 8/8 hits), then Read with offset/limit."
+        f"olla: {path.name} is about {tokens:,} tokens. "
+        + ("A line-numbered digest is being built in the background for next time. " if started else "")
+        + "If you only need to locate something, use Grep or Read with offset/limit instead of the whole file."
     )
+
+
+DIGEST_INLINE_MAX = 2400  # 약 800토큰. 요약본 실측 420~900토큰이므로 대부분 통째로 들어간다
+PREWARM_RETRY_S = 900  # 뒤에서 만드는 중이면 15분 안에는 다시 띄우지 않는다
+
+
+def _prewarm_digest(path: Path, cached: Path) -> bool:
+    """요약본을 뒤에서 만든다. 서버가 꺼졌거나 이미 만드는 중이면 하지 않는다."""
+    import subprocess
+
+    marker = cached.with_suffix(".pending")
+    try:
+        if marker.is_file() and time.time() - marker.stat().st_mtime < PREWARM_RETRY_S:
+            return False
+        if not _server_up():
+            return False
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(str(path), encoding="utf-8")
+        # 낮은 우선순위: 뒤에서 도는 요약이 사용자 작업을 늦추면 안 된다(요약 중 전체 회귀의 30초 예산 테스트가 30.6초로 넘침).
+        flags = (getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                 | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0))
+        subprocess.Popen([sys.executable, "-m", "v7_harness.olla", "digest", "-f", str(path)],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         cwd=str(Path(__file__).resolve().parents[1]), creationflags=flags, close_fds=True)
+        log_usage("digest_prewarm", file=str(path.resolve()))
+        return True
+    except OSError:
+        return False
 
 
 def cmd_hook_read(args: argparse.Namespace) -> int:
@@ -554,8 +601,9 @@ def cmd_hook_shell(args: argparse.Namespace) -> int:
 # 그래서 지시가 들어오는 순간(UserPromptSubmit) 분업을 먼저 정하게 한 줄을 넣는다. 서버가 꺼져 있으면 말하지 않는다.
 PLAN_HINT = (
     "olla (local model, 0 paid tokens) is up. Before acting, split this task: reading a file over ~3k tokens -> "
-    "`olla digest`, drafts/summaries/commit messages -> `olla ask --ko` with format+example, exact edits -> `olla edit`, "
-    "semantic search -> `olla find`. Do the rest yourself; verify local output, never let it judge. "
+    "`olla digest`, drafts/summaries/classification -> `olla ask` (English prompt with format+example; add --ko only "
+    "if the text goes to the user), exact edits -> `olla edit`, semantic search -> `olla find`. "
+    "Do the rest yourself; verify local output, never let it judge. "
     "Report: no text between tool calls; end in Korean with `**결과**:` / `- 과정: A → B → C` / `- 근거:` / "
     "`- **남은 일**:` only if the user must act."
 )

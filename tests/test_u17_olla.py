@@ -25,11 +25,20 @@ _USAGE_TMP = tempfile.TemporaryDirectory()
 _USAGE_PATCH = mock.patch.object(olla, "USAGE_LOG", Path(_USAGE_TMP.name) / "usage.jsonl")
 
 
+_CACHE_PATCH = mock.patch.object(olla, "DIGEST_CACHE_DIR", Path(_USAGE_TMP.name) / "digest")
+# 읽기 훅은 서버가 살아 있으면 실제 요약 작업을 뒤에서 띄운다. 시험 중에는 꺼진 것으로 둔다.
+_SERVER_PATCH = mock.patch.object(olla, "_server_up", return_value=False)
+
+
 def setUpModule() -> None:
     _USAGE_PATCH.start()
+    _CACHE_PATCH.start()
+    _SERVER_PATCH.start()
 
 
 def tearDownModule() -> None:
+    _SERVER_PATCH.stop()
+    _CACHE_PATCH.stop()
     _USAGE_PATCH.stop()
     _USAGE_TMP.cleanup()
 
@@ -267,8 +276,29 @@ class OllaReadHookTests(unittest.TestCase):
         self.assertEqual(0, code)
         payload = json.loads(out)
         self.assertEqual("PreToolUse", payload["hookSpecificOutput"]["hookEventName"])
-        self.assertIn("olla digest", payload["hookSpecificOutput"]["additionalContext"])
+        self.assertIn("offset/limit", payload["hookSpecificOutput"]["additionalContext"])
         self.assertNotIn("permissionDecision", payload["hookSpecificOutput"])
+
+    def test_cached_digest_is_handed_over_inline(self) -> None:
+        cache = olla._digest_cache_path(self.big, "", olla.CHAT_MODEL)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"path": "x", "digest": "- L1-300: assignments"}), encoding="utf-8")
+        self.addCleanup(cache.unlink)
+        _, out = self._hook(json.dumps({"tool_input": {"file_path": str(self.big)}}))
+        context = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("- L1-300: assignments", context)
+        self.assertIn("cached, 0 paid tokens", context)
+
+    def test_uncached_digest_is_prewarmed_once(self) -> None:
+        with mock.patch.object(olla, "_server_up", return_value=True), \
+                mock.patch("subprocess.Popen") as popen:
+            _, first = self._hook(json.dumps({"tool_input": {"file_path": str(self.big)}}))
+            _, second = self._hook(json.dumps({"tool_input": {"file_path": str(self.big)}}))
+        self.assertEqual(1, popen.call_count)  # 두 번째는 만드는 중 표식 때문에 다시 띄우지 않음
+        self.assertIn("digest", popen.call_args.args[0])
+        self.assertIn("background", first)
+        self.assertNotIn("background", second)
+        olla._digest_cache_path(self.big, "", olla.CHAT_MODEL).with_suffix(".pending").unlink()
 
     def test_korean_path_through_real_stdin_bytes(self) -> None:
         # StringIO 모의로는 못 잡는다. 실제 프로세스에 UTF-8 바이트로 넣어야 cp949 오독이 드러난다.
@@ -280,14 +310,15 @@ class OllaReadHookTests(unittest.TestCase):
         target = folder / "큰파일.py"
         target.write_text("x = 1\n" * 4000, encoding="utf-8")
         root = Path(__file__).resolve().parents[1]
-        env = dict(os.environ, PYTHONPATH=str(root), OLLA_USAGE=str(Path(self.tmp.name) / "u.jsonl"))
+        env = dict(os.environ, PYTHONPATH=str(root), OLLA_USAGE=str(Path(self.tmp.name) / "u.jsonl"),
+                   OLLA_CACHE=str(Path(self.tmp.name) / "cache"), OLLAMA_HOST="http://127.0.0.1:9")
         env.pop("PYTHONIOENCODING", None)
         env.pop("PYTHONUTF8", None)
         done = subprocess.run([_sys.executable, "-m", "v7_harness.olla", "hook-read"], cwd=root, env=env,
                               input=json.dumps({"tool_input": {"file_path": str(target)}}, ensure_ascii=False).encode("utf-8"),
                               capture_output=True, timeout=60)
         self.assertEqual(0, done.returncode)
-        self.assertIn("olla digest", done.stdout.decode("utf-8"))
+        self.assertIn("tokens", done.stdout.decode("utf-8"))
 
     def test_small_or_targeted_reads_stay_silent(self) -> None:
         for tool_input in ({"file_path": str(self.small)}, {"file_path": str(self.big), "offset": 100, "limit": 40}):
@@ -323,7 +354,7 @@ class OllaShellHookTests(unittest.TestCase):
             self.assertEqual(0, code, command)
             payload = json.loads(out)["hookSpecificOutput"]
             self.assertEqual("PostToolUse", payload["hookEventName"])
-            self.assertIn("olla digest", payload["additionalContext"], command)
+            self.assertIn("tokens", payload["additionalContext"], command)
 
     def test_ranged_piped_or_small_reads_stay_silent(self) -> None:
         for command in ("cat small.py", "sed -n '1,40p' big.py", "cat big.py | head -40",
@@ -336,7 +367,7 @@ class OllaShellHookTests(unittest.TestCase):
                         'powershell -NoProfile -Command "Get-Content big.py"'):
             code, out = self._hook(command)
             self.assertEqual(0, code)
-            self.assertIn("olla digest", out, command)
+            self.assertIn("tokens", out, command)
 
     def test_garbage_input_never_blocks(self) -> None:
         for stdin in ("", "not json", "[]", '{"tool_input": {"command": "cat \\"unterminated"}}'):
@@ -361,7 +392,8 @@ class OllaPlanHookTests(unittest.TestCase):
         self.assertEqual(0, code)
         payload = json.loads(out)["hookSpecificOutput"]
         self.assertEqual("UserPromptSubmit", payload["hookEventName"])
-        self.assertIn("olla ask --ko", payload["additionalContext"])
+        self.assertIn("olla ask", payload["additionalContext"])
+        self.assertIn("English prompt", payload["additionalContext"])
 
     def test_silent_when_the_server_is_down_or_input_is_garbage(self) -> None:
         self.assertEqual((0, ""), self._hook(json.dumps({"prompt": "x"}), up=False))
