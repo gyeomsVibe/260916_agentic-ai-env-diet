@@ -665,7 +665,7 @@ class OllaSqueezeTests(unittest.TestCase):
         transcript.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
         note = olla.context_size_note(str(transcript))
         self.assertIn("~171k tokens per call", note)
-        self.assertIn("new session is cheaper", note)
+        self.assertIn("같은 폴더에서 새 대화를 여세요", note)  # 사용자가 할 행동을 그대로 준다
         self.assertEqual("", olla.context_size_note(""))
 
 

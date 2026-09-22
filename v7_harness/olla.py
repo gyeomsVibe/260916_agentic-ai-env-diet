@@ -797,9 +797,12 @@ def context_size_note(transcript: str, cwd: str = "", session: str = "") -> str:
             if size >= CONTEXT_WARN_TOKENS:
                 if cwd:
                     _start_handoff(transcript, cwd, session)
-                advice = (" Every call re-reads it: keep tool output small (ranged reads, --stat, | tail). olla keeps a "
-                          "handoff for this folder that a new session gets automatically; at a task boundary, tell the "
-                          "user in one line that a new session is cheaper than resuming this one.")
+# 실측(Biz 23:27): 에이전트는 "새 세션이 싸다"고 말했지만 사용자는 또 이어 열었다. 무엇을 누르고 무엇이 자동인지
+                # 알려야 행동이 바뀐다. 그래서 사용자 말로 된 한 줄을 그대로 준다.
+                advice = (" Every call re-reads it: keep tool output small (ranged reads, --stat, | tail). At a task "
+                          "boundary add this line to the report verbatim: `- 비용: 이 대화는 호출마다 약 "
+                          f"{size // 1000}k 토큰을 다시 읽습니다. 이어 열지 말고 같은 폴더에서 새 대화를 여세요. "
+                          "올라마 인계문이 자동으로 들어갑니다.`")
             return f" Context now ~{size // 1000}k tokens per call.{advice}"
     return ""
 
