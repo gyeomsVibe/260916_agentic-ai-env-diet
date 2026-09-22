@@ -548,16 +548,42 @@ def _prewarm_digest(path: Path, cached: Path) -> bool:
         return False
 
 
+# 알림(11회)과 요약본 인계만으로는 Biz항해 세션이 올라마를 0번 썼다. 아주 큰 파일의 통째 읽기는 막고
+# 요약본·줄 범위로 돌린다. 막아도 offset/limit·Grep 으로는 언제든 읽을 수 있으니 작업이 멈추지 않는다.
+DENY_WHOLE_READ_TOKENS = 8000  # 약 24KB. 실측 큰 읽기 11만·1.5만·8천 토큰이 모두 걸리고 3~4천 토큰 문서는 통과
+
+
+def whole_read_tokens(event: dict) -> int:
+    tool_input = event.get("tool_input") or {}
+    if tool_input.get("offset") or tool_input.get("limit"):
+        return 0
+    try:
+        path = Path(tool_input.get("file_path") or "")
+        return round(path.stat().st_size / BYTES_PER_TOKEN) if path.is_file() else 0
+    except OSError:
+        return 0
+
+
 def cmd_hook_read(args: argparse.Namespace) -> int:
-    """Claude Code PreToolUse(Read) 훅. 어떤 입력에도 0으로 끝나 도구를 막지 않는다."""
+    """Claude Code PreToolUse(Read) 훅. 큰 파일은 알리고, 아주 큰 파일의 통째 읽기만 거부한다."""
     try:
         event = json.loads(_stdin_text() or "{}")
         hint = read_hint(event)
+        tokens = whole_read_tokens(event)
     except (ValueError, AttributeError):
         return 0
-    if hint:
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": hint}}, ensure_ascii=False))
-        log_usage("hint_read", file=str(Path((event.get("tool_input") or {}).get("file_path", "")).resolve()))
+    if not hint:
+        return 0
+    file = str(Path((event.get("tool_input") or {}).get("file_path", "")).resolve())
+    output: dict = {"hookEventName": "PreToolUse", "additionalContext": hint}
+    if tokens >= DENY_WHOLE_READ_TOKENS:
+        output = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": (
+            f"Whole-file read of ~{tokens:,} tokens refused (limit {DENY_WHOLE_READ_TOKENS:,}). "
+            f"Use the olla digest or Grep to find the lines, then Read with offset/limit. {hint}")}
+        log_usage("deny_whole_read", file=file, tokens=tokens)
+    else:
+        log_usage("hint_read", file=file)
+    print(json.dumps({"hookSpecificOutput": output}, ensure_ascii=False))
     return 0
 
 
@@ -852,6 +878,14 @@ def agy_hook(event_name: str, event: dict) -> dict | None:
             if target:
                 log_usage("deny_deep_cd", chars=len(target))
                 return {"decision": "deny", "reason": f"cd target is {len(target)} chars; stay at the project root and use absolute paths."}
+        if call.get("name") == "view_file" and not (args.get("StartLine") or args.get("EndLine")):
+            read_event = {"tool_input": {"file_path": str(args.get("AbsolutePath") or "")}}
+            tokens = whole_read_tokens(read_event)
+            if tokens >= DENY_WHOLE_READ_TOKENS:
+                hint = read_hint(read_event) or ""
+                log_usage("deny_whole_read", tokens=tokens)
+                return {"decision": "deny", "reason": (f"Whole-file view of ~{tokens:,} tokens refused; find the lines with "
+                                                       f"the olla digest or grep, then view with StartLine/EndLine. {hint}")}
         return None
     if event_name == "Stop":
         path = Path(str(event.get("transcriptPath") or ""))

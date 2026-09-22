@@ -304,20 +304,33 @@ class OllaReadHookTests(unittest.TestCase):
             code = olla.main(["hook-read"])
         return code, out.getvalue()
 
-    def test_large_whole_file_read_gets_a_digest_hint(self) -> None:
-        code, out = self._hook(json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(self.big)}}))
+    def _medium(self) -> Path:
+        medium = Path(self.tmp.name) / "medium.py"
+        medium.write_text("x = 1\n" * 2000, encoding="utf-8")  # 약 4~5천 토큰: 알림만, 거부 안 함
+        return medium
+
+    def test_medium_whole_file_read_gets_a_hint_not_a_denial(self) -> None:
+        code, out = self._hook(json.dumps({"tool_name": "Read", "tool_input": {"file_path": str(self._medium())}}))
         self.assertEqual(0, code)
-        payload = json.loads(out)
-        self.assertEqual("PreToolUse", payload["hookSpecificOutput"]["hookEventName"])
-        self.assertIn("offset/limit", payload["hookSpecificOutput"]["additionalContext"])
-        self.assertNotIn("permissionDecision", payload["hookSpecificOutput"])
+        payload = json.loads(out)["hookSpecificOutput"]
+        self.assertIn("offset/limit", payload["additionalContext"])
+        self.assertNotIn("permissionDecision", payload)
+
+    def test_very_large_whole_file_read_is_denied_with_a_way_out(self) -> None:
+        _, out = self._hook(json.dumps({"tool_input": {"file_path": str(self.big)}}))
+        payload = json.loads(out)["hookSpecificOutput"]
+        self.assertEqual("deny", payload["permissionDecision"])
+        self.assertIn("offset/limit", payload["permissionDecisionReason"])
+        _, ranged = self._hook(json.dumps({"tool_input": {"file_path": str(self.big), "offset": 1, "limit": 200}}))
+        self.assertEqual("", ranged)  # 줄 범위 읽기는 언제나 통과
 
     def test_cached_digest_is_handed_over_inline(self) -> None:
-        cache = olla._digest_cache_path(self.big, "", olla.CHAT_MODEL)
+        medium = self._medium()
+        cache = olla._digest_cache_path(medium, "", olla.CHAT_MODEL)
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(json.dumps({"path": "x", "digest": "- L1-300: assignments"}), encoding="utf-8")
         self.addCleanup(cache.unlink)
-        _, out = self._hook(json.dumps({"tool_input": {"file_path": str(self.big)}}))
+        _, out = self._hook(json.dumps({"tool_input": {"file_path": str(medium)}}))
         context = json.loads(out)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("- L1-300: assignments", context)
         self.assertIn("cached, 0 paid tokens", context)
@@ -609,6 +622,16 @@ class OllaAntigravityHookTests(unittest.TestCase):
         self.assertEqual("deny", denied["decision"])
         self.assertIsNone(olla.agy_hook("PreToolUse", {"toolCall": {"name": "run_command", "args": {"CommandLine": "git status"}}}))
         self.assertIsNone(olla.agy_hook("PreToolUse", {"toolCall": {"name": "view_file", "args": {"AbsolutePath": "x"}}}))
+
+    def test_view_file_of_a_very_large_file_is_denied_unless_ranged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            big = Path(tmp) / "big.py"
+            big.write_text("x = 1\n" * 4000, encoding="utf-8")
+            whole = olla.agy_hook("PreToolUse", {"toolCall": {"name": "view_file", "args": {"AbsolutePath": str(big)}}})
+            ranged = olla.agy_hook("PreToolUse", {"toolCall": {"name": "view_file",
+                                                               "args": {"AbsolutePath": str(big), "StartLine": 1, "EndLine": 50}}})
+        self.assertEqual("deny", whole["decision"])
+        self.assertIsNone(ranged)
 
     def test_stop_sends_a_long_report_back_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

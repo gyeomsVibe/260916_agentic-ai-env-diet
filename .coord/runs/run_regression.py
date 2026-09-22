@@ -43,6 +43,27 @@ def polluted(before: dict[str, tuple[int, int]], after: dict[str, tuple[int, int
     return sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
 
 
+# 세 도구의 훅은 `olla` 를 통해 이 코드를 부른다. 편집 도중의 원본을 바로 쓰면 다른 세션의 훅이 깨졌다
+# (Biz항해 세션: 편집 중 `NameError: re`). 전체 회귀가 통과한 코드만 배포본으로 복사하고 `olla` 는 배포본을 쓴다.
+RELEASE = Path(os.environ.get("OLLA_RELEASE", "D:/AI-Models/olla-release"))
+
+
+def publish_release() -> Path:
+    import shutil
+
+    staging = RELEASE.with_name(RELEASE.name + ".staging")
+    shutil.rmtree(staging, ignore_errors=True)
+    shutil.copytree(PROJECT / "v7_harness", staging / "v7_harness",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    old = RELEASE.with_name(RELEASE.name + ".old")
+    shutil.rmtree(old, ignore_errors=True)
+    if RELEASE.exists():
+        RELEASE.rename(old)
+    staging.rename(RELEASE)
+    shutil.rmtree(old, ignore_errors=True)
+    return RELEASE
+
+
 def main() -> int:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     before = snapshot()
@@ -78,6 +99,11 @@ def main() -> int:
         print(item)
     for path in dirty[:10]:
         print(f"POLLUTED: {path}")
+    if verdict == "OK":
+        try:
+            print(f"release: {publish_release()}")
+        except OSError as exc:  # 배포 실패는 시험 결과를 바꾸지 않되 숨기지 않는다
+            print(f"release FAILED: {exc}")
     return completed.returncode or (5 if dirty else 0)
 
 
