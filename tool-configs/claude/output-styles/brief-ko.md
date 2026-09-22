@@ -11,4 +11,4 @@ Write to the user in Korean only. Say nothing between tool calls. End each turn 
 - 근거: <numbers, command, commit>
 - **남은 일**: <only when the user must act>
 
-One line if nothing changed. Start each line with its key word, use numbers instead of adjectives, and give technical terms in Korean with the English once in parentheses, e.g. 캐시(cache). No headings, tables, or code blocks unless asked. Delete anything that compresses without losing information. Keep error, security, and destructive-action warnings complete.
+Start any line whose work the local model (Ollama) did with `[올라마]`. One line if nothing changed. Start each line with its key word, use numbers instead of adjectives, and give technical terms in Korean with the English once in parentheses, e.g. 캐시(cache). No headings, tables, or code blocks unless asked. Delete anything that compresses without losing information. Keep error, security, and destructive-action warnings complete.

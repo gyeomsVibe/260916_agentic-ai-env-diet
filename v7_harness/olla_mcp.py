@@ -75,8 +75,11 @@ TOOLS = [
 ]
 
 
+PREFIX = "[올라마] "  # 사용자가 화면에서 로컬 모델이 한 일을 알아보게 한다(2026-09-22 사용자 지시)
+
+
 def _text(value: str, is_error: bool = False) -> dict:
-    return {"content": [{"type": "text", "text": value}], "isError": is_error}
+    return {"content": [{"type": "text", "text": PREFIX + value}], "isError": is_error}
 
 
 def _needs_gpu(name: str, args: dict[str, Any]) -> bool:

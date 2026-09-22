@@ -1,0 +1,22 @@
+{
+  "session": "48a22ea2-e9be-4b90-9522-4971a84a034c",
+  "span": [
+    "2026-09-22T16:07:32.045000+09:00",
+    "2026-09-22T18:32:27.394000+09:00"
+  ],
+  "prompts": 18,
+  "tool_calls": 251,
+  "olla_calls": 0,
+  "big_whole_reads": 5,
+  "big_whole_tokens": 137378,
+  "digest_tokens_saved": 3765,
+  "hook_events": {
+    "turn_shape": 24,
+    "hint_plan": 15,
+    "digest_prewarm": 1,
+    "hint_read": 1,
+    "digest": 1
+  },
+  "turns": 24,
+  "turns_within_rule": 6
+}
