@@ -143,6 +143,12 @@ def hangul_ratio(text: str) -> float:
 
 
 def cmd_ask(args: argparse.Namespace) -> int:
+    # 빈 입력 파일을 주면 모델은 없는 내용을 지어낸다(실측: 0바이트 입력에 무관한 점검표 12항목).
+    # 그럴듯한 가짜보다 실패가 낫다.
+    empty = [raw for raw in args.file if Path(raw).is_file() and not Path(raw).read_text(encoding="utf-8", errors="replace").strip()]
+    if empty:
+        print(f"empty input file (the model would invent content): {', '.join(empty)}", file=sys.stderr)
+        return 2
     context = _read_files(args.file) if args.file else ""
     prompt = f"{args.prompt}\n{context}" if context else args.prompt
     if args.ko:

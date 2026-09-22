@@ -146,6 +146,18 @@ class OllaAskAndStatusTests(unittest.TestCase):
         self.assertEqual(4, code)
         self.assertIn("write it yourself", err)
 
+    def test_ask_refuses_an_empty_input_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            empty = Path(tmp) / "input.md"
+            empty.write_text("  \n", encoding="utf-8")
+            err = io.StringIO()
+            with mock.patch.object(olla.worker, "_generate") as generate:
+                with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                    code = olla.main(["ask", "summarize", "-f", str(empty)])
+        self.assertEqual(2, code)
+        self.assertIn("empty input file", err.getvalue())
+        generate.assert_not_called()
+
     def test_ask_reports_a_down_server(self) -> None:
         err = io.StringIO()
         with mock.patch.object(olla.worker, "_generate", side_effect=OSError("refused")):
