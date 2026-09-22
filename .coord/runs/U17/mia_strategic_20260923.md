@@ -28,3 +28,14 @@
 - Growth after compaction (101k -> 140k in 30 min): 5 image crops (~1.4k tokens each, measured from PNG size) + 2 diagnostic docs (~3.8k each) + edits. All judgment work; nothing text-local to delegate.
 - Handoff: written for Biz by the Stop hook (fix 01443da), unused because the user resumed instead of opening a new chat.
 - Decision: Iterate. Keep 22%; no new hints.
+
+## Value verdict: Retire (2026-09-23 01:40, user asked for a keep/delete decision)
+- Benefit, all sessions, measured from usage.jsonl: estimated paid tokens saved 58.7k total (squeeze 1x 10.0k->0.9k,
+  whole-read deny 1x, handoff used 1x). Biz sessions: MCP calls 0, digests 4 built and 0 used, handoffs 3 built and 0 used.
+- Cost: hook-plan injects ~1,060 B (~265 tokens) on every prompt (100 prompts logged), which stays in context and is
+  re-read on every later call; 450-540 ms added to every prompt, Bash and Read call (measured, 3 runs); report-rule and
+  "use olla" nags in every turn; GPU time for unused digests.
+- The saving that actually mattered (215k -> 18k) came from CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, which needs no olla.
+- Net value negative -> removed from all three tools: Claude hooks + MCP + CLAUDE.md section; Codex hooks + MCP;
+  Antigravity hooks + MCP. Kept: auto-compact 22%, source in git, Ollama models on disk (not deleted: irreversible,
+  multi-GB, may serve other projects). Backups: .work/backup_20260923/olla_removal/.

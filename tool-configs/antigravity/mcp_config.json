@@ -1,8 +1,3 @@
 {
-  "mcpServers": {
-    "olla": {
-      "command": "D:/AI-Models/bin/olla-mcp.cmd",
-      "args": []
-    }
-  }
+  "mcpServers": {}
 }
