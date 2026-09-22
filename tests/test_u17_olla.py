@@ -665,8 +665,67 @@ class OllaSqueezeTests(unittest.TestCase):
         transcript.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
         note = olla.context_size_note(str(transcript))
         self.assertIn("~171k tokens per call", note)
-        self.assertIn("fresh session", note)
+        self.assertIn("new session is cheaper", note)
         self.assertEqual("", olla.context_size_note(""))
+
+
+class OllaHandoffTests(unittest.TestCase):
+    """이어 열기(호출당 약 30만 토큰) 대신 새 세션 + 인계문. 모델이 꺼져도 결정적 사실만으로 인계된다."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        for name, value in (("USAGE_LOG", self.tmp / "usage.jsonl"), ("HANDOFF_DIR", self.tmp / "handoff")):
+            patch = mock.patch.object(olla, name, value)
+            patch.start()
+            self.addCleanup(patch.stop)
+        rows = [
+            {"type": "user", "message": {"content": "Optimize the Biz coach prompts"}},
+            {"type": "user", "message": {"content": [{"type": "tool_result", "content": "x"}]}},
+            {"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "name": "Edit", "input": {"file_path": "D:/biz/a.md"}},
+                {"type": "tool_use", "name": "Bash", "input": {"command": 'git commit -q -m "feat: tune routing"'}},
+                {"type": "text", "text": "**결과**: routing tuned"}]}},
+        ]
+        self.transcript = self.tmp / "s.jsonl"
+        self.transcript.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
+
+    def _start(self, source: str, session: str = "new") -> str:
+        out = io.StringIO()
+        event = {"source": source, "cwd": "D:/biz", "session_id": session}
+        with mock.patch("sys.stdin", io.StringIO(json.dumps(event))), redirect_stdout(out):
+            self.assertEqual(0, olla.main(["hook-start"]))
+        return out.getvalue()
+
+    def test_facts_and_new_session_injection(self) -> None:
+        facts = olla.handoff_facts(self.transcript)
+        self.assertEqual(["Optimize the Biz coach prompts"], facts["prompts"])  # 도구 결과는 지시가 아니다
+        self.assertEqual(["D:/biz/a.md"], facts["files"])
+        self.assertEqual(["feat: tune routing"], facts["commits"])
+        with mock.patch.object(olla, "_server_up", return_value=False):
+            self.assertEqual(0, olla.main(["handoff", "--transcript", str(self.transcript), "--cwd", "D:/biz",
+                                           "--session", "old"]))
+        context = json.loads(self._start("startup"))["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("previous session old", context)
+        self.assertIn("feat: tune routing", context)
+        self.assertEqual("", self._start("resume"))  # 이어 열기에는 이미 전체 기록이 있다
+        self.assertEqual("", self._start("startup", session="old"))  # 자기 인계문은 넣지 않는다
+
+    def test_stale_or_missing_handoff_is_ignored(self) -> None:
+        self.assertEqual("", self._start("startup"))
+        path = olla._handoff_path("D:/biz")
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"session": "old", "created": 0, "text": "x"}), encoding="utf-8")
+        self.assertEqual("", self._start("startup"))
+
+    def test_big_context_starts_a_background_handoff_once(self) -> None:
+        big = self.tmp / "big.jsonl"
+        big.write_text(json.dumps({"message": {"usage": {"cache_read_input_tokens": 300_000}}}), encoding="utf-8")
+        with mock.patch.object(olla.subprocess, "Popen") as popen:
+            note = olla.context_size_note(str(big), "D:/biz", "s1")
+            olla.context_size_note(str(big), "D:/biz", "s1")
+        self.assertIn("~300k", note)
+        self.assertEqual(1, popen.call_count)  # 30분 안에는 다시 만들지 않는다
+        self.assertIn("handoff", popen.call_args[0][0])
 
 
 class OllaAntigravityHookTests(unittest.TestCase):

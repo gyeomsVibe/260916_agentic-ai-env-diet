@@ -767,8 +767,9 @@ def cmd_hook_plan(args: argparse.Namespace) -> int:
         return 0
     if not isinstance(event, dict) or not _server_up():
         return 0
-    context = (PLAN_HINT + session_scorecard(os.environ.get("CLAUDE_CODE_SESSION_ID") or str(event.get("session_id") or ""))
-               + context_size_note(str(event.get("transcript_path") or "")))
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID") or str(event.get("session_id") or "")
+    context = (PLAN_HINT + session_scorecard(session)
+               + context_size_note(str(event.get("transcript_path") or ""), str(event.get("cwd") or ""), session))
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": context}}))
     log_usage("hint_plan")
     return 0
@@ -777,7 +778,7 @@ def cmd_hook_plan(args: argparse.Namespace) -> int:
 CONTEXT_WARN_TOKENS = 150_000  # Biz 재개 세션 평균 약 17만: 호출마다 이만큼을 다시 읽는다
 
 
-def context_size_note(transcript: str) -> str:
+def context_size_note(transcript: str, cwd: str = "", session: str = "") -> str:
     """성과 지표는 올라마 호출 수가 아니라 호출당 문맥 크기다. 마지막 응답의 입력 토큰으로 잰다."""
     path = Path(transcript)
     if not transcript or not path.is_file():
@@ -792,10 +793,146 @@ def context_size_note(transcript: str) -> str:
             continue
         if usage:
             size = sum(usage.get(k, 0) or 0 for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
-            advice = (" Every call re-reads it: keep tool output small (ranged reads, --stat, | tail); "
-                      "at a task boundary, suggest a fresh session with a short handoff.") if size >= CONTEXT_WARN_TOKENS else ""
+            advice = ""
+            if size >= CONTEXT_WARN_TOKENS:
+                if cwd:
+                    _start_handoff(transcript, cwd, session)
+                advice = (" Every call re-reads it: keep tool output small (ranged reads, --stat, | tail). olla keeps a "
+                          "handoff for this folder that a new session gets automatically; at a task boundary, tell the "
+                          "user in one line that a new session is cheaper than resuming this one.")
             return f" Context now ~{size // 1000}k tokens per call.{advice}"
     return ""
+
+
+# 인계(handoff): Biz 세션은 이어 열기(resume)로 호출마다 약 30만 토큰을 다시 읽었다(2026-09-22 23:03).
+# 새 세션이면 수천 토큰이다. 이어 열기를 대신할 인계문을 로컬 모델이 뒤에서 만들고, 같은 폴더에서 새 세션이
+# 시작되면 SessionStart 훅이 넣어 준다. 사용자는 새 대화를 열기만 하면 된다.
+HANDOFF_DIR = Path.home() / ".cache" / "olla" / "handoff"
+HANDOFF_MAX_AGE_S = 24 * 3600  # 하루 지난 인계문은 다른 일일 가능성이 크다
+HANDOFF_REFRESH_S = 1800  # 큰 문맥 세션에서 30분마다 새로 쓴다
+HANDOFF_MAX_CHARS = 6000  # 약 2천 토큰: 이어 열기 30만 대비 0.7%
+
+
+def _handoff_path(cwd: str) -> Path:
+    key = hashlib.sha256(os.path.normcase(os.path.abspath(cwd or ".")).encode("utf-8")).hexdigest()[:16]
+    return HANDOFF_DIR / f"{key}.json"
+
+
+def handoff_facts(transcript: Path) -> dict:
+    """세션 기록에서 결정적으로 뽑는다: 사용자 지시, 마지막 보고들, 고친 파일, 커밋. 모델 없이도 인계가 된다."""
+    prompts: list[str] = []
+    reports: list[str] = []
+    files: list[str] = []
+    commits: list[str] = []
+    for raw in transcript.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            row = json.loads(raw)
+        except ValueError:
+            continue
+        content = (row.get("message") or {}).get("content")
+        if row.get("type") == "user" and not row.get("isMeta"):
+            text = content if isinstance(content, str) else " ".join(
+                b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
+            if text.strip() and not text.lstrip().startswith(("<", "This session", "Caveat:")):  # 훅·시스템 문구 제외
+                prompts.append(text.strip()[:400])
+        if row.get("type") != "assistant" or not isinstance(content, list):
+            continue
+        for block in content:
+            if block.get("type") == "text" and block.get("text", "").strip():
+                reports.append(block["text"].strip()[:700])
+            if block.get("type") == "tool_use":
+                args = block.get("input") or {}
+                if block.get("name") in ("Edit", "Write") and args.get("file_path"):
+                    files.append(str(args["file_path"]))
+                match = re.search(r"git commit[^\n]*?-m\s+[\"']([^\"'\n]{1,160})", str(args.get("command") or ""))
+                if match:
+                    commits.append(match.group(1))
+    return {"prompts": prompts[-8:], "reports": reports[-4:], "files": list(dict.fromkeys(reversed(files)))[:25],
+            "commits": commits[-8:]}
+
+
+def render_handoff(facts: dict, summary: str) -> str:
+    parts = []
+    if summary.strip():
+        parts += ["## Summary (local model; verify)", summary.strip()]
+    # 실측(Biz 인계문 6천 자)에서 지시문이 길어 파일·커밋이 잘렸다. 짧고 확실한 사실을 앞에 둔다.
+    files = facts["files"]
+    try:  # Biz 경로는 한 줄 230자: 공통 뿌리를 한 번만 적는다
+        root = os.path.commonpath(files) if len(files) > 1 else ""
+    except ValueError:
+        root = ""
+    shown = [os.path.relpath(f, root) for f in files] if root else files
+    parts += ["## Files edited (newest first)" + (f", under {root}" if root else ""), *[f"- {f}" for f in shown],
+              "## Commits", *[f"- {c}" for c in facts["commits"]],
+              "## Last reports", *[f"- {r[:400]}" for r in facts["reports"][-2:]],
+              "## Recent user requests", *[f"- {p[:250]}" for p in facts["prompts"][-4:]]]
+    return "\n".join(parts)[:HANDOFF_MAX_CHARS]
+
+
+def cmd_handoff(args: argparse.Namespace) -> int:
+    transcript = Path(args.transcript)
+    if not transcript.is_file():
+        return 2
+    facts = handoff_facts(transcript)
+    summary = ""
+    if _server_up():
+        prompt = ("Write a handoff note for an AI coding agent that continues this work in a fresh session. English, "
+                  "at most 12 lines: Goal (1 line), Done, In progress, Next steps, Open risks. Use only the facts "
+                  "below; do not invent file names or results.\n\n" + json.dumps(facts, ensure_ascii=False))
+        try:
+            summary, usage = worker._generate(CHAT_MODEL, prompt, 300)
+            log_usage("ask", purpose="handoff", **usage)
+        except (urllib.error.URLError, TimeoutError, OSError):
+            summary = ""
+    path = _handoff_path(args.cwd)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"cwd": args.cwd, "session": args.session, "created": time.time(),
+                                "text": render_handoff(facts, summary)}, ensure_ascii=False), encoding="utf-8")
+    log_usage("handoff", chars=len(render_handoff(facts, summary)))
+    return 0
+
+
+def _start_handoff(transcript: str, cwd: str, session: str) -> bool:
+    """큰 문맥 세션의 인계문을 뒤에서 만든다. 30분 안에 만든 것이 있으면 다시 만들지 않는다."""
+    path = _handoff_path(cwd)
+    try:
+        if path.is_file() and time.time() - path.stat().st_mtime < HANDOFF_REFRESH_S:
+            return False
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.is_file():
+            path.touch()  # 진행 중 표시: 30분 안의 중복 실행을 막는다(있던 인계문은 지우지 않고 시각만 쓴다)
+        else:
+            os.utime(path)
+        flags = (getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                 | getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0))
+        subprocess.Popen([sys.executable, "-m", "v7_harness.olla", "handoff", "--transcript", transcript, "--cwd", cwd,
+                          "--session", session], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, cwd=str(Path(__file__).resolve().parents[1]), creationflags=flags,
+                         close_fds=True)
+        return True
+    except OSError:
+        return False
+
+
+def cmd_hook_start(args: argparse.Namespace) -> int:
+    """SessionStart 훅: 같은 폴더의 최근 인계문을 새 세션 문맥에 넣는다. 이어 열기(resume)에는 넣지 않는다."""
+    try:
+        event = json.loads(_stdin_text() or "{}")
+        if event.get("source") not in ("startup", "clear"):
+            return 0
+        record = json.loads(_handoff_path(str(event.get("cwd") or "")).read_text(encoding="utf-8"))
+    except (ValueError, OSError, AttributeError):
+        return 0
+    if not record.get("text") or record.get("session") == event.get("session_id") \
+            or time.time() - float(record.get("created", 0)) > HANDOFF_MAX_AGE_S:
+        return 0
+    stamp = datetime.fromtimestamp(float(record["created"])).strftime("%m-%d %H:%M")
+    context = (f"Handoff from the previous session {str(record.get('session'))[:8]} ({stamp}), built by olla from its "
+               f"transcript instead of resuming it. Verify before relying on it.\n{record['text']}")
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": context}},
+                     ensure_ascii=False))
+    log_usage("handoff_used", chars=len(record["text"]))
+    return 0
 
 
 def session_scorecard(session: str) -> str:
@@ -1090,6 +1227,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("hook-bash", help="PreToolUse(Bash) 훅: 260자 한도에 가까운 깊은 cd 거부")
     p.set_defaults(func=cmd_hook_bash)
+
+    p = sub.add_parser("handoff", help="세션 기록으로 새 세션용 인계문을 만듦(이어 열기 대신)")
+    p.add_argument("--transcript", required=True)
+    p.add_argument("--cwd", required=True)
+    p.add_argument("--session", default="")
+    p.set_defaults(func=cmd_handoff)
+
+    p = sub.add_parser("hook-start", help="SessionStart 훅: 같은 폴더의 최근 인계문을 새 세션에 넣음")
+    p.set_defaults(func=cmd_hook_start)
 
     p = sub.add_parser("squeeze", help="스크립트를 실행하고 긴 출력은 신호 줄·끝 30줄만 보임(전체는 파일), 종료 코드 유지")
     p.add_argument("--script", required=True)
