@@ -29,6 +29,7 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -766,10 +767,35 @@ def cmd_hook_plan(args: argparse.Namespace) -> int:
         return 0
     if not isinstance(event, dict) or not _server_up():
         return 0
-    context = PLAN_HINT + session_scorecard(os.environ.get("CLAUDE_CODE_SESSION_ID") or str(event.get("session_id") or ""))
+    context = (PLAN_HINT + session_scorecard(os.environ.get("CLAUDE_CODE_SESSION_ID") or str(event.get("session_id") or ""))
+               + context_size_note(str(event.get("transcript_path") or "")))
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": context}}))
     log_usage("hint_plan")
     return 0
+
+
+CONTEXT_WARN_TOKENS = 150_000  # Biz 재개 세션 평균 약 17만: 호출마다 이만큼을 다시 읽는다
+
+
+def context_size_note(transcript: str) -> str:
+    """성과 지표는 올라마 호출 수가 아니라 호출당 문맥 크기다. 마지막 응답의 입력 토큰으로 잰다."""
+    path = Path(transcript)
+    if not transcript or not path.is_file():
+        return ""
+    with path.open("rb") as handle:
+        handle.seek(max(0, path.stat().st_size - 400_000))
+        tail = handle.read().decode("utf-8", errors="replace").splitlines()
+    for raw in reversed(tail):
+        try:
+            usage = (json.loads(raw).get("message") or {}).get("usage")
+        except (ValueError, AttributeError):
+            continue
+        if usage:
+            size = sum(usage.get(k, 0) or 0 for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+            advice = (" Every call re-reads it: keep tool output small (ranged reads, --stat, | tail); "
+                      "at a task boundary, suggest a fresh session with a short handoff.") if size >= CONTEXT_WARN_TOKENS else ""
+            return f" Context now ~{size // 1000}k tokens per call.{advice}"
+    return ""
 
 
 def session_scorecard(session: str) -> str:
@@ -817,13 +843,78 @@ def deep_cd_target(command: str, cwd: str) -> str | None:
     return None
 
 
+# 발상 전환(2026-09-22): 비싼 모델에게 올라마를 "고르라고" 설득하는 방식은 실패했다(Biz 세션 안내 수십 회, 호출 0).
+# 비용도 거기 있지 않았다 — Biz 재개 후 144회 호출에서 유료 입력의 98%는 대화 기록 재읽기(cache read)였다.
+# 문맥에 한번 들어간 도구 출력은 이후 모든 호출에서 다시 읽힌다. 그래서 선택을 기다리지 않고, 시끄러운 명령의
+# 출력을 훅이 자동으로 줄여 문맥에 넣는다. 전체 출력은 파일로 남겨 필요한 줄만 다시 읽게 한다(정보 손실 없음).
+NOISY = re.compile(r"\b(pytest|unittest|run_regression\.py|npm (run )?(test|build)|cargo (test|build)|go test|"
+                   r"git(\s+-[Cc]\s+(\"[^\"]*\"|'[^']*'|\S+))*\s+(diff|log|show))\b")  # git -C <경로> log 도 잡는다
+QUIET_FLAGS = re.compile(r"--stat|--shortstat|--name-only|--name-status|--oneline|\s-n\s*\d|\s-\d+\b")
+SHELL_STATE = re.compile(r"(^|[;&|]\s*)(cd|export|source|\.|pushd|popd|alias|unset)\s|<<|\|")
+RUN_DIR = Path.home() / ".cache" / "olla" / "run"
+SQUEEZE_MAX_CHARS = 6000  # 약 2천 토큰까지는 그대로 둔다: 줄여도 아낄 게 적고 원문이 가장 정확하다
+SQUEEZE_TAIL_LINES = 30
+SQUEEZE_SIGNAL_LINES = 40
+SIGNAL = re.compile(r"error|fail|traceback|exception|assert|panic|denied|not found|^(\+\+\+|---|@@)", re.I)
+
+
+def noisy_command(command: str) -> bool:
+    """출력이 길어지기 쉬운 명령만 고른다. 셸 상태를 바꾸거나 이미 파이프로 거르는 명령은 건드리지 않는다."""
+    return bool(NOISY.search(command)) and not QUIET_FLAGS.search(command) and not SHELL_STATE.search(command)
+
+
+def squeeze_rewrite(command: str) -> str:
+    """원래 명령을 스크립트 파일로 두고 `olla squeeze` 로 감싼다. 따옴표 이스케이프 문제를 피한다."""
+    RUN_DIR.mkdir(parents=True, exist_ok=True)
+    script = RUN_DIR / f"{hashlib.sha256(command.encode('utf-8')).hexdigest()[:16]}.sh"
+    script.write_text(command + "\n", encoding="utf-8", newline="\n")
+    return f"olla squeeze --script '{script.as_posix()}'"
+
+
+def squeeze_text(text: str, full_log: Path) -> str:
+    """전체를 파일에 남기고, 신호 줄(오류·실패·diff 머리)과 끝 30줄만 돌려준다. 판정은 하지 않는다."""
+    if len(text) <= SQUEEZE_MAX_CHARS:
+        return text
+    full_log.parent.mkdir(parents=True, exist_ok=True)
+    full_log.write_text(text, encoding="utf-8")
+    lines = text.splitlines()
+    tail_start = max(0, len(lines) - SQUEEZE_TAIL_LINES)
+    signals = [f"{i + 1}: {line[:300]}" for i, line in enumerate(lines[:tail_start]) if SIGNAL.search(line)]
+    shown = signals[:SQUEEZE_SIGNAL_LINES]
+    head = (f"[올라마] output squeezed: {len(lines):,} lines -> {len(shown) + len(lines) - tail_start}; "
+            f"full log {full_log.as_posix()} (Read with offset/limit for more)")
+    body = ["-- signal lines (line: text) --", *shown] if shown else []
+    if len(signals) > len(shown):
+        body.append(f"... {len(signals) - len(shown)} more signal lines in the full log")
+    return "\n".join([head, *body, f"-- last {len(lines) - tail_start} lines --", *lines[tail_start:]]) + "\n"
+
+
+def cmd_squeeze(args: argparse.Namespace) -> int:
+    script = Path(args.script)
+    done = subprocess.run([os.environ.get("SHELL") or "bash", str(script)], stdout=subprocess.PIPE,
+                          stderr=subprocess.STDOUT)
+    text = done.stdout.decode("utf-8", errors="replace")
+    stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+    out = squeeze_text(text, Path.home() / ".cache" / "olla" / "out" / f"{stamp}_{script.stem}.log")
+    sys.stdout.write(out)
+    if out is not text:
+        log_usage("squeeze", tokens_before=round(len(text.encode("utf-8")) / BYTES_PER_TOKEN),
+                  tokens_after=round(len(out.encode("utf-8")) / BYTES_PER_TOKEN))
+    return done.returncode
+
+
 def cmd_hook_bash(args: argparse.Namespace) -> int:
-    """PreToolUse(Bash·PowerShell) 훅: 너무 깊은 곳으로의 cd 만 거부한다. 그 밖에는 아무것도 하지 않는다."""
+    """PreToolUse(Bash·PowerShell) 훅: 너무 깊은 cd 는 거부하고, 시끄러운 Bash 명령은 출력 압축으로 감싼다."""
     try:
         event = json.loads(_stdin_text() or "{}")
         command = str((event.get("tool_input") or {}).get("command") or "")
         target = deep_cd_target(command, str(event.get("cwd") or ""))
     except (ValueError, AttributeError, TypeError):
+        return 0
+    if not target and event.get("tool_name") == "Bash" and noisy_command(command):
+        updated = dict(event.get("tool_input") or {})
+        updated["command"] = squeeze_rewrite(command)
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": updated}}))
         return 0
     if target:
         log_usage("deny_deep_cd", chars=len(target))
@@ -849,12 +940,14 @@ def usage_stats(lines: list[str]) -> dict:
         row = by_caller.setdefault(rec.get("caller", "unknown"), {
             "ask": 0, "edit": 0, "digest": 0, "digest_cached": 0, "paid_tokens_saved": 0,
             "hint_plan": 0, "hint_read": 0, "hint_shell": 0, "hint_read_followed": 0,
-            "pilot_local": 0, "yield_to_pilot": 0, "deny_whole_read": 0,
+            "pilot_local": 0, "yield_to_pilot": 0, "deny_whole_read": 0, "squeeze": 0,
             "turns": 0, "turns_within_rule": 0,
         })
         event = rec.get("event")
         if event in row:
             row[event] += 1
+        if event == "squeeze":
+            row["paid_tokens_saved"] += max(0, rec.get("tokens_before", 0) - rec.get("tokens_after", 0))
         if event == "turn_shape":
             row["turns"] += 1
             # 규칙(v5.16.0): 도구 호출 사이 글 0개, 최종 보고는 결론 1줄 + 글머리 최대 3줄 + 남은 일 1줄 = 5줄 이내
@@ -997,6 +1090,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("hook-bash", help="PreToolUse(Bash) 훅: 260자 한도에 가까운 깊은 cd 거부")
     p.set_defaults(func=cmd_hook_bash)
+
+    p = sub.add_parser("squeeze", help="스크립트를 실행하고 긴 출력은 신호 줄·끝 30줄만 보임(전체는 파일), 종료 코드 유지")
+    p.add_argument("--script", required=True)
+    p.set_defaults(func=cmd_squeeze)
 
     p = sub.add_parser("hook-stop", help="Stop 훅: 턴의 진행 설명 수·최종 보고 길이 기록")
     p.set_defaults(func=cmd_hook_stop)

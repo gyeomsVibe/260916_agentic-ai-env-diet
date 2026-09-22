@@ -607,6 +607,68 @@ class OllaRecurringFailureGuardTests(unittest.TestCase):
         self.assertEqual("", self._bash("", ""))
 
 
+class OllaSqueezeTests(unittest.TestCase):
+    """발상 전환: 선택을 기다리지 않고 시끄러운 명령의 출력을 훅이 줄인다. 전체는 파일, 종료 코드는 그대로."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        for name, value in (("USAGE_LOG", self.tmp / "usage.jsonl"), ("RUN_DIR", self.tmp / "run")):
+            patch = mock.patch.object(olla, name, value)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def _hook(self, command: str, tool: str = "Bash") -> str:
+        out = io.StringIO()
+        event = {"tool_name": tool, "tool_input": {"command": command, "timeout": 5}, "cwd": "D:/proj"}
+        with mock.patch("sys.stdin", io.StringIO(json.dumps(event))), redirect_stdout(out):
+            self.assertEqual(0, olla.main(["hook-bash"]))
+        return out.getvalue()
+
+    def test_only_noisy_stateless_bash_commands_are_wrapped(self) -> None:
+        payload = json.loads(self._hook("python -m pytest tests"))["hookSpecificOutput"]
+        self.assertTrue(payload["updatedInput"]["command"].startswith("olla squeeze --script "))
+        self.assertEqual(5, payload["updatedInput"]["timeout"])  # 다른 입력은 그대로
+        script = Path(payload["updatedInput"]["command"].split("'")[1])
+        self.assertEqual("python -m pytest tests\n", script.read_text(encoding="utf-8"))
+        self.assertNotIn("permissionDecision", payload)  # 권한 판단은 바꾸지 않는다
+        self.assertIn("updatedInput", self._hook('git -C "D:/a b/proj" log'))  # 실측에서 놓친 형태
+        for quiet in ("git diff --stat", "git log --oneline", "git log -n 5", "cd src && pytest",
+                      "pytest | tail -5", "git status", "ls"):
+            self.assertEqual("", self._hook(quiet), quiet)
+        self.assertEqual("", self._hook("pytest", tool="PowerShell"))
+
+    def test_long_output_keeps_signals_and_tail_full_log_on_disk(self) -> None:
+        passed = "tests/test_a.py::test_ok PASSED"
+        text = "\n".join([passed] * 500 + ["FAILED test_x - AssertionError"] + [passed] * 500 + ["1 failed"]) + "\n"
+        log = self.tmp / "out" / "full.log"
+        out = olla.squeeze_text(text, log)
+        self.assertEqual(text, log.read_text(encoding="utf-8"))
+        self.assertIn("501: FAILED test_x", out)
+        self.assertTrue(out.rstrip().endswith("1 failed"))
+        self.assertLess(len(out), len(text) / 3)
+        short = "short output\n"
+        self.assertIs(short, olla.squeeze_text(short, self.tmp / "none.log"))
+
+    def test_squeeze_keeps_the_exit_code(self) -> None:
+        script = self.tmp / "s.sh"
+        script.write_text("echo hi\nexit 3\n", encoding="utf-8", newline="\n")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(3, olla.main(["squeeze", "--script", str(script)]))
+        self.assertEqual("hi\n", out.getvalue().replace("\r", ""))
+
+    def test_context_size_note_reads_the_last_usage(self) -> None:
+        transcript = self.tmp / "t.jsonl"
+        rows = [{"message": {"usage": {"input_tokens": 1, "cache_read_input_tokens": 1000}}},
+                {"message": {"usage": {"input_tokens": 5, "cache_creation_input_tokens": 1000,
+                                       "cache_read_input_tokens": 170_000}}}]
+        transcript.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+        note = olla.context_size_note(str(transcript))
+        self.assertIn("~171k tokens per call", note)
+        self.assertIn("fresh session", note)
+        self.assertEqual("", olla.context_size_note(""))
+
+
 class OllaAntigravityHookTests(unittest.TestCase):
     """Antigravity 형식: 입력·출력 모양이 달라 어댑터로 옮긴다. 승인을 대신 내주지 않는다."""
 
