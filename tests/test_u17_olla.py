@@ -321,6 +321,7 @@ class OllaReadHookTests(unittest.TestCase):
         payload = json.loads(out)["hookSpecificOutput"]
         self.assertEqual("deny", payload["permissionDecision"])
         self.assertIn("offset/limit", payload["permissionDecisionReason"])
+        self.assertIn("select:mcp__olla__local_read_map", payload["permissionDecisionReason"])  # 지연 도구 불러오는 법
         _, ranged = self._hook(json.dumps({"tool_input": {"file_path": str(self.big), "offset": 1, "limit": 200}}))
         self.assertEqual("", ranged)  # 줄 범위 읽기는 언제나 통과
 
