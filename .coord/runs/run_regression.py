@@ -71,7 +71,8 @@ def main() -> int:
     log_path = LOG_DIR / f"regression-{stamp}.log"
 
     SANDBOX.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, OLLA_USAGE=str(SANDBOX / "usage.jsonl"), OLLA_CACHE=str(SANDBOX / "digest"))
+    env = dict(os.environ, OLLA_USAGE=str(SANDBOX / "usage.jsonl"), OLLA_CACHE=str(SANDBOX / "digest"),
+               OLLA_GPU_DIR=str(SANDBOX / "gpu"))
     completed = subprocess.run(
         [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"],
         cwd=PROJECT,

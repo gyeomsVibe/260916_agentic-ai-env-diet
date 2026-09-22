@@ -16,6 +16,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -131,6 +132,16 @@ def _apply(text: str, workspace: Path) -> list[str]:
     return written
 
 
+def _log(event: str, **fields) -> None:
+    """로컬 모델 사용 기록을 한 곳(olla 사용 기록)에 모은다. 파일럿과 보조 호출이 따로 세면 합계를 못 낸다."""
+    try:
+        from v7_harness import olla
+
+        olla.log_usage(event, **fields)
+    except Exception:  # noqa: BLE001 — 기록 실패가 파일럿을 막으면 안 된다
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--prompt", required=True)
@@ -172,10 +183,16 @@ def main(argv: list[str] | None = None) -> int:
     longest = max((len((workspace / name).read_text(encoding="utf-8").splitlines()) for name in named[:4]), default=0)
     rules = EDIT_RULES if longest >= EDIT_MODE_MIN_LINES else FORMAT_RULES
     prompt = f"{rules}\n\nTASK:\n{args.prompt}\n\nCURRENT CONTENTS:{context}\n\nNow output the blocks."
+    from v7_harness.adapters.gpu_priority import pilot_holds
+
+    started = time.monotonic()
     try:
-        text, usage = _generate(args.model, prompt, timeout_s)
+        with pilot_holds(timeout_s):  # 파일럿이 GPU 를 먼저 쓴다(B74). 보조 호출은 이 동안 양보한다
+            text, usage = _generate(args.model, prompt, timeout_s)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        _log("pilot_local", status="ERROR", elapsed_s=round(time.monotonic() - started, 1))
         return envelope("ERROR", "", {"input_tokens": 0, "output_tokens": 0}, f"ollama unreachable: {exc}")
+    _log("pilot_local", status="GENERATED", elapsed_s=round(time.monotonic() - started, 1), **usage)
 
     if "===FILE:" not in text and "===EDIT:" not in text:
         return envelope("ERROR", "", usage, "model returned no file block")

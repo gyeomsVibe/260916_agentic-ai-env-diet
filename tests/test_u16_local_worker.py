@@ -39,9 +39,34 @@ class LocalWorkerBehaviourTests(unittest.TestCase):
         self.workspace = Path(self.tmp.name) / "stage"
         self.workspace.mkdir()
         (self.workspace / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+        # 작업자는 사용 기록과 GPU 우선 표식을 남긴다. 실제 사용자 캐시를 건드리지 않게 격리한다.
+        from v7_harness import olla
+        from v7_harness.adapters import gpu_priority
+
+        for target, name, value in ((olla, "USAGE_LOG", Path(self.tmp.name) / "u.jsonl"),
+                                    (gpu_priority, "GPU_DIR", Path(self.tmp.name) / "gpu")):
+            patch = mock.patch.object(target, name, value)
+            patch.start()
+            self.addCleanup(patch.stop)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
+
+    def test_pilot_holds_the_gpu_while_generating_and_logs_usage(self) -> None:
+        from v7_harness import olla
+        from v7_harness.adapters import gpu_priority
+
+        seen: list[bool] = []
+
+        def fake(model, prompt, timeout):
+            seen.append(gpu_priority.pilot_active())
+            return "===FILE: VERSION===\n1.1.0", {"input_tokens": 10, "output_tokens": 5}
+
+        with mock.patch.object(ollama_worker, "_generate", side_effect=fake), redirect_stdout(io.StringIO()):
+            ollama_worker.main(["-p", "Rewrite `VERSION`.", "--add-dir", str(self.workspace), "--print-timeout", "60s"])
+        self.assertEqual([True], seen)  # 생성 중에는 파일럿이 GPU 를 잡고 있다
+        self.assertFalse(gpu_priority.pilot_active())  # 끝나면 놓는다
+        self.assertIn('"pilot_local"', olla.USAGE_LOG.read_text(encoding="utf-8"))
 
     def _run(self, model_reply: str, prompt: str = "Rewrite `VERSION`.") -> dict:
         buffer = io.StringIO()

@@ -79,7 +79,22 @@ def _text(value: str, is_error: bool = False) -> dict:
     return {"content": [{"type": "text", "text": value}], "isError": is_error}
 
 
+def _needs_gpu(name: str, args: dict[str, Any]) -> bool:
+    if name == "local_read_map":
+        path = Path(str(args.get("path") or ""))
+        try:
+            return path.is_file() and not olla._digest_cache_path(path, str(args.get("question") or ""), olla.CHAT_MODEL).is_file()
+        except OSError:
+            return False
+    return name in ("local_draft", "local_search")
+
+
 def call_tool(name: str, args: dict[str, Any]) -> dict:
+    from v7_harness.adapters.gpu_priority import BUSY_MESSAGE, pilot_active
+
+    if _needs_gpu(name, args) and pilot_active():  # 파일럿 우선(B74). 캐시된 지도는 GPU 없이 바로 준다
+        olla.log_usage("yield_to_pilot", via="mcp")
+        return _text(BUSY_MESSAGE, True)
     try:
         if name == "local_read_map":
             path = Path(str(args.get("path") or ""))

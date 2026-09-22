@@ -40,6 +40,22 @@ class OllaMcpTests(unittest.TestCase):
         names = [t["name"] for t in replies[1]["result"]["tools"]]
         self.assertEqual(["local_read_map", "local_draft", "local_search"], names)
 
+    def test_tools_yield_to_a_running_pilot_but_cached_maps_still_work(self) -> None:
+        from v7_harness.adapters import gpu_priority
+
+        with mock.patch.object(gpu_priority, "GPU_DIR", Path(self.tmp.name) / "gpu"):
+            target = Path(self.tmp.name) / "m.py"
+            target.write_text("x = 1\n", encoding="utf-8")
+            with mock.patch.object(olla.worker, "_generate", return_value=("- L1-1: x", {})):
+                olla_mcp.call_tool("local_read_map", {"path": str(target)})  # 캐시 채움
+            with gpu_priority.pilot_holds(60), mock.patch.object(olla.worker, "_generate") as gen:
+                busy = olla_mcp.call_tool("local_draft", {"instruction": "x"})
+                cached = olla_mcp.call_tool("local_read_map", {"path": str(target)})
+            gen.assert_not_called()
+        self.assertTrue(busy["isError"])
+        self.assertIn("GPU busy", busy["content"][0]["text"])
+        self.assertFalse(cached["isError"])
+
     def test_mcp_exposes_no_write_tool(self) -> None:
         # 쓰기(수정)는 SQLite 파일럿의 관문(staging·manifest·bundle 승인)으로만 한다. MCP 가 쓰기 도구를
         # 내면 관문을 우회하는 두 번째 경로가 생긴다 — 그 충돌을 구조로 막는다.

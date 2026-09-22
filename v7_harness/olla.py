@@ -158,6 +158,20 @@ def missing_refs(text: str, root: Path) -> list[str]:
     return sorted(set(missing))
 
 
+GPU_BUSY_EXIT = 6
+
+
+def _pilot_has_gpu() -> bool:
+    """파일럿 로컬 작업자가 GPU 를 쓰는 중이면 보조 호출은 양보한다(B74)."""
+    from v7_harness.adapters.gpu_priority import BUSY_MESSAGE, pilot_active
+
+    if pilot_active():
+        print(BUSY_MESSAGE, file=sys.stderr)
+        log_usage("yield_to_pilot")
+        return True
+    return False
+
+
 def cmd_ask(args: argparse.Namespace) -> int:
     # 빈 입력 파일을 주면 모델은 없는 내용을 지어낸다(실측: 0바이트 입력에 무관한 점검표 12항목).
     # 그럴듯한 가짜보다 실패가 낫다.
@@ -457,6 +471,8 @@ def cmd_digest(args: argparse.Namespace) -> int:
             saved = json.loads(cache.read_text(encoding="utf-8"))
             digest, usage = saved["digest"].replace(saved["path"], path.as_posix(), 1), {"input_tokens": 0, "output_tokens": 0}
         else:
+            if _pilot_has_gpu():
+                return GPU_BUSY_EXIT
             try:
                 digest, usage = digest_file(path, args.focus or "", args.model, args.timeout)
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
@@ -532,7 +548,9 @@ def _prewarm_digest(path: Path, cached: Path) -> bool:
     try:
         if marker.is_file() and time.time() - marker.stat().st_mtime < PREWARM_RETRY_S:
             return False
-        if not _server_up():
+        from v7_harness.adapters.gpu_priority import pilot_active
+
+        if not _server_up() or pilot_active():  # 파일럿이 GPU 를 쓰는 중이면 예열하지 않는다
             return False
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text(str(path), encoding="utf-8")
@@ -654,7 +672,8 @@ def cmd_hook_shell(args: argparse.Namespace) -> int:
 # 규칙이 문맥에 있어도 계획 단계에서 로컬 모델을 빠뜨렸다(2026-09-22, 사용자가 먼저 물어서야 드러남).
 # 그래서 지시가 들어오는 순간(UserPromptSubmit) 분업을 먼저 정하게 한 줄을 넣는다. 서버가 꺼져 있으면 말하지 않는다.
 PLAN_HINT = (
-    "Local model (0 paid tokens) is up; its MCP tools are in your tool list. Before acting, split this task: "
+    "Local model (0 paid tokens) is up; use its MCP tools (or `olla` in the shell if they are not in your tool list, "
+    "e.g. `olla digest -f <file>`). Before acting, split this task: "
     "understanding/locating in a file over ~300 lines -> `local_read_map`, drafts/summaries/commit messages -> "
     "`local_draft` (English prompt with format+example; korean=true only for user-facing text), "
     "search by meaning -> `local_search`. "
@@ -826,6 +845,7 @@ def usage_stats(lines: list[str]) -> dict:
         row = by_caller.setdefault(rec.get("caller", "unknown"), {
             "ask": 0, "edit": 0, "digest": 0, "digest_cached": 0, "paid_tokens_saved": 0,
             "hint_plan": 0, "hint_read": 0, "hint_shell": 0, "hint_read_followed": 0,
+            "pilot_local": 0, "yield_to_pilot": 0, "deny_whole_read": 0,
             "turns": 0, "turns_within_rule": 0,
         })
         event = rec.get("event")
@@ -854,6 +874,9 @@ def usage_stats(lines: list[str]) -> dict:
 
 def cmd_stats(args: argparse.Namespace) -> int:
     lines = USAGE_LOG.read_text(encoding="utf-8").splitlines() if USAGE_LOG.is_file() else []
+    if args.session:
+        # 한 세션만 본다(예: Biz항해 세션 감시). 세션 번호 앞부분만 줘도 된다.
+        lines = [line for line in lines if f'"session": "{args.session}' in line]
     print(json.dumps(usage_stats(lines), ensure_ascii=False, indent=2))
     return 0
 
@@ -975,6 +998,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_hook_stop)
 
     p = sub.add_parser("stats", help="세 도구의 olla 사용 기록 집계(실제 세션 절감 추정)")
+    p.add_argument("--session", default="", help="이 세션 번호(앞부분)만 집계")
     p.set_defaults(func=cmd_stats)
 
     p = sub.add_parser("find")
@@ -995,6 +1019,8 @@ def main(argv: list[str] | None = None) -> int:
             except (ValueError, OSError):
                 pass
     args = build_parser().parse_args(argv)
+    if args.command in ("ask", "edit", "find") and _pilot_has_gpu():
+        return GPU_BUSY_EXIT
     return args.func(args)
 
 
