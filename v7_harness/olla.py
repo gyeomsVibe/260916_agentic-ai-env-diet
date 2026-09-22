@@ -583,16 +583,29 @@ def turn_shape(transcript: Path) -> dict | None:
 
 
 def cmd_hook_stop(args: argparse.Namespace) -> int:
-    """Stop 훅: 이번 턴의 출력 모양을 기록만 한다. 막지 않는다."""
+    """Stop 훅: 이번 턴의 출력 모양을 기록하고, 최종 보고가 길면 한 번만 되돌려 줄이게 한다.
+
+    알림만으로는 진행 설명은 0개가 됐지만 보고 5줄 초과가 11턴 중 5턴 남았다(B65). 한 번 되돌린 뒤
+    (stop_hook_active)에는 다시 막지 않아 무한 반복이 없다.
+    """
     try:
         event = json.loads(sys.stdin.read() or "{}")
         path = Path(event.get("transcript_path") or "") if isinstance(event, dict) else Path()
         shape = turn_shape(path) if path.is_file() else None
     except (ValueError, OSError, AttributeError):
         return 0
-    if shape:
-        log_usage("turn_shape", **shape)
+    if not shape:
+        return 0
+    log_usage("turn_shape", **shape)
+    if shape["final_lines"] > REPORT_MAX_LINES and not event.get("stop_hook_active"):
+        print(json.dumps({"decision": "block", "reason": (
+            f"Final report has {shape['final_lines']} lines; rewrite it in at most {REPORT_MAX_LINES}: "
+            "`**결과**:` / `- 과정:` / `- 근거:` / `- **남은 일**:` (only if the user must act). Output only the rewritten report."
+        )}, ensure_ascii=False))
     return 0
+
+
+REPORT_MAX_LINES = 5  # 결과 1 + 과정 1 + 근거 1~2 + 남은 일 1
 
 
 def _server_up() -> bool:

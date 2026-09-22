@@ -429,6 +429,20 @@ class OllaTurnShapeTests(unittest.TestCase):
         row = olla.usage_stats(lines)["by_caller"]["claude"]
         self.assertEqual((3, 1), (row["turns"], row["turns_within_rule"]))
 
+    def _stop(self, lines: int, active: bool) -> str:
+        path = self._write([{"type": "user", "message": {"content": "지시"}},
+                            {"type": "assistant", "message": {"content": [{"type": "text", "text": "\n".join(["줄"] * lines)}]}}])
+        out = io.StringIO()
+        event = {"transcript_path": str(path), "stop_hook_active": active}
+        with mock.patch("sys.stdin", io.StringIO(json.dumps(event))), redirect_stdout(out):
+            self.assertEqual(0, olla.main(["hook-stop"]))
+        return out.getvalue()
+
+    def test_long_report_is_sent_back_once(self) -> None:
+        self.assertEqual("block", json.loads(self._stop(olla.REPORT_MAX_LINES + 3, active=False))["decision"])
+        self.assertEqual("", self._stop(olla.REPORT_MAX_LINES + 3, active=True))  # 두 번째는 막지 않음
+        self.assertEqual("", self._stop(olla.REPORT_MAX_LINES, active=False))
+
     def test_hook_never_blocks(self) -> None:
         for stdin in ("", "x", json.dumps({"transcript_path": "Z:/none.jsonl"})):
             out = io.StringIO()
