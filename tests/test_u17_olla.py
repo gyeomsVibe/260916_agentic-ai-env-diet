@@ -696,6 +696,22 @@ class OllaHandoffTests(unittest.TestCase):
             self.assertEqual(0, olla.main(["hook-start"]))
         return out.getvalue()
 
+    def test_stop_starts_the_handoff_for_a_big_context_without_a_new_prompt(self) -> None:
+        # Biz 40375870: 지시 1번에 188k 까지 자랐는데 인계문 0건 — 지시 때만 재면 놓친다
+        def stop(size: int) -> mock.MagicMock:
+            row = {"type": "assistant", "message": {"usage": {"input_tokens": 1, "cache_read_input_tokens": size},
+                                                     "content": [{"type": "text", "text": "**결과**: ok"}]}}
+            self.transcript.write_text(json.dumps(row), encoding="utf-8")
+            event = {"transcript_path": str(self.transcript), "cwd": "D:/biz", "session_id": "s"}
+            with mock.patch.object(olla, "_start_handoff") as start, \
+                    mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": ""}), \
+                    mock.patch("sys.stdin", io.StringIO(json.dumps(event))), redirect_stdout(io.StringIO()):
+                self.assertEqual(0, olla.main(["hook-stop"]))
+            return start
+
+        stop(188_000).assert_called_once_with(str(self.transcript), "D:/biz", "s")
+        stop(90_000).assert_not_called()
+
     def test_facts_and_new_session_injection(self) -> None:
         facts = olla.handoff_facts(self.transcript)
         self.assertEqual(["Optimize the Biz coach prompts"], facts["prompts"])  # 도구 결과는 지시가 아니다

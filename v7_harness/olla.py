@@ -720,17 +720,19 @@ def turn_shape(transcript: Path) -> dict | None:
 
 
 def cmd_hook_stop(args: argparse.Namespace) -> int:
-    """Stop 훅: 이번 턴의 출력 모양을 기록하고, 최종 보고가 길면 한 번만 되돌려 줄이게 한다.
-
-    알림만으로는 진행 설명은 0개가 됐지만 보고 5줄 초과가 11턴 중 5턴 남았다(B65). 한 번 되돌린 뒤
-    (stop_hook_active)에는 다시 막지 않아 무한 반복이 없다.
-    """
+    """Stop 훅: 이번 턴의 출력 모양을 기록하고, 문맥이 크면 인계문을 뒤에서 만든다. 막지 않는다."""
     try:
         event = json.loads(_stdin_text() or "{}")
         path = Path(event.get("transcript_path") or "") if isinstance(event, dict) else Path()
         shape = turn_shape(path) if path.is_file() else None
     except (ValueError, OSError, AttributeError):
         return 0
+    # 인계문을 지시(hook-plan) 때만 만들면 한 지시로 오래 도는 세션은 놓친다: Biz 40375870 은 지시 1번에
+    # 165호출·188k 까지 자랐지만 인계문 0건(2026-09-23 00:25). 턴이 끝날 때도 재서 만든다(30분 제한은 그대로).
+    cwd = str(event.get("cwd") or "") if isinstance(event, dict) else ""
+    if cwd and context_size(str(path)) >= CONTEXT_WARN_TOKENS:
+        session = os.environ.get("CLAUDE_CODE_SESSION_ID") or str(event.get("session_id") or "")
+        _start_handoff(str(path), cwd, session)
     if not shape:
         return 0
     # 막아서 다시 쓰게 하지 않는다: 긴 보고가 이미 화면에 나간 뒤라 사용자는 같은 보고를 두 번 본다
@@ -785,11 +787,11 @@ def _cost_line_given(session: str, bucket: int) -> bool:
     return False
 
 
-def context_size_note(transcript: str, cwd: str = "", session: str = "") -> str:
-    """성과 지표는 올라마 호출 수가 아니라 호출당 문맥 크기다. 마지막 응답의 입력 토큰으로 잰다."""
+def context_size(transcript: str) -> int:
+    """마지막 응답의 입력 토큰(새 입력 + 캐시 쓰기 + 캐시 읽기). 기록이 없으면 0."""
     path = Path(transcript)
     if not transcript or not path.is_file():
-        return ""
+        return 0
     with path.open("rb") as handle:
         handle.seek(max(0, path.stat().st_size - 400_000))
         tail = handle.read().decode("utf-8", errors="replace").splitlines()
@@ -799,23 +801,30 @@ def context_size_note(transcript: str, cwd: str = "", session: str = "") -> str:
         except (ValueError, AttributeError):
             continue
         if usage:
-            size = sum(usage.get(k, 0) or 0 for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
-            advice = ""
-            if size >= CONTEXT_WARN_TOKENS:
-                if cwd:
-                    _start_handoff(transcript, cwd, session)
-# 실측(Biz 23:27): 에이전트는 "새 세션이 싸다"고 말했지만 사용자는 또 이어 열었다. 무엇을 누르고 무엇이 자동인지
-                # 알려야 행동이 바뀐다. 그래서 사용자 말로 된 한 줄을 그대로 준다.
-                # 매 보고마다 붙이면 보고가 600자를 넘고 같은 말이 반복된다(Biz 캡처: 두 보고 모두 비용 줄).
-                # 세션당 10만 토큰 구간마다 한 번만 준다.
-                advice = " Every call re-reads it: keep tool output small (ranged reads, --stat, | tail)."
-                bucket = size // 100_000
-                if session and not _cost_line_given(session, bucket):
-                    log_usage("cost_advice", bucket=bucket, session=session)
-                    advice += (" Add this line once, in this turn's report, verbatim: `- 비용: 호출당 약 "
-                               f"{size // 1000}k 토큰. 같은 폴더에서 새 대화를 열면 올라마 인계문이 자동으로 들어갑니다.`")
-            return f" Context now ~{size // 1000}k tokens per call.{advice}"
-    return ""
+            return sum(usage.get(k, 0) or 0 for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+    return 0
+
+
+def context_size_note(transcript: str, cwd: str = "", session: str = "") -> str:
+    """성과 지표는 올라마 호출 수가 아니라 호출당 문맥 크기다. 마지막 응답의 입력 토큰으로 잰다."""
+    size = context_size(transcript)
+    if not size:
+        return ""
+    advice = ""
+    if size >= CONTEXT_WARN_TOKENS:
+        if cwd:
+            _start_handoff(transcript, cwd, session)
+        # 실측(Biz 23:27): 에이전트는 "새 세션이 싸다"고 말했지만 사용자는 또 이어 열었다. 무엇을 누르고 무엇이 자동인지
+        # 알려야 행동이 바뀐다. 그래서 사용자 말로 된 한 줄을 그대로 준다.
+        # 매 보고마다 붙이면 보고가 600자를 넘고 같은 말이 반복된다(Biz 캡처: 두 보고 모두 비용 줄).
+        # 세션당 10만 토큰 구간마다 한 번만 준다.
+        advice = " Every call re-reads it: keep tool output small (ranged reads, --stat, | tail)."
+        bucket = size // 100_000
+        if session and not _cost_line_given(session, bucket):
+            log_usage("cost_advice", bucket=bucket, session=session)
+            advice += (" Add this line once, in this turn's report, verbatim: `- 비용: 호출당 약 "
+                       f"{size // 1000}k 토큰. 같은 폴더에서 새 대화를 열면 올라마 인계문이 자동으로 들어갑니다.`")
+    return f" Context now ~{size // 1000}k tokens per call.{advice}"
 
 
 # 인계(handoff): Biz 세션은 이어 열기(resume)로 호출마다 약 30만 토큰을 다시 읽었다(2026-09-22 23:03).
