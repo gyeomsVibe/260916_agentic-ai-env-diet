@@ -828,7 +828,13 @@ HANDOFF_MAX_CHARS = 6000  # 약 2천 토큰: 이어 열기 30만 대비 0.7%
 
 
 def _handoff_path(cwd: str) -> Path:
-    key = hashlib.sha256(os.path.normcase(os.path.abspath(cwd or ".")).encode("utf-8")).hexdigest()[:16]
+    # 앱은 대화마다 새 워크트리(<저장소>/.claude/worktrees/<이름>)를 만든다. 실측: 새 Biz 대화가 다른 워크트리에서
+    # 시작해 인계문을 못 찾았다(23:54). 워크트리 안이면 저장소 뿌리를 열쇠로 쓴다.
+    base = os.path.normcase(os.path.abspath(cwd or "."))
+    marker = os.path.normcase(os.path.join(".claude", "worktrees"))
+    if marker in base:
+        base = base.split(marker)[0].rstrip("\\/")
+    key = hashlib.sha256(base.encode("utf-8")).hexdigest()[:16]
     return HANDOFF_DIR / f"{key}.json"
 
 
@@ -1169,13 +1175,7 @@ def agy_hook(event_name: str, event: dict) -> dict | None:
         shape = turn_shape(path) if path.is_file() else None
         if not shape:
             return None
-        log_usage("turn_shape", **shape)
-        too_long = (shape["final_lines"] > REPORT_MAX_LINES or shape["final_chars"] > REPORT_MAX_CHARS
-                    or shape["nested_lines"] > 0)
-        if too_long and event.get("executionNum", 0) == 0:
-            return {"decision": "continue", "reason": (
-                f"Final report has {shape['final_lines']} lines, {shape['final_chars']} chars; rewrite it flat in at most "
-                f"{REPORT_MAX_LINES} lines and {REPORT_MAX_CHARS} chars in Korean: `**결과**:` / `- 과정:` / `- 근거:`.")}
+        log_usage("turn_shape", **shape)  # Claude 와 같다: 되돌리면 보고가 두 번 보인다. 다음 지시에서 되비춘다
     return None
 
 

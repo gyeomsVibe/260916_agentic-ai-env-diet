@@ -710,6 +710,12 @@ class OllaHandoffTests(unittest.TestCase):
         self.assertEqual("", self._start("resume"))  # 이어 열기에는 이미 전체 기록이 있다
         self.assertEqual("", self._start("startup", session="old"))  # 자기 인계문은 넣지 않는다
 
+    def test_worktrees_of_one_repo_share_the_handoff(self) -> None:
+        self.assertEqual(olla._handoff_path("D:/biz/.claude/worktrees/old-a1"),
+                         olla._handoff_path("D:/biz/.claude/worktrees/new-b2"))
+        self.assertEqual(olla._handoff_path("D:/biz"), olla._handoff_path("D:/biz/.claude/worktrees/new-b2"))
+        self.assertNotEqual(olla._handoff_path("D:/biz"), olla._handoff_path("D:/other"))
+
     def test_stale_or_missing_handoff_is_ignored(self) -> None:
         self.assertEqual("", self._start("startup"))
         path = olla._handoff_path("D:/biz")
@@ -755,17 +761,15 @@ class OllaAntigravityHookTests(unittest.TestCase):
         self.assertEqual("deny", whole["decision"])
         self.assertIsNone(ranged)
 
-    def test_stop_sends_a_long_report_back_once(self) -> None:
+    def test_stop_records_a_long_report_without_sending_it_back(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "t.jsonl"
             path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in (
                 {"type": "user", "message": {"content": "x"}},
                 {"type": "assistant", "message": {"content": [{"type": "text", "text": "\n".join(["줄"] * 9)}]}})), encoding="utf-8")
             with mock.patch.object(olla, "USAGE_LOG", Path(tmp) / "u.jsonl"):
-                first = olla.agy_hook("Stop", {"transcriptPath": str(path), "executionNum": 0})
-                again = olla.agy_hook("Stop", {"transcriptPath": str(path), "executionNum": 1})
-        self.assertEqual("continue", first["decision"])
-        self.assertIsNone(again)
+                self.assertIsNone(olla.agy_hook("Stop", {"transcriptPath": str(path), "executionNum": 0}))
+                self.assertIn('"final_lines": 9', (Path(tmp) / "u.jsonl").read_text(encoding="utf-8"))
 
 
 class OllaFindTests(unittest.TestCase):
