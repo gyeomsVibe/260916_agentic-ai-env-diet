@@ -26,6 +26,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -142,6 +143,21 @@ def hangul_ratio(text: str) -> float:
     return sum(1 for c in letters if "가" <= c <= "힣") / len(letters) if letters else 0.0
 
 
+REF_TEST_RE = re.compile(r"\btests\.(test_[A-Za-z0-9_]+)")
+REF_PATH_RE = re.compile(r"`([\w./\\-]+\.(?:py|md|json|jsonl|ps1|toml|ya?ml|js|ts))`")
+
+
+def missing_refs(text: str, root: Path) -> list[str]:
+    """답에 나온 테스트 모듈·파일 경로 중 실제로 없는 것. 로컬 모델은 그럴듯한 이름을 지어낸다
+    (실측 B71: 정상 입력에서도 테스트 이름 8/12개가 가짜)."""
+    missing = [f"tests.{name}" for name in REF_TEST_RE.findall(text) if not (root / "tests" / f"{name}.py").is_file()]
+    for raw in REF_PATH_RE.findall(text):
+        candidate = Path(raw).expanduser()
+        if not (candidate if candidate.is_absolute() else root / candidate).exists() and "~" not in raw:
+            missing.append(raw)
+    return sorted(set(missing))
+
+
 def cmd_ask(args: argparse.Namespace) -> int:
     # 빈 입력 파일을 주면 모델은 없는 내용을 지어낸다(실측: 0바이트 입력에 무관한 점검표 12항목).
     # 그럴듯한 가짜보다 실패가 낫다.
@@ -177,6 +193,12 @@ def cmd_ask(args: argparse.Namespace) -> int:
     if args.ko and hangul_ratio(text) < KO_MIN_HANGUL_RATIO:
         print("local answer is not Korean after retry — write it yourself", file=sys.stderr)
         return 4
+    # 기본으로 켠다: 지어낸 이름을 부른 도구가 그대로 쓰는 것이 가장 비싼 실패다.
+    fake = missing_refs(text, Path.cwd())
+    if fake:
+        print(f"references not found (likely invented): {', '.join(fake)}", file=sys.stderr)
+        log_usage("ask_invented_refs", count=len(fake))
+        return 5
     return 0
 
 

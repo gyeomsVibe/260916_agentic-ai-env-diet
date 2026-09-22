@@ -146,6 +146,27 @@ class OllaAskAndStatusTests(unittest.TestCase):
         self.assertEqual(4, code)
         self.assertIn("write it yourself", err)
 
+    def test_invented_references_fail_with_code_5(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            (root / "tests" / "test_real.py").write_text("", encoding="utf-8")
+            (root / "notes.md").write_text("x", encoding="utf-8")
+            self.assertEqual([], olla.missing_refs("run tests.test_real and see `notes.md`", root))
+            self.assertEqual(["missing.py", "tests.test_fake"],
+                             olla.missing_refs("run tests.test_fake, open `missing.py`, `~/.codex/hooks.json`", root))
+            cwd = os.getcwd()
+            os.chdir(root)
+            try:
+                err = io.StringIO()
+                with mock.patch.object(olla.worker, "_generate", return_value=("use tests.test_fake", {})):
+                    with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                        code = olla.main(["ask", "x"])
+            finally:
+                os.chdir(cwd)
+        self.assertEqual(5, code)
+        self.assertIn("likely invented", err.getvalue())
+
     def test_ask_refuses_an_empty_input_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             empty = Path(tmp) / "input.md"
