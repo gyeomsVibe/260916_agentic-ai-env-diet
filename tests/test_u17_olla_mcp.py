@@ -40,6 +40,13 @@ class OllaMcpTests(unittest.TestCase):
         names = [t["name"] for t in replies[1]["result"]["tools"]]
         self.assertEqual(["local_read_map", "local_draft", "local_search"], names)
 
+    def test_mcp_exposes_no_write_tool(self) -> None:
+        # 쓰기(수정)는 SQLite 파일럿의 관문(staging·manifest·bundle 승인)으로만 한다. MCP 가 쓰기 도구를
+        # 내면 관문을 우회하는 두 번째 경로가 생긴다 — 그 충돌을 구조로 막는다.
+        for tool in olla_mcp.TOOLS:
+            self.assertNotRegex(tool["name"], r"edit|write|apply|patch|delete")
+            self.assertNotIn("path_to_write", json.dumps(tool["inputSchema"]))
+
     def test_read_map_uses_and_fills_the_cache(self) -> None:
         target = Path(self.tmp.name) / "big.py"
         target.write_text("x = 1\n" * 50, encoding="utf-8")
