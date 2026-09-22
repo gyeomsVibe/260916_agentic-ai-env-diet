@@ -688,8 +688,71 @@ def cmd_hook_plan(args: argparse.Namespace) -> int:
         return 0
     if not isinstance(event, dict) or not _server_up():
         return 0
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": PLAN_HINT}}))
+    context = PLAN_HINT + session_scorecard(os.environ.get("CLAUDE_CODE_SESSION_ID") or str(event.get("session_id") or ""))
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": context}}))
     log_usage("hint_plan")
+    return 0
+
+
+def session_scorecard(session: str) -> str:
+    """이 세션이 지금까지 올라마를 얼마나 썼고 보고를 얼마나 길게 했는지 되비춘다.
+
+    규칙과 알림만으로는 반복해서 어겼다(Biz항해 세션 olla 0건, 보고 5줄 초과 5/11턴). 자기 수치를
+    매 지시마다 보여 주는 되먹임(feedback)이 규칙 문장보다 행동을 바꾼다는 가정 — 효과는 turn_shape로 잰다.
+    """
+    if not session or not USAGE_LOG.is_file():
+        return ""
+    used = hints = turns = long_turns = 0
+    for line in USAGE_LOG.read_text(encoding="utf-8").splitlines():
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if rec.get("session") != session:
+            continue
+        event = rec.get("event")
+        used += event in ("ask", "edit", "digest", "find")
+        hints += event in ("hint_read", "hint_shell")
+        if event == "turn_shape":
+            turns += 1
+            long_turns += (rec.get("narration_blocks", 0) > 0 or rec.get("final_lines", 0) > REPORT_MAX_LINES
+                           or rec.get("final_chars", 0) > REPORT_MAX_CHARS or rec.get("nested_lines", 0) > 0)
+    if not (used or hints or turns):
+        return ""
+    return (f" This session so far: olla used {used}x, big-read hints {hints}, "
+            f"reports breaking the output rule {long_turns}/{turns}.")
+
+
+# Windows 는 작업 위치가 260자를 넘으면 셸과 훅을 아예 띄우지 못한다(Biz항해 세션: Stop 훅 ENOENT → 보고 길이
+# 제한이 꺼짐). 그 위치로 들어가기 전에 막는다. 들어간 뒤에는 이 훅조차 못 뜬다.
+CWD_MAX_CHARS = 200  # 260 한도에서 하위 경로·파일명 여유 60자
+
+
+def deep_cd_target(command: str, cwd: str) -> str | None:
+    for segment in command.replace("&&", ";").split(";"):
+        words = segment.strip().split(maxsplit=1)
+        if len(words) == 2 and words[0] in ("cd", "Set-Location", "pushd", "sl"):
+            raw = words[1].strip().strip("'\"")
+            target = Path(raw) if Path(raw).is_absolute() else Path(cwd or ".") / raw
+            if len(str(target)) > CWD_MAX_CHARS:
+                return str(target)
+    return None
+
+
+def cmd_hook_bash(args: argparse.Namespace) -> int:
+    """PreToolUse(Bash·PowerShell) 훅: 너무 깊은 곳으로의 cd 만 거부한다. 그 밖에는 아무것도 하지 않는다."""
+    try:
+        event = json.loads(_stdin_text() or "{}")
+        command = str((event.get("tool_input") or {}).get("command") or "")
+        target = deep_cd_target(command, str(event.get("cwd") or ""))
+    except (ValueError, AttributeError, TypeError):
+        return 0
+    if target:
+        log_usage("deny_deep_cd", chars=len(target))
+        print(json.dumps({"hookSpecificOutput": {
+            "hookEventName": "PreToolUse", "permissionDecision": "deny",
+            "permissionDecisionReason": (f"cd target is {len(target)} chars (> {CWD_MAX_CHARS}); past 260 the shell and hooks "
+                                         "stop on Windows. Stay at the project root and use absolute paths.")}}))
     return 0
 
 
@@ -789,6 +852,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("hook-plan", help="UserPromptSubmit 훅: 작업 시작 시 로컬 모델 분업을 먼저 정하게 함")
     p.set_defaults(func=cmd_hook_plan)
+
+    p = sub.add_parser("hook-bash", help="PreToolUse(Bash) 훅: 260자 한도에 가까운 깊은 cd 거부")
+    p.set_defaults(func=cmd_hook_bash)
 
     p = sub.add_parser("hook-stop", help="Stop 훅: 턴의 진행 설명 수·최종 보고 길이 기록")
     p.set_defaults(func=cmd_hook_stop)

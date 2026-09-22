@@ -33,6 +33,18 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "olla hook-bash",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

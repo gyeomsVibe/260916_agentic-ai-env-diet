@@ -32,6 +32,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "olla hook-bash",
+            "timeout": 5
+          }
+        ]
       }
     ]
   },

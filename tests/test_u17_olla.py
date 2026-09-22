@@ -511,6 +511,55 @@ class OllaTurnShapeTests(unittest.TestCase):
             self.assertEqual("", out.getvalue())
 
 
+class OllaRecurringFailureGuardTests(unittest.TestCase):
+    """반복 오류 차단: 세션 성적 되비춤, 260자 한도에 가까운 cd 거부."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        patch = mock.patch.object(olla, "USAGE_LOG", Path(self.tmp.name) / "usage.jsonl")
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_scorecard_reports_only_this_session(self) -> None:
+        rows = [
+            {"event": "hint_read", "session": "s1"}, {"event": "digest", "session": "s1"},
+            {"event": "turn_shape", "session": "s1", "narration_blocks": 0, "final_lines": 9},
+            {"event": "turn_shape", "session": "s1", "narration_blocks": 0, "final_lines": 3, "final_chars": 100},
+            {"event": "ask", "session": "other"},
+        ]
+        olla.USAGE_LOG.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+        card = olla.session_scorecard("s1")
+        self.assertIn("olla used 1x", card)
+        self.assertIn("big-read hints 1", card)
+        self.assertIn("output rule 1/2", card)
+        self.assertEqual("", olla.session_scorecard("nobody"))
+
+    def test_plan_hint_carries_the_scorecard(self) -> None:
+        olla.USAGE_LOG.write_text(json.dumps({"event": "hint_read", "session": "s9"}), encoding="utf-8")
+        out = io.StringIO()
+        with mock.patch.object(olla, "_server_up", return_value=True), \
+                mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "s9"}), \
+                mock.patch("sys.stdin", io.StringIO("{}")), redirect_stdout(out):
+            olla.main(["hook-plan"])
+        self.assertIn("This session so far", json.loads(out.getvalue())["hookSpecificOutput"]["additionalContext"])
+
+    def _bash(self, command: str, cwd: str) -> str:
+        out = io.StringIO()
+        event = {"tool_input": {"command": command}, "cwd": cwd}
+        with mock.patch("sys.stdin", io.StringIO(json.dumps(event))), redirect_stdout(out):
+            self.assertEqual(0, olla.main(["hook-bash"]))
+        return out.getvalue()
+
+    def test_deep_cd_is_denied_shallow_is_allowed(self) -> None:
+        deep = "D:/" + "a" * olla.CWD_MAX_CHARS
+        payload = json.loads(self._bash(f'cd "{deep}" && ls', "D:/proj"))["hookSpecificOutput"]
+        self.assertEqual("deny", payload["permissionDecision"])
+        self.assertEqual("", self._bash("cd src && ls", "D:/proj"))
+        self.assertEqual("", self._bash("git status", "D:/" + "a" * 250))
+        self.assertEqual("", self._bash("", ""))
+
+
 class OllaFindTests(unittest.TestCase):
     def test_ranks_files_by_similarity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
