@@ -803,6 +803,54 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def agy_hook(event_name: str, event: dict) -> dict | None:
+    """Antigravity 훅 형식 어댑터(antigravity.google/docs/hooks). Claude·Codex 와 입출력 모양이 다르다.
+
+    - PreInvocation: 턴의 첫 호출에만 분업 안내를 일시 메시지(ephemeralMessage)로 넣는다.
+    - PreToolUse(run_command): 깊은 cd 만 거부한다. 그 밖엔 아무 말도 하지 않는다 — "allow"를 내면
+      Antigravity 자체 승인 확인을 건너뛸 수 있어서다.
+    - Stop: 최종 보고가 길면 한 번 되돌린다(executionNum 0 일 때만, 무한 반복 방지).
+    """
+    if event_name == "PreInvocation":
+        if event.get("invocationNum", 0) != 0 or not _server_up():
+            return None
+        log_usage("hint_plan")
+        return {"injectSteps": [{"ephemeralMessage": PLAN_HINT + session_scorecard(str(event.get("conversationId") or ""))}]}
+    if event_name == "PreToolUse":
+        call = event.get("toolCall") or {}
+        args = call.get("args") or {}
+        if call.get("name") == "run_command":
+            target = deep_cd_target(str(args.get("CommandLine") or ""), str(args.get("Cwd") or ""))
+            if target:
+                log_usage("deny_deep_cd", chars=len(target))
+                return {"decision": "deny", "reason": f"cd target is {len(target)} chars; stay at the project root and use absolute paths."}
+        return None
+    if event_name == "Stop":
+        path = Path(str(event.get("transcriptPath") or ""))
+        shape = turn_shape(path) if path.is_file() else None
+        if not shape:
+            return None
+        log_usage("turn_shape", **shape)
+        too_long = (shape["final_lines"] > REPORT_MAX_LINES or shape["final_chars"] > REPORT_MAX_CHARS
+                    or shape["nested_lines"] > 0)
+        if too_long and event.get("executionNum", 0) == 0:
+            return {"decision": "continue", "reason": (
+                f"Final report has {shape['final_lines']} lines, {shape['final_chars']} chars; rewrite it flat in at most "
+                f"{REPORT_MAX_LINES} lines and {REPORT_MAX_CHARS} chars in Korean: `**결과**:` / `- 과정:` / `- 근거:`.")}
+    return None
+
+
+def cmd_hook_agy(args: argparse.Namespace) -> int:
+    try:
+        event = json.loads(_stdin_text() or "{}")
+        result = agy_hook(args.event, event) if isinstance(event, dict) else None
+    except (ValueError, AttributeError, TypeError, OSError):
+        return 0
+    if result:
+        print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="olla", description="로컬 Ollama 모델을 어느 프로젝트에서든 부려 쓰는 명령")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -852,6 +900,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("hook-plan", help="UserPromptSubmit 훅: 작업 시작 시 로컬 모델 분업을 먼저 정하게 함")
     p.set_defaults(func=cmd_hook_plan)
+
+    p = sub.add_parser("hook-agy", help="Antigravity 훅 어댑터(PreInvocation·PreToolUse·Stop)")
+    p.add_argument("event", choices=["PreInvocation", "PreToolUse", "Stop"])
+    p.set_defaults(func=cmd_hook_agy)
 
     p = sub.add_parser("hook-bash", help="PreToolUse(Bash) 훅: 260자 한도에 가까운 깊은 cd 거부")
     p.set_defaults(func=cmd_hook_bash)

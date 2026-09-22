@@ -1,0 +1,14 @@
+{
+  "olla-local-model": {
+    "enabled": true,
+    "PreInvocation": [
+      {"hooks": [{"type": "command", "command": "olla hook-agy PreInvocation", "timeout": 5}]}
+    ],
+    "PreToolUse": [
+      {"matcher": "run_command", "hooks": [{"type": "command", "command": "olla hook-agy PreToolUse", "timeout": 5}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "olla hook-agy Stop", "timeout": 10}]}
+    ]
+  }
+}

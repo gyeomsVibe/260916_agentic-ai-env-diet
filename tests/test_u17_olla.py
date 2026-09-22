@@ -560,6 +560,36 @@ class OllaRecurringFailureGuardTests(unittest.TestCase):
         self.assertEqual("", self._bash("", ""))
 
 
+class OllaAntigravityHookTests(unittest.TestCase):
+    """Antigravity 형식: 입력·출력 모양이 달라 어댑터로 옮긴다. 승인을 대신 내주지 않는다."""
+
+    def test_pre_invocation_injects_once_per_turn(self) -> None:
+        with mock.patch.object(olla, "_server_up", return_value=True):
+            first = olla.agy_hook("PreInvocation", {"invocationNum": 0, "conversationId": "c1"})
+            later = olla.agy_hook("PreInvocation", {"invocationNum": 3})
+        self.assertIn("olla", first["injectSteps"][0]["ephemeralMessage"])
+        self.assertIsNone(later)
+
+    def test_pre_tool_use_denies_only_deep_cd_and_never_allows(self) -> None:
+        deep = "D:/" + "a" * olla.CWD_MAX_CHARS
+        denied = olla.agy_hook("PreToolUse", {"toolCall": {"name": "run_command", "args": {"CommandLine": f"cd {deep}", "Cwd": "D:/p"}}})
+        self.assertEqual("deny", denied["decision"])
+        self.assertIsNone(olla.agy_hook("PreToolUse", {"toolCall": {"name": "run_command", "args": {"CommandLine": "git status"}}}))
+        self.assertIsNone(olla.agy_hook("PreToolUse", {"toolCall": {"name": "view_file", "args": {"AbsolutePath": "x"}}}))
+
+    def test_stop_sends_a_long_report_back_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "t.jsonl"
+            path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in (
+                {"type": "user", "message": {"content": "x"}},
+                {"type": "assistant", "message": {"content": [{"type": "text", "text": "\n".join(["줄"] * 9)}]}})), encoding="utf-8")
+            with mock.patch.object(olla, "USAGE_LOG", Path(tmp) / "u.jsonl"):
+                first = olla.agy_hook("Stop", {"transcriptPath": str(path), "executionNum": 0})
+                again = olla.agy_hook("Stop", {"transcriptPath": str(path), "executionNum": 1})
+        self.assertEqual("continue", first["decision"])
+        self.assertIsNone(again)
+
+
 class OllaFindTests(unittest.TestCase):
     def test_ranks_files_by_similarity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
