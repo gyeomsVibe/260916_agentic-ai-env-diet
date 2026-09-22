@@ -1,0 +1,60 @@
+{
+ "span": [
+  "2026-09-22T07:07:32.045Z",
+  "2026-09-22T07:26:59.683Z"
+ ],
+ "prompts": 2,
+ "tool_calls": 95,
+ "top_tools": [
+  [
+   "Bash",
+   29
+  ],
+  [
+   "Edit",
+   18
+  ],
+  [
+   "Read",
+   11
+  ],
+  [
+   "Write",
+   10
+  ],
+  [
+   "Agent",
+   6
+  ],
+  [
+   "WebSearch",
+   5
+  ],
+  [
+   "ToolSearch",
+   3
+  ],
+  [
+   "mcp__claude-in-chrome__tabs_context_mcp",
+   3
+  ]
+ ],
+ "olla_calls": {},
+ "plan_hints_seen": 1,
+ "stop_blocks": 0,
+ "reads": 11,
+ "big_whole_reads(>=3k tok)": 2,
+ "big_whole_tokens": 120492,
+ "examples": [
+  [
+   110734,
+   true,
+   "a1f46d7fc86164613.output"
+  ],
+  [
+   9758,
+   true,
+   "STEP1_WORKER_V1_2_P0_전체복사.js"
+  ]
+ ]
+}

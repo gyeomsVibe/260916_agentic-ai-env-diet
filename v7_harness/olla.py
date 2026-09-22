@@ -86,6 +86,15 @@ def log_usage(event: str, **fields) -> None:
         pass
 
 
+def _stdin_text() -> str:
+    """훅 입력은 UTF-8 JSON 이다. Windows 기본(cp949)으로 읽으면 한글 경로가 깨져 파일을 못 찾고
+    훅이 조용히 침묵했다(Biz항해 세션, 2026-09-22: 큰 파일 통째 읽기 2건에 알림 0건)."""
+    buffer = getattr(sys.stdin, "buffer", None)
+    if buffer is None:
+        return sys.stdin.read()
+    return buffer.read().decode("utf-8", errors="replace")
+
+
 def _read_files(paths: list[str]) -> str:
     chunks = []
     for raw in paths:
@@ -467,7 +476,7 @@ def read_hint(event: dict) -> str | None:
 def cmd_hook_read(args: argparse.Namespace) -> int:
     """Claude Code PreToolUse(Read) 훅. 어떤 입력에도 0으로 끝나 도구를 막지 않는다."""
     try:
-        event = json.loads(sys.stdin.read() or "{}")
+        event = json.loads(_stdin_text() or "{}")
         hint = read_hint(event)
     except (ValueError, AttributeError):
         return 0
@@ -531,7 +540,7 @@ def shell_read_hint(event: dict) -> str | None:
 def cmd_hook_shell(args: argparse.Namespace) -> int:
     """Codex PostToolUse(Bash) 훅. 어떤 입력에도 0으로 끝나 도구를 막지 않는다."""
     try:
-        event = json.loads(sys.stdin.read() or "{}")
+        event = json.loads(_stdin_text() or "{}")
         hint = shell_read_hint(event) if isinstance(event, dict) else None
     except (ValueError, AttributeError, TypeError):
         return 0
@@ -589,7 +598,7 @@ def cmd_hook_stop(args: argparse.Namespace) -> int:
     (stop_hook_active)에는 다시 막지 않아 무한 반복이 없다.
     """
     try:
-        event = json.loads(sys.stdin.read() or "{}")
+        event = json.loads(_stdin_text() or "{}")
         path = Path(event.get("transcript_path") or "") if isinstance(event, dict) else Path()
         shape = turn_shape(path) if path.is_file() else None
     except (ValueError, OSError, AttributeError):
@@ -619,7 +628,7 @@ def _server_up() -> bool:
 def cmd_hook_plan(args: argparse.Namespace) -> int:
     """Claude Code·Codex 공통 UserPromptSubmit 훅. 어떤 입력에도 0으로 끝나 막지 않는다."""
     try:
-        event = json.loads(sys.stdin.read() or "{}")
+        event = json.loads(_stdin_text() or "{}")
     except ValueError:
         return 0
     if not isinstance(event, dict) or not _server_up():

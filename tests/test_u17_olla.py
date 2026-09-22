@@ -270,6 +270,25 @@ class OllaReadHookTests(unittest.TestCase):
         self.assertIn("olla digest", payload["hookSpecificOutput"]["additionalContext"])
         self.assertNotIn("permissionDecision", payload["hookSpecificOutput"])
 
+    def test_korean_path_through_real_stdin_bytes(self) -> None:
+        # StringIO 모의로는 못 잡는다. 실제 프로세스에 UTF-8 바이트로 넣어야 cp949 오독이 드러난다.
+        import subprocess
+        import sys as _sys
+
+        folder = Path(self.tmp.name) / "한글폴더"
+        folder.mkdir()
+        target = folder / "큰파일.py"
+        target.write_text("x = 1\n" * 4000, encoding="utf-8")
+        root = Path(__file__).resolve().parents[1]
+        env = dict(os.environ, PYTHONPATH=str(root), OLLA_USAGE=str(Path(self.tmp.name) / "u.jsonl"))
+        env.pop("PYTHONIOENCODING", None)
+        env.pop("PYTHONUTF8", None)
+        done = subprocess.run([_sys.executable, "-m", "v7_harness.olla", "hook-read"], cwd=root, env=env,
+                              input=json.dumps({"tool_input": {"file_path": str(target)}}, ensure_ascii=False).encode("utf-8"),
+                              capture_output=True, timeout=60)
+        self.assertEqual(0, done.returncode)
+        self.assertIn("olla digest", done.stdout.decode("utf-8"))
+
     def test_small_or_targeted_reads_stay_silent(self) -> None:
         for tool_input in ({"file_path": str(self.small)}, {"file_path": str(self.big), "offset": 100, "limit": 40}):
             code, out = self._hook(json.dumps({"tool_input": tool_input}))
