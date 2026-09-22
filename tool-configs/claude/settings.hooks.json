@@ -56,5 +56,8 @@
       }
     ]
   },
-  "outputStyle": "brief-ko"
+  "outputStyle": "brief-ko",
+  "env": {
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "22"
+  }
 }
