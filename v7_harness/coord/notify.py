@@ -28,7 +28,7 @@ MESSAGE_MAX_LINES = 6
 MESSAGE_MAX_CHARS = 500
 MIN_INTERVAL = timedelta(minutes=1)
 DAILY_LIMIT = 24
-DATA_HEADER = "[DATA] 출처={actor} 판정요청={verdict}"
+DATA_HEADER = "[DATA] from={actor} verdict_requested={verdict}"
 
 
 class NotifyRefused(RuntimeError):
@@ -87,7 +87,7 @@ def write_cursor(project: Path, cursor: dict[str, Any]) -> None:
 
 def build_message(*, actor: str, brief_path: str, headline: str, pending: Sequence[str]) -> str:
     """Codex가 한눈에 읽고 판정으로 들어갈 수 있는 최소 메시지."""
-    verdict = "있음" if pending else "없음"
+    verdict = "yes" if pending else "no"
     lines = [
         DATA_HEADER.format(actor=actor, verdict=verdict),
         headline.strip(),

@@ -467,7 +467,7 @@ class OllaTurnShapeTests(unittest.TestCase):
             {"type": "user", "message": {"content": [{"type": "tool_result"}]}},
             {"type": "assistant", "message": {"content": [{"type": "text", "text": "결과 1\n결과 2"}]}},
         ])
-        self.assertEqual({"narration_blocks": 1, "final_lines": 2, "final_chars": 9}, olla.turn_shape(path))
+        self.assertEqual({"narration_blocks": 1, "final_lines": 2, "final_chars": 9, "nested_lines": 0}, olla.turn_shape(path))
 
     def test_codex_rollout(self) -> None:
         msg = lambda t: {"type": "response_item", "payload": {"type": "message", "role": "assistant", "content": [{"text": t}]}}
@@ -488,6 +488,15 @@ class OllaTurnShapeTests(unittest.TestCase):
         with mock.patch("sys.stdin", io.StringIO(json.dumps(event))), redirect_stdout(out):
             self.assertEqual(0, olla.main(["hook-stop"]))
         return out.getvalue()
+
+    def test_nested_or_wordy_report_is_sent_back(self) -> None:
+        for text in ("**결과**: x\n- 근거:\n  - a\n  - b", "**결과**: " + "가" * (olla.REPORT_MAX_CHARS + 1)):
+            path = self._write([{"type": "user", "message": {"content": "지시"}},
+                                {"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}])
+            out = io.StringIO()
+            with mock.patch("sys.stdin", io.StringIO(json.dumps({"transcript_path": str(path)}))), redirect_stdout(out):
+                olla.main(["hook-stop"])
+            self.assertEqual("block", json.loads(out.getvalue())["decision"], text[:20])
 
     def test_long_report_is_sent_back_once(self) -> None:
         self.assertEqual("block", json.loads(self._stop(olla.REPORT_MAX_LINES + 3, active=False))["decision"])

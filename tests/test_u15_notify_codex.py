@@ -60,13 +60,13 @@ class U15NotifyTests(unittest.TestCase):
 
     def test_message_is_data_not_instruction(self) -> None:
         message = build_message(actor="claude", brief_path=".coord/codex_brief.md", headline="요약", pending=[])
-        self.assertTrue(message.startswith("[DATA] 출처=claude 판정요청=없음"))
+        self.assertTrue(message.startswith("[DATA] from=claude verdict_requested=no"))
         self.assertLessEqual(len(message.splitlines()), MESSAGE_MAX_LINES)
         self.assertLessEqual(len(message), MESSAGE_MAX_CHARS)
 
     def test_pending_marks_a_verdict_request(self) -> None:
         message = build_message(actor="antigravity", brief_path="p", headline="h", pending=["a", "b", "c"])
-        self.assertIn("판정요청=있음", message)
+        self.assertIn("verdict_requested=yes", message)
         self.assertEqual(2, message.count("판정대기:"))
 
     def test_secret_shaped_message_is_refused(self) -> None:

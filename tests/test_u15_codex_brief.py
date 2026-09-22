@@ -85,14 +85,14 @@ class U15CodexBriefTests(unittest.TestCase):
 
     def test_empty_stream_still_renders_a_usable_page(self) -> None:
         text = render_brief(self.project, owner="codex")
-        self.assertIn("## Codex 판정 대기", text)
-        self.assertIn("- 없음", text)
+        self.assertIn("## Awaiting Codex verdict", text)
+        self.assertIn("- none", text)
 
     def test_write_brief_puts_it_where_codex_reads(self) -> None:
         self._event()
         path = write_brief(self.project, render_brief(self.project))
         self.assertEqual(self.project / ".coord" / "codex_brief.md", path)
-        self.assertTrue(path.read_text(encoding="utf-8").startswith("# Codex 조율 브리핑"))
+        self.assertTrue(path.read_text(encoding="utf-8").startswith("# Codex coordination brief"))
 
 
 if __name__ == "__main__":

@@ -76,7 +76,7 @@ class U15CoordCliTests(unittest.TestCase):
         self._log()
         code, printed = self._run("coord", "brief", "--project", str(self.project), "--owner", "claude")
         self.assertEqual(0, code)
-        self.assertIn("# Codex 조율 브리핑", printed)
+        self.assertIn("# Codex coordination brief", printed)
 
         code, out = self._run(
             "coord", "brief",

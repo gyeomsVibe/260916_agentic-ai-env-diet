@@ -636,7 +636,8 @@ def turn_shape(transcript: Path) -> dict | None:
     if not texts:
         return None
     final = [l for l in texts[-1].splitlines() if l.strip()]
-    return {"narration_blocks": len(texts) - 1, "final_lines": len(final), "final_chars": len(texts[-1])}
+    nested = sum(1 for l in final if l.startswith((" ", chr(9))) and l.strip()[:1] in "-*0123456789")
+    return {"narration_blocks": len(texts) - 1, "final_lines": len(final), "final_chars": len(texts[-1]), "nested_lines": nested}
 
 
 def cmd_hook_stop(args: argparse.Namespace) -> int:
@@ -654,15 +655,21 @@ def cmd_hook_stop(args: argparse.Namespace) -> int:
     if not shape:
         return 0
     log_usage("turn_shape", **shape)
-    if shape["final_lines"] > REPORT_MAX_LINES and not event.get("stop_hook_active"):
+    too_long = (shape["final_lines"] > REPORT_MAX_LINES or shape["final_chars"] > REPORT_MAX_CHARS
+                or shape["nested_lines"] > 0)
+    if too_long and not event.get("stop_hook_active"):
         print(json.dumps({"decision": "block", "reason": (
-            f"Final report has {shape['final_lines']} lines; rewrite it in at most {REPORT_MAX_LINES}: "
+            f"Final report has {shape['final_lines']} lines, {shape['final_chars']} chars, {shape['nested_lines']} nested; "
+            f"rewrite it flat in at most {REPORT_MAX_LINES} lines and {REPORT_MAX_CHARS} chars: "
             "`**결과**:` / `- 과정:` / `- 근거:` / `- **남은 일**:` (only if the user must act). Output only the rewritten report."
         )}, ensure_ascii=False))
     return 0
 
 
 REPORT_MAX_LINES = 5  # 결과 1 + 과정 1 + 근거 1~2 + 남은 일 1
+# 줄 수만 세면 한 줄에 몰아 쓰거나 하위 목록으로 우회했다(Biz항해 세션 보고: 하위 목록 9줄). 글자·중첩도 본다.
+REPORT_MAX_CHARS = 600  # 한 줄 약 120자 × 5줄
+
 
 
 def _server_up() -> bool:
