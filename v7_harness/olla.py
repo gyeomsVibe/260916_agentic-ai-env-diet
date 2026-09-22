@@ -579,7 +579,7 @@ def cmd_hook_read(args: argparse.Namespace) -> int:
     if tokens >= DENY_WHOLE_READ_TOKENS:
         output = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": (
             f"Whole-file read of ~{tokens:,} tokens refused (limit {DENY_WHOLE_READ_TOKENS:,}). "
-            f"Use the olla digest or Grep to find the lines, then Read with offset/limit. {hint}")}
+            f"Call the local_read_map tool (0 paid tokens) or Grep to find the lines, then Read with offset/limit. {hint}")}
         log_usage("deny_whole_read", file=file, tokens=tokens)
     else:
         log_usage("hint_read", file=file)
@@ -654,9 +654,10 @@ def cmd_hook_shell(args: argparse.Namespace) -> int:
 # 규칙이 문맥에 있어도 계획 단계에서 로컬 모델을 빠뜨렸다(2026-09-22, 사용자가 먼저 물어서야 드러남).
 # 그래서 지시가 들어오는 순간(UserPromptSubmit) 분업을 먼저 정하게 한 줄을 넣는다. 서버가 꺼져 있으면 말하지 않는다.
 PLAN_HINT = (
-    "olla (local model, 0 paid tokens) is up. Before acting, split this task: reading a file over ~3k tokens -> "
-    "`olla digest`, drafts/summaries/classification -> `olla ask` (English prompt with format+example; add --ko only "
-    "if the text goes to the user), exact edits -> `olla edit`, semantic search -> `olla find`. "
+    "Local model (0 paid tokens) is up; its MCP tools are in your tool list. Before acting, split this task: "
+    "understanding/locating in a file over ~300 lines -> `local_read_map`, drafts/summaries/commit messages -> "
+    "`local_draft` (English prompt with format+example; korean=true only for user-facing text), "
+    "search by meaning -> `local_search`. "
     "Do the rest yourself; verify local output, never let it judge. "
     "Report: no text between tool calls; end in Korean with `**결과**:` / `- 과정: A → B → C` / `- 근거:` / "
     "`- **남은 일**:` only if the user must act."

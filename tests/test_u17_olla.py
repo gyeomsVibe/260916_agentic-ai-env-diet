@@ -438,8 +438,8 @@ class OllaPlanHookTests(unittest.TestCase):
         self.assertEqual(0, code)
         payload = json.loads(out)["hookSpecificOutput"]
         self.assertEqual("UserPromptSubmit", payload["hookEventName"])
-        self.assertIn("olla ask", payload["additionalContext"])
-        self.assertIn("English prompt", payload["additionalContext"])
+        self.assertIn("local_draft", payload["additionalContext"])
+        self.assertIn("local_read_map", payload["additionalContext"])
 
     def test_silent_when_the_server_is_down_or_input_is_garbage(self) -> None:
         self.assertEqual((0, ""), self._hook(json.dumps({"prompt": "x"}), up=False))
@@ -613,7 +613,7 @@ class OllaAntigravityHookTests(unittest.TestCase):
         with mock.patch.object(olla, "_server_up", return_value=True):
             first = olla.agy_hook("PreInvocation", {"invocationNum": 0, "conversationId": "c1"})
             later = olla.agy_hook("PreInvocation", {"invocationNum": 3})
-        self.assertIn("olla", first["injectSteps"][0]["ephemeralMessage"])
+        self.assertIn("local_read_map", first["injectSteps"][0]["ephemeralMessage"])
         self.assertIsNone(later)
 
     def test_pre_tool_use_denies_only_deep_cd_and_never_allows(self) -> None:
