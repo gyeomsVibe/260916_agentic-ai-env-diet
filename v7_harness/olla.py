@@ -733,15 +733,9 @@ def cmd_hook_stop(args: argparse.Namespace) -> int:
         return 0
     if not shape:
         return 0
+    # 막아서 다시 쓰게 하지 않는다: 긴 보고가 이미 화면에 나간 뒤라 사용자는 같은 보고를 두 번 본다
+    # (2026-09-22 Biz 화면 캡처). 기록만 하고, 다음 지시 때 hook-plan 이 직전 보고의 수치를 되비춘다.
     log_usage("turn_shape", **shape)
-    too_long = (shape["final_lines"] > REPORT_MAX_LINES or shape["final_chars"] > REPORT_MAX_CHARS
-                or shape["nested_lines"] > 0)
-    if too_long and not event.get("stop_hook_active"):
-        print(json.dumps({"decision": "block", "reason": (
-            f"Final report has {shape['final_lines']} lines, {shape['final_chars']} chars, {shape['nested_lines']} nested; "
-            f"rewrite it flat in at most {REPORT_MAX_LINES} lines and {REPORT_MAX_CHARS} chars: "
-            "`**결과**:` / `- 과정:` / `- 근거:` / `- **남은 일**:` (only if the user must act). Output only the rewritten report."
-        )}, ensure_ascii=False))
     return 0
 
 
@@ -778,6 +772,19 @@ def cmd_hook_plan(args: argparse.Namespace) -> int:
 CONTEXT_WARN_TOKENS = 150_000  # Biz 재개 세션 평균 약 17만: 호출마다 이만큼을 다시 읽는다
 
 
+def _cost_line_given(session: str, bucket: int) -> bool:
+    if not USAGE_LOG.is_file():
+        return False
+    for line in USAGE_LOG.read_text(encoding="utf-8").splitlines():
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if rec.get("event") == "cost_advice" and rec.get("session") == session and rec.get("bucket", -1) >= bucket:
+            return True
+    return False
+
+
 def context_size_note(transcript: str, cwd: str = "", session: str = "") -> str:
     """성과 지표는 올라마 호출 수가 아니라 호출당 문맥 크기다. 마지막 응답의 입력 토큰으로 잰다."""
     path = Path(transcript)
@@ -799,10 +806,14 @@ def context_size_note(transcript: str, cwd: str = "", session: str = "") -> str:
                     _start_handoff(transcript, cwd, session)
 # 실측(Biz 23:27): 에이전트는 "새 세션이 싸다"고 말했지만 사용자는 또 이어 열었다. 무엇을 누르고 무엇이 자동인지
                 # 알려야 행동이 바뀐다. 그래서 사용자 말로 된 한 줄을 그대로 준다.
-                advice = (" Every call re-reads it: keep tool output small (ranged reads, --stat, | tail). At a task "
-                          "boundary add this line to the report verbatim: `- 비용: 이 대화는 호출마다 약 "
-                          f"{size // 1000}k 토큰을 다시 읽습니다. 이어 열지 말고 같은 폴더에서 새 대화를 여세요. "
-                          "올라마 인계문이 자동으로 들어갑니다.`")
+                # 매 보고마다 붙이면 보고가 600자를 넘고 같은 말이 반복된다(Biz 캡처: 두 보고 모두 비용 줄).
+                # 세션당 10만 토큰 구간마다 한 번만 준다.
+                advice = " Every call re-reads it: keep tool output small (ranged reads, --stat, | tail)."
+                bucket = size // 100_000
+                if session and not _cost_line_given(session, bucket):
+                    log_usage("cost_advice", bucket=bucket, session=session)
+                    advice += (" Add this line once, in this turn's report, verbatim: `- 비용: 호출당 약 "
+                               f"{size // 1000}k 토큰. 같은 폴더에서 새 대화를 열면 올라마 인계문이 자동으로 들어갑니다.`")
             return f" Context now ~{size // 1000}k tokens per call.{advice}"
     return ""
 
@@ -947,6 +958,7 @@ def session_scorecard(session: str) -> str:
     if not session or not USAGE_LOG.is_file():
         return ""
     used = hints = turns = long_turns = 0
+    last: dict = {}
     for line in USAGE_LOG.read_text(encoding="utf-8").splitlines():
         try:
             rec = json.loads(line)
@@ -959,12 +971,16 @@ def session_scorecard(session: str) -> str:
         hints += event in ("hint_read", "hint_shell")
         if event == "turn_shape":
             turns += 1
+            last = rec
             long_turns += (rec.get("narration_blocks", 0) > 0 or rec.get("final_lines", 0) > REPORT_MAX_LINES
                            or rec.get("final_chars", 0) > REPORT_MAX_CHARS or rec.get("nested_lines", 0) > 0)
     if not (used or hints or turns):
         return ""
+    over = last and (last.get("final_lines", 0) > REPORT_MAX_LINES or last.get("final_chars", 0) > REPORT_MAX_CHARS)
+    warn = (f" Your last report was {last.get('final_lines')} lines/{last.get('final_chars')} chars; the limit is "
+            f"{REPORT_MAX_LINES} lines/{REPORT_MAX_CHARS} chars, so write the next one shorter the first time.") if over else ""
     return (f" This session so far: olla used {used}x, big-read hints {hints}, "
-            f"reports breaking the output rule {long_turns}/{turns}.")
+            f"reports breaking the output rule {long_turns}/{turns}.{warn}")
 
 
 # Windows 는 작업 위치가 260자를 넘으면 셸과 훅을 아예 띄우지 못한다(Biz항해 세션: Stop 훅 ENOENT → 보고 길이

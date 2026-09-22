@@ -536,19 +536,16 @@ class OllaTurnShapeTests(unittest.TestCase):
             self.assertEqual(0, olla.main(["hook-stop"]))
         return out.getvalue()
 
-    def test_nested_or_wordy_report_is_sent_back(self) -> None:
-        for text in ("**결과**: x\n- 근거:\n  - a\n  - b", "**결과**: " + "가" * (olla.REPORT_MAX_CHARS + 1)):
-            path = self._write([{"type": "user", "message": {"content": "지시"}},
-                                {"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}}])
-            out = io.StringIO()
-            with mock.patch("sys.stdin", io.StringIO(json.dumps({"transcript_path": str(path)}))), redirect_stdout(out):
-                olla.main(["hook-stop"])
-            self.assertEqual("block", json.loads(out.getvalue())["decision"], text[:20])
-
-    def test_long_report_is_sent_back_once(self) -> None:
-        self.assertEqual("block", json.loads(self._stop(olla.REPORT_MAX_LINES + 3, active=False))["decision"])
-        self.assertEqual("", self._stop(olla.REPORT_MAX_LINES + 3, active=True))  # 두 번째는 막지 않음
-        self.assertEqual("", self._stop(olla.REPORT_MAX_LINES, active=False))
+    def test_long_report_is_recorded_not_sent_back(self) -> None:
+        # 되돌리면 긴 보고와 고쳐 쓴 보고가 둘 다 화면에 남는다(Biz 캡처). 기록만 하고 다음 지시에서 되비춘다.
+        self.assertEqual("", self._stop(olla.REPORT_MAX_LINES + 3, active=False))
+        shape = [json.loads(l) for l in olla.USAGE_LOG.read_text(encoding="utf-8").splitlines()][-1]
+        self.assertEqual(olla.REPORT_MAX_LINES + 3, shape["final_lines"])
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": ""}):
+            rows = olla.USAGE_LOG.read_text(encoding="utf-8").splitlines()
+            olla.USAGE_LOG.write_text("\n".join(json.dumps({**json.loads(r), "session": "sx"}) for r in rows),
+                                      encoding="utf-8")
+            self.assertIn("write the next one shorter", olla.session_scorecard("sx"))
 
     def test_hook_never_blocks(self) -> None:
         for stdin in ("", "x", json.dumps({"transcript_path": "Z:/none.jsonl"})):
@@ -665,7 +662,10 @@ class OllaSqueezeTests(unittest.TestCase):
         transcript.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
         note = olla.context_size_note(str(transcript))
         self.assertIn("~171k tokens per call", note)
-        self.assertIn("같은 폴더에서 새 대화를 여세요", note)  # 사용자가 할 행동을 그대로 준다
+        self.assertNotIn("새 대화", note)  # 세션 번호가 없으면 한 번만 주기를 셀 수 없으니 주지 않는다
+        first = olla.context_size_note(str(transcript), "", "s1")
+        self.assertIn("같은 폴더에서 새 대화를 열면", first)  # 사용자가 할 행동을 그대로 준다
+        self.assertNotIn("새 대화", olla.context_size_note(str(transcript), "", "s1"))  # 같은 구간에서는 한 번만
         self.assertEqual("", olla.context_size_note(""))
 
 
