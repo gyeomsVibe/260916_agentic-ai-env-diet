@@ -37,6 +37,9 @@ class OllaMcpTests(unittest.TestCase):
         replies = [json.loads(line) for line in done.stdout.decode("utf-8").splitlines()]
         self.assertEqual([1, 2], [r["id"] for r in replies])  # 알림에는 답하지 않음
         self.assertEqual("olla", replies[0]["result"]["serverInfo"]["name"])
+        # 지연 목록(deferred)에 들어가도 불러오는 방법이 시스템 프롬프트에 남아야 한다(Biz dec0f758: 목록에 있어도 0회)
+        for name in ("local_read_map", "local_draft", "local_search"):
+            self.assertIn(f"mcp__olla__{name}", replies[0]["result"]["instructions"])
         names = [t["name"] for t in replies[1]["result"]["tools"]]
         self.assertEqual(["local_read_map", "local_draft", "local_search"], names)
 

@@ -672,7 +672,8 @@ def cmd_hook_shell(args: argparse.Namespace) -> int:
 # 규칙이 문맥에 있어도 계획 단계에서 로컬 모델을 빠뜨렸다(2026-09-22, 사용자가 먼저 물어서야 드러남).
 # 그래서 지시가 들어오는 순간(UserPromptSubmit) 분업을 먼저 정하게 한 줄을 넣는다. 서버가 꺼져 있으면 말하지 않는다.
 PLAN_HINT = (
-    "Local model (0 paid tokens) is up; use its MCP tools (or `olla` in the shell if they are not in your tool list, "
+    "Local model (0 paid tokens) is up; use its MCP tools (if deferred, load them once: ToolSearch "
+    "`select:mcp__olla__local_read_map,mcp__olla__local_draft,mcp__olla__local_search`; if absent, `olla` in the shell, "
     "e.g. `olla digest -f <file>`). Before acting, split this task: "
     "understanding/locating in a file over ~300 lines -> `local_read_map`, drafts/summaries/commit messages -> "
     "`local_draft` (English prompt with format+example; korean=true only for user-facing text), "

@@ -75,6 +75,14 @@ TOOLS = [
 ]
 
 
+# 도구가 많으면 클라이언트가 MCP 도구를 이름만 보이는 지연 목록(deferred)에 넣는다. Biz 세션(dec0f758)은
+# 목록에 local_* 가 있었는데도 0회였다. 서버 안내문(instructions)은 지연돼도 시스템 프롬프트에 들어간다.
+INSTRUCTIONS = (
+    "olla = local model, 0 paid tokens. Before reading a file over ~300 lines, drafting (commit messages, summaries, "
+    "docs), or searching by meaning, call local_read_map / local_draft / local_search. If they are deferred, load all "
+    "three first: ToolSearch select:mcp__olla__local_read_map,mcp__olla__local_draft,mcp__olla__local_search"
+)
+
 PREFIX = "[올라마] "  # 사용자가 화면에서 로컬 모델이 한 일을 알아보게 한다(2026-09-22 사용자 지시)
 
 
@@ -165,7 +173,7 @@ def handle(message: dict) -> dict | None:
         return None  # 알림(notifications/*)에는 답하지 않는다
     if method == "initialize":
         result: dict = {"protocolVersion": PROTOCOL_VERSION, "capabilities": {"tools": {}},
-                        "serverInfo": {"name": "olla", "version": "1.0"}}
+                        "serverInfo": {"name": "olla", "version": "1.0"}, "instructions": INSTRUCTIONS}
     elif method == "tools/list":
         result = {"tools": TOOLS}
     elif method == "tools/call":
