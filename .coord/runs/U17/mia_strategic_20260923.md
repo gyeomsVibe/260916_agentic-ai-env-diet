@@ -20,3 +20,11 @@
 ## Verify (next)
 - Metric: context per call and paid tokens per task in the next Biz session, against dec0f758 (294k-360k per call).
 - Stop adding persuasion hints; count squeeze/handoff savings in olla stats.
+
+## Verify result (Biz 40375870, resumed 00:31-01:10)
+- Auto-compact fired at 215,667 tokens (22% of 1M) -> summary 18k; next call 78.5k. Measured from compact_boundary.
+- 98 calls after resume: mean context 127k per call (12.4M total). Before the setting the same session sat at 188k and rising.
+- Floor: a fresh Biz session starts at ~65k per call (Claude Code system prompt + tools; no project CLAUDE.md). Not reducible from olla.
+- Growth after compaction (101k -> 140k in 30 min): 5 image crops (~1.4k tokens each, measured from PNG size) + 2 diagnostic docs (~3.8k each) + edits. All judgment work; nothing text-local to delegate.
+- Handoff: written for Biz by the Stop hook (fix 01443da), unused because the user resumed instead of opening a new chat.
+- Decision: Iterate. Keep 22%; no new hints.
