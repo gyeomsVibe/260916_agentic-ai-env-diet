@@ -38,7 +38,20 @@ The paid agent never delegates. The local model runs the whole tool loop itself,
 - Codex `--oss` / local profile and Antigravity custom models: UNKNOWN (codex exec is not launched from here;
   Antigravity returns 9/24).
 
+## A/B result (2026-09-23, step 2; commit 985b8bf adds --worker lane)
+10 tasks, hidden acceptance written only after the worker exits, 1 run each, same prompt and pilot protocol.
+Script and rows: .work/lane_ab_20260923/ab.py, ab_rows_*.json (disposable). First local arm was void (bench
+lacked PYTHONPATH, which the pilot sets in control.py:85); rerun with it.
+- local (one-shot qwen2.5-coder:7b): 6/10, 51.8 s total.
+- lane (tool loop qwen3.5-32k): 9/10, 218.4 s total (4.2x). Failed fix_off_by_one.
+- Gate (pass >= local AND wall <= 3x): pass yes, wall NO -> lane as a replacement FAILS the gate.
+- Cascade local -> lane on failure, computed from the same rows (not run end to end): 10/10, 141.5 s (2.7x).
+  The 4 local failures (add_default_arg, rename_across, const_extract, fix_import_bug) all passed on lane.
+- Limits: toy-size tasks written by me, n=1 per cell, order effect (lane ran first). Real repo tasks: UNMEASURED.
+
 ## Next (proposed, not done)
+0. Implement the cascade in the pilot (local first, lane on REWORK) and run it end to end on the same 10 tasks
+   plus real repo tasks; gate unchanged.
 1. Replace the pilot's local worker (single-shot, qwen2.5-coder:7b) with the lane (bare Claude Code, qwen3.5-32k,
    protected acceptance files, one retry), then A/B both on the existing pilot tasks (P01-P04, B22).
 2. Gate: lane pass rate >= the old worker's and wall time <= 3x, on at least 10 real tasks.
