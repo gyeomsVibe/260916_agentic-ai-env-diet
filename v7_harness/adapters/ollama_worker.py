@@ -31,6 +31,8 @@ HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 API = f"{HOST}/api/generate"
 DEFAULT_MODEL = os.environ.get("OLLAMA_WORKER_MODEL", "qwen2.5-coder:7b")
 NUM_CTX = int(os.environ.get("OLLAMA_WORKER_NUM_CTX", "16384"))
+# 출력 상한. 무한 생성이 600초 시간 초과(PROVIDER_ERROR)로 끝나는 것을 막는다. EDIT 블록은 짧고 150줄 미만 파일 전체 재작성도 약 2k 토큰이라 4096이면 충분하다.
+NUM_PREDICT = int(os.environ.get("OLLAMA_WORKER_NUM_PREDICT", "4096"))
 KEEP_ALIVE = os.environ.get("OLLAMA_WORKER_KEEP_ALIVE", "30m")
 BLOCK_RE = re.compile(r"^===FILE:\s*(?P<path>[^\n=]+?)\s*===\n(?P<body>.*?)(?=^===(?:FILE|EDIT):|\Z)", re.M | re.S)
 EDIT_RE = re.compile(
@@ -41,6 +43,10 @@ EDIT_RE = re.compile(
 # 이 줄 수를 넘는 파일은 "찾아서 바꾸기" 형식을 쓰게 한다. 벤치에서 483줄 파일 한 줄 교체가
 # 전체 재작성 때문에 118초 걸렸다. 나머지 줄을 다시 쓰는 것은 시간만 들고 틀릴 기회만 늘린다.
 EDIT_MODE_MIN_LINES = int(os.environ.get("OLLAMA_WORKER_EDIT_MIN_LINES", "150"))
+
+# 7B 모델이 형식 안내의 자리표시자 경로를 그대로 따라 쓰는 일이 있다(U22a 실측: UNKNOWN_DIR:<relative/path>).
+# 그런 블록은 실제 편집이 아니므로 건너뛴다. 하나 때문에 나머지 올바른 편집까지 실패하지 않게 한다.
+TEMPLATE_PATH = "<relative/path>"
 
 FORMAT_RULES = """
 You are editing files inside the given workspace. Reply with nothing but file blocks.
@@ -81,7 +87,7 @@ def _generate(model: str, prompt: str, timeout_s: int) -> tuple[str, dict[str, i
             "stream": False,
             "keep_alive": KEEP_ALIVE,
             # 낮은 온도. 이 작업자는 창작이 아니라 지시받은 줄을 그대로 옮기는 손이다.
-            "options": {"temperature": 0.1, "num_ctx": NUM_CTX},
+            "options": {"temperature": 0.1, "num_ctx": NUM_CTX, "num_predict": NUM_PREDICT},
         }
     ).encode("utf-8")
     request = urllib.request.Request(API, data=payload, headers={"Content-Type": "application/json"})
@@ -113,6 +119,8 @@ def _apply(text: str, workspace: Path) -> list[str]:
     """
     written: list[str] = []
     for match in BLOCK_RE.finditer(text):
+        if match.group("path").strip() == TEMPLATE_PATH:
+            continue
         rel, target = _target(workspace, match.group("path"))
         # 로컬 모델이 파일 전체를 마크다운 코드 펜스로 감싸 SyntaxError가 발생하는 것을 방지한다.
         # 마크다운(.md) 파일은 코드 펜스 자체가 본문 내용이므로 펜스 제거를 건너뛴다.
@@ -125,6 +133,8 @@ def _apply(text: str, workspace: Path) -> list[str]:
 
     pending: dict[Path, str] = {}
     for match in EDIT_RE.finditer(text):
+        if match.group("path").strip() == TEMPLATE_PATH:
+            continue
         rel, target = _target(workspace, match.group("path"))
         if not target.is_file():
             raise ValueError(f"EDIT_TARGET_MISSING:{rel}")
@@ -193,6 +203,12 @@ def main(argv: list[str] | None = None) -> int:
     longest = max((len((workspace / name).read_text(encoding="utf-8").splitlines()) for name in named[:4]), default=0)
     rules = EDIT_RULES if longest >= EDIT_MODE_MIN_LINES else FORMAT_RULES
     prompt = f"{rules}\n\nTASK:\n{args.prompt}\n\nCURRENT CONTENTS:{context}\n\nNow output the blocks."
+    # 문맥을 넘는 프롬프트는 모델을 부르지 않고 바로 실패시킨다. 잘린 입력으로 600초를 기다린 뒤 실패하던 것을
+    # 즉시 실패로 바꿔 cascade 가 곧바로 agy 로 넘긴다. 한국어가 1글자 3바이트·약 1토큰이라 바이트/3 으로 어림한다.
+    estimated = len(prompt.encode("utf-8")) // 3
+    limit = NUM_CTX - NUM_PREDICT
+    if estimated > limit:
+        return envelope("ERROR", "", {"input_tokens": 0, "output_tokens": 0}, f"PROMPT_TOO_LARGE: ~{estimated} tokens > {limit}")
     from v7_harness.adapters.gpu_priority import pilot_holds
 
     started = time.monotonic()

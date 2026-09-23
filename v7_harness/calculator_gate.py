@@ -69,9 +69,18 @@ def check(staged: dict[str, bytes], message: str, pilot_dir: Path) -> list[str]:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Calculator gate check")
-    parser.add_argument("--commit-msg", type=Path, required=True)
+    parser.add_argument("--commit-msg", type=Path)
+    parser.add_argument("--install", action="store_true", help="set git core.hooksPath to .githooks")
     parser.add_argument("--pilot-dir", type=Path, default=Path(".coord/pilot"))
     args = parser.parse_args(argv)
+
+    if args.install:
+        # 새 클론은 훅이 꺼진 채 시작한다. 한 번 실행하면 이 저장소의 커밋이 관문을 거친다.
+        subprocess.run(["git", "config", "core.hooksPath", ".githooks"], check=True)
+        print("core.hooksPath = .githooks")
+        return 0
+    if args.commit_msg is None:
+        parser.error("--commit-msg or --install is required")
 
     diff_out = subprocess.check_output(
         ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
