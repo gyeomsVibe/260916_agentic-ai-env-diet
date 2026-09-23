@@ -23,6 +23,7 @@
 | U15 | REVIEW (S1~S13 완료, 하루 창 집계 PARTIAL_MEASURED·Codex 재검토 대기) | Claude Code 단독 구현(사용자 지시)·Codex 재검토 | S1 `.coord/stream`·`codex_brief.md` manifest 제외 + 격리 테스트 5. S2 `v7_harness/coord/stream.py`(권한 매트릭스·증거 강제·비밀 차단·파일 잠금 append) + 테스트 10. S3 `coord/brief.py`(고정 헤더·마지막 판정 이후만·60줄/6KB 상한·결정적) + 테스트 7. S4 `coord/notify.py`(`codex queue` 전달, 해시 커서·분당 1건·일 24건·[DATA] 헤더) + 테스트 10. 전체 367 OK(1 skip), compileall 0, 고정 테스트 해시 불변. S5 실배달 성공(2026-09-20 20:18, thread 01a0b77f…, 큐 메시지 01a0be89…, 커서 기록). S7 coord CLI·S8 메모 색인 추가(전체 371 OK). S6 부분 실측: 브리핑 828자(메모 평균 1,552자 대비 −46.6%), 큐 메시지 81자, 중복 차단 확인, 상한 준수. Codex 소비 시각·판정 지연·실토큰은 UNKNOWN 유지 — `.coord/tasks/U15-coordination-stream.md` |
 | U16 | REVIEW (구현·1회 실측 완료, Codex 재검토 대기) | Claude Code 단독 구현 | 로컬 Ollama 작업자: `v7_harness/adapters/ollama_worker.py` + `pilot run --worker local`. 형식 이탈·경로 이탈·서버 부재 차단 테스트 9건. 실측 WL03 — qwen2.5-coder:7b가 전역 규칙 4파일 패치를 6분 43초에 작성해 인수 통과, 승인 반영·배포 ALIGNED, 계정 한도 소모 0. 성공률은 표본 부족으로 UNMEASURED — `ollama/02_작업자로_들이기_도입근거와_벤치실측.md` |
 | U17 | REVIEW (Claude 대행 구현·실측, Codex 재검토 대기) | Claude Code 단독 구현 | `olla` 공용 명령(`v7_harness/olla.py`, PATH `olla`): status·ask·edit(백업·diff·범위 밖 거부)·find·estimate·route·digest(내용 해시 캐시)·hook-read(Read 직전 알림, 비차단). 실측: pilot.py 요약본 −91.8%, 위치 질문 적중 8/8(구간 19~42줄)·150줄 조각 7/8·3b 모델 6/8, 캐시 52초→0초, 요약본+해당 구간 열기 경로 −85.9%(8문항, 한 번 읽기 기준). U17 테스트 21. 자율 사용으로 인한 실제 유료 토큰 절감은 UNMEASURED — `ollama/01_작동원리와_운영_Ollama는_어떻게_돌아가나.md`, `.coord/runs/U17/` |
+| U18 | READY (후보, Claude 대행 발의·Codex 재검토 대상) | 미정(지휘자 지정) | REWORK 원인 분류와 cascade 승격 조건. 인수 실패 로그를 CODE/INFRA/UNKNOWN으로 나눠 cascade는 CODE에서만 승격, INFRA는 BLOCKED(`ACCEPT_INFRA`), 인수 명령 실행 실패는 BLOCKED(`ACCEPT_NOT_RUN`). 관문: 양방향 반례 각 2건 Red→Green, U17 10과제 cascade 9/10 비악화, 고정 테스트 해시 불변. 근거·출처 — `docs/20_prior-orchestration-extraction_2026-09-23.md` §3 A1·A2 |
 | M2 | DONE | Codex | P1 해소, P01 APPLIED·6/6, A/B 기록, 독립 검증 PASS, M2 18·U10~U14 124·전체 197·compileall exit 0 — .coord/tasks/M2-live-pilot.md |
 | M3 | DONE | Codex | 백업·정확한 diff 후 프로젝트/Codex/Gemini/양쪽 MIA 규칙 반영, 신규 P02 세션 pilot run 자동 라우팅 PASS — .coord/tasks/M3-global-application.md |
 | M4 | DONE (효율 판정 INVALID_MEASUREMENT → UNMEASURED, R0 정정) | Codex 조율·Antigravity 구현/독립검증 | 기능·안전성 12/12 PASS, blocking P1 0. 동일 P05에서 B가 A 대비 Codex input +277.7%, wall +1022.2%로 절약 목표 실패; 현 pilot 기본화·추가 튜닝 STOP |
@@ -115,6 +116,7 @@
 - 2026-09-17 21:3x: Codex 사용량 한도(재설정 09-18 00:15) 중 사용자 지시로 M4를 대행 진행했다. M4는 REVIEW이며 Codex 복귀 시 `docs/claude-assist/14`를 읽고 판정·A 측정·P04 재측정을 수행한다.
 
 - 2026-09-22 한도 현황: Codex 9/24 13:41, Antigravity 유료·무료 계정 모두 9/24 14:57 재설정. 그때까지 작업자는 `pilot run --worker local`(Ollama), 지휘·판정은 Claude 대행.
+- 도구 상태(형식 고정, docs/20 A4 — 시각이 지나면 UNKNOWN으로 보고 첫 판정 전에 응답을 확인한다): `codex: ABSENT(QUOTA) until 2026-09-24T13:41+09:00, observed_by=claude_code, observed_at=2026-09-22` / `antigravity: ABSENT(QUOTA) until 2026-09-24T14:57+09:00, observed_by=claude_code, observed_at=2026-09-22`
 
 ## Codex 복귀 재검토 목록 (2026-09-22 작성, 9/24 전후 복귀 예정)
 
@@ -130,5 +132,6 @@ Claude 대행 중 반영된 것. 만든 이가 유일한 검증자가 되지 않
 | 전역 규칙 v5.6~v5.12 | 260718 b8e97e0까지 | `shared/global-rules/scripts/sync-global-rules.ps1 -Mode Check` | PASS·ALIGNED | 무승인 조항이 안전 목록(삭제·push·결제·권한)을 약화하지 않았는지, 로컬 모델이 판정하지 않는 조항 |
 | B63·B64 잠금·브로커 종료 | 9574fc4·(이 커밋) | `python -m unittest tests.test_u15_lock_contention tests.test_b64_broker_drain_budget` | OK | Codex 소유 U11/U12 브로커 종료 기한을 대행 수정 — DRAIN_FLOOR_S 2.0이 설계 의도(유한 대기)를 해치지 않는지 |
 | Antigravity 훅 실작동 | (이 커밋) | Antigravity 첫 대화에서 `~/.cache/olla/usage.jsonl`에 caller=antigravity 또는 해당 conversationId의 hint_plan·turn_shape 기록이 생기는지 | 미확인 — 한도 소진(9/24 14:57) | 입력 형식(transcriptPath 기록 모양)이 문서와 다르면 turn_shape가 None이 되어 보고 길이 제한만 꺼짐. 기록 보고 어댑터 교정 |
+| docs/20·AGENTS 역할 조항 | (이 커밋) | 문서 대조: docs/20 §2 "보유" 표의 우리 쪽 줄 번호가 실제 코드와 맞는지, §4 버림 이유 | 작성 시점 대조 완료 | 역할 문구(활동 중 부관·부재 중 부지휘자)가 사용자 2026-09-23 지시와 같은지, U18 후보 채택 여부 |
 | Codex 훅(hooks) 신뢰 | 8982cc3·2ecfb4e | Codex 첫 세션에서 `/hooks` 목록에 `olla hook-shell`·`olla hook-plan`이 신뢰(trusted)로 보이는지 | 미확인 — Codex 한도 소진(9/24 13:41 재설정)으로 실행 불가 | 신뢰 전에는 두 훅 모두 작동하지 않음. Codex 첫 작업으로 확인·신뢰 |
 
