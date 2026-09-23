@@ -203,6 +203,10 @@ DEFAULT_WATCH_EXCLUDES = frozenset(
         # B46: Visual Studio background-download logs and system temp files at the TEMP root.
         "dd_backgrounddownload_*.log",
         "tmp[0-9a-f][0-9a-f][0-9a-f][0-9a-f].tmp",
+        # Windows flushes the user registry hive log (ntuser.dat.LOG1/2) at the home root on its own schedule. A 2-min
+        # lane run hit it (2026-09-23, EXTERNAL_WRITE on ntuser.dat.LOG2 with no worker write). The hive is written
+        # lazily by the OS, so this file never was a reliable signal of a worker's registry change.
+        "ntuser.dat.log*",
         "**/node_modules",
         "**/node_modules/**",
         "**/.venv",

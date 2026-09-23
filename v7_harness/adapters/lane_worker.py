@@ -17,6 +17,10 @@ import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+# Started by path from the pilot (no PYTHONPATH); make the package importable for pilot_holds.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 # qwen3.5:4b with num_ctx 32768 (Modelfile). qwen2.5-coder emits tool calls as plain text, so it cannot drive a loop.
@@ -78,12 +82,16 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError:
         return envelope("ERROR", "", empty, f"lane returned no JSON (rc={done.returncode})")
     usage = {k: (result.get("usage") or {}).get(k, 0) for k in ("input_tokens", "output_tokens")}
-    usage["elapsed_s"] = round(time.monotonic() - started, 1)
-    usage["turns"] = result.get("num_turns") or 0
+    # Whole numbers only: the pilot's validate_usage rejects fractional counts and then blocks the run
+    # (every lane run in the first e2e ended BLOCKED/VALIDATION because of elapsed_s=25.1).
+    usage["elapsed_s"] = int(time.monotonic() - started)
+    usage["turns"] = int(result.get("num_turns") or 0)
     # Hitting max turns still counts as work done; the pilot's acceptance gate decides pass or fail.
     if result.get("is_error") and result.get("subtype") not in ("error_max_turns",):
         return envelope("ERROR", "", usage, str(result.get("subtype") or "lane error"))
-    return envelope("SUCCESS", str(result.get("result") or "")[:2000], usage)
+    # The pilot treats an empty response as invalid; the model sometimes ends on a tool call with no closing text.
+    # The acceptance gate, not this text, decides the verdict.
+    return envelope("SUCCESS", str(result.get("result") or "").strip()[:2000] or "(lane ended without a summary)", usage)
 
 
 if __name__ == "__main__":

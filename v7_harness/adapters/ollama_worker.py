@@ -21,6 +21,10 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# The pilot starts this file by path, not with -m, and does not set PYTHONPATH, so the package import in main()
+# failed with ModuleNotFoundError and every `--worker local` run ended BLOCKED (found 2026-09-23 in the e2e bench).
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 # 서버 주소·모델·문맥 크기는 환경변수로 덮어쓸 수 있다. 기본값은 이 PC의 실측 설정이다
 # (GTX 1660 Ti 6GB에서 qwen2.5-coder:7b Q4_K_M 이 VRAM 4.3GB, 문맥 16384로 동작).
 HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")

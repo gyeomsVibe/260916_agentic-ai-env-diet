@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import tempfile
 import unittest
 from contextlib import nullcontext, redirect_stdout
 from io import StringIO
@@ -38,6 +39,15 @@ class LaneWorkerTest(unittest.TestCase):
         rc, env = self._run(json.dumps({"result": "done", "num_turns": 4, "usage": {"input_tokens": 9}}).encode())
         self.assertEqual((rc, env["status"], env["usage"]["turns"]), (0, "SUCCESS", 4))
 
+    def test_envelope_passes_the_pilot_parser(self):
+        # regression: fractional elapsed_s and an empty response made the pilot block every lane run
+        from v7_harness.adapters.agy import parse_agy_result
+
+        for result in ({"result": "done", "num_turns": 3}, {"result": "", "num_turns": 2}):
+            _rc, env = self._run(json.dumps(result).encode())
+            outcome = parse_agy_result(stdout=json.dumps(env).encode(), stderr=b"", exit_code=0)
+            self.assertTrue(outcome.successful, outcome.error_class)
+
     def test_max_turns_left_to_acceptance_gate(self):
         rc, env = self._run(json.dumps({"is_error": True, "subtype": "error_max_turns"}).encode())
         self.assertEqual(env["status"], "SUCCESS")
@@ -47,7 +57,45 @@ class LaneWorkerTest(unittest.TestCase):
         self.assertEqual((rc, env["status"]), (1, "ERROR"))
 
     def test_cli_resolves_lane(self):
-        self.assertEqual(resolve_worker_command("lane", None)[-1], "v7_harness.adapters.lane_worker")
+        self.assertTrue(resolve_worker_command("lane", None)[-1].endswith("lane_worker.py"))
+
+
+class CascadeTest(unittest.TestCase):
+    def _main(self, verdicts, extra=()):
+        from v7_harness import cli
+
+        calls = []
+
+        def fake_run(config):
+            calls.append((config.task_id, config.agy_command[-1]))
+            return {"task_id": config.task_id, "state": "SUCCEEDED", "verdict_hint": verdicts[len(calls) - 1]}
+
+        with mock.patch("v7_harness.pilot.run_pilot", fake_run), redirect_stdout(StringIO()):
+            cli.main(["pilot", "run", "--task", "C1", "--source", ".", "--prompt", "fix x", "--worker", "cascade",
+                      "--work-dir", ".work/_cascade_test", *extra])
+        return calls
+
+    def test_rework_on_local_goes_to_lane_once(self):
+        calls = self._main(["REWORK", "PASS"])
+        self.assertEqual([c[0] for c in calls], ["C1", "C1-lane"])
+        self.assertTrue(calls[0][1].endswith("ollama_worker.py"))
+        self.assertTrue(calls[1][1].endswith("lane_worker.py"))
+
+    def test_workers_start_by_path_without_pythonpath(self):
+        # regression: the pilot runs workers by path with no PYTHONPATH; the package import used to fail
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+        for w in ("local", "lane"):
+            cmd = resolve_worker_command(w, None)
+            code = f"import runpy,sys; sys.argv=['x']; runpy.run_path({cmd[-1]!r}, run_name='probe'); import v7_harness.adapters.gpu_priority"
+            r = subprocess.run([cmd[0], "-c", code], cwd=tempfile.gettempdir(), env=env, capture_output=True)
+            self.assertEqual(r.returncode, 0, r.stderr[-300:])
+
+    def test_pass_or_blocked_stays_on_local(self):
+        self.assertEqual(len(self._main(["PASS"])), 1)
+        self.assertEqual(len(self._main(["BLOCKED"])), 1)
+
+    def test_approve_never_cascades(self):
+        self.assertEqual(len(self._main(["REWORK"], ["--approve", "b1"])), 1)
 
 
 if __name__ == "__main__":

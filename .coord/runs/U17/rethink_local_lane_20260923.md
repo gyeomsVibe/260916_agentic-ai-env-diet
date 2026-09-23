@@ -49,8 +49,32 @@ lacked PYTHONPATH, which the pilot sets in control.py:85); rerun with it.
   The 4 local failures (add_default_arg, rename_across, const_extract, fix_import_bug) all passed on lane.
 - Limits: toy-size tasks written by me, n=1 per cell, order effect (lane ran first). Real repo tasks: UNMEASURED.
 
+## Step 3: cascade end to end through the real pilot (2026-09-23)
+`pilot run --worker cascade`: local first, lane (task `<ID>-lane`) only on REWORK. Script .work/lane_ab_20260923/e2e.py,
+hidden acceptance outside the source. Bugs found on the way (all fixed, regression tests added):
+- `--worker local` was BLOCKED on every pilot run: the adapter is started by path without PYTHONPATH (ModuleNotFoundError).
+- lane BLOCKED/VALIDATION: fractional `elapsed_s` in usage fails the pilot's validate_usage; empty response too.
+- EXTERNAL_WRITE on `ntuser.dat.LOG2` (Windows hive log at home root, flushed by the OS): now excluded; ntuser.dat stays.
+Result, 10 tasks:
+- local: 6/10 PASS, 693 s (includes one 601 s timeout on const_extract while other GPU work ran; ~91 s without it).
+- cascade: 9/10 PASS, 224 s; 4 tasks escalated to lane, 3 of them passed. The 10th was BLOCKED by EXTERNAL_WRITE on
+  ~/.claude/settings.json, written by the desktop app at 14:40 (not the worker; the guard is right to stop it).
+- Gate (pass >= local, wall <= 3x): PASS. Wall ratio 0.32x against the measured local total, 2.5x against local
+  without its timeout outlier. Real repo tasks: still UNMEASURED.
+
+## Local router (anytime delegation without the agent choosing), 2026-09-23
+v7_harness/local_router.py: a proxy on ANTHROPIC_BASE_URL. Main-model requests pass through (OAuth header untouched);
+requests for a marker model (`local-qwen`, set via CLAUDE_CODE_SUBAGENT_MODEL / ANTHROPIC_DEFAULT_HAIKU_MODEL /
+ANTHROPIC_SMALL_FAST_MODEL) go to Ollama with the tool list pruned to Read/Grep/Glob/Bash/Edit/Write.
+- Observe run without markers: 0 haiku requests; subagents and side calls all used the main model.
+- With markers: Explore subagent turns went local (2 local, answer correct: cli.py:481), 39-64 s per local turn vs
+  ~5 s upstream. Others fell back upstream because the pilot bench held the GPU. 4 early fallbacks returned 400
+  (cause not logged then; error head now logged).
+- Not enabled globally: that needs ANTHROPIC_BASE_URL in ~/.claude/settings.json (user approval: settings change).
+
 ## Next (proposed, not done)
-0. Implement the cascade in the pilot (local first, lane on REWORK) and run it end to end on the same 10 tasks
+0. Done above: cascade implemented and gated. Remaining: real repo tasks.
+1. Implement the cascade in the pilot (local first, lane on REWORK) and run it end to end on the same 10 tasks
    plus real repo tasks; gate unchanged.
 1. Replace the pilot's local worker (single-shot, qwen2.5-coder:7b) with the lane (bare Claude Code, qwen3.5-32k,
    protected acceptance files, one retry), then A/B both on the existing pilot tasks (P01-P04, B22).
