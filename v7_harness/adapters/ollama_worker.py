@@ -114,7 +114,12 @@ def _apply(text: str, workspace: Path) -> list[str]:
     written: list[str] = []
     for match in BLOCK_RE.finditer(text):
         rel, target = _target(workspace, match.group("path"))
-        target.write_text(match.group("body").rstrip("\n") + "\n", encoding="utf-8")
+        # 로컬 모델이 파일 전체를 마크다운 코드 펜스로 감싸 SyntaxError가 발생하는 것을 방지한다.
+        body = match.group("body").rstrip("\n")
+        lines = body.splitlines()
+        if len(lines) >= 2 and lines[0].strip().startswith("```") and lines[-1].strip() == "```":
+            body = "\n".join(lines[1:-1])
+        target.write_text(body + "\n", encoding="utf-8")
         written.append(rel)
 
     pending: dict[Path, str] = {}
