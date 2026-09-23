@@ -77,6 +77,12 @@ class CascadeTest(unittest.TestCase):
 
     def test_rework_on_local_goes_to_lane_once(self):
         calls = self._main(["REWORK", "PASS"])
+        self.assertEqual([c[0] for c in calls], ["C1", "C1-agy"])
+        self.assertTrue(calls[0][1].endswith("ollama_worker.py"))
+        self.assertEqual(calls[1], ("C1-agy", "agy"))
+
+    def test_rework_on_local_with_escalate_to_lane(self):
+        calls = self._main(["REWORK", "PASS"], ["--escalate-to", "lane"])
         self.assertEqual([c[0] for c in calls], ["C1", "C1-lane"])
         self.assertTrue(calls[0][1].endswith("ollama_worker.py"))
         self.assertTrue(calls[1][1].endswith("lane_worker.py"))

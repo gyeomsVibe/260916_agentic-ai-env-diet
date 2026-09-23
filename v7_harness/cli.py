@@ -258,21 +258,23 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
             "message": f"Database error or corruption: {exc}. Recovery hint: run 'python -m v7_harness.cli pilot reconcile --task {task_id}' or backup coord.sqlite3.",
         }
 
-    # cascade: 싼 local 을 먼저 쓰고 인수에서 REWORK 가 나온 경우에만 lane 으로 한 번 더 간다.
+    # cascade: 싼 local 을 먼저 쓰고 인수에서 REWORK 가 나온 경우에만 2단계 작업자(기본 agy)로 한 번 더 간다.
     # A/B(2026-09-23, 10과제): local 6/10·51.8초, lane 9/10·218초(4.2배), 계산상 cascade 10/10·2.7배.
     # BLOCKED 는 작업자 탓이 아닐 수 있어(격리·DB) 넘기지 않는다. 승인 실행은 원래 task 로만 한다.
-    # lane 은 별도 task id(<ID>-lane)로 돌린다. 같은 id 재실행은 원장이 막는다.
+    # 승격 작업자는 별도 task id(<ID>-<escalate_to>)로 돌린다. 같은 id 재실행은 원장이 막는다.
     if (chosen == "cascade" and not args.approve and summary.get("verdict_hint") == "REWORK"):
         first = summary
-        config.task_id = f"{task_id}-lane"
-        config.agy_command = resolve_worker_command("lane", None)
+        # lane의 BLOCKED/VALIDATION 빈발(5건 중 4건)로 기본 승격 대상을 agy로 전환하고 지정 가능하게 함
+        escalate_to = getattr(args, "escalate_to", "agy")
+        config.task_id = f"{task_id}-{escalate_to}"
+        config.agy_command = resolve_worker_command(escalate_to, None)
         try:
             summary = run_pilot(config)
         except (BrokerAlreadyRunning, SourceDivergenceError, sqlite3.DatabaseError) as exc:
             summary = {"task_id": config.task_id, "state": "FAILED", "error_class": type(exc).__name__,
                        "effect_state": "UNKNOWN", "verdict_hint": "BLOCKED", "message": str(exc)}
         summary["cascade_from"] = {"task_id": task_id, "verdict_hint": first.get("verdict_hint"),
-                                   "error_class": first.get("error_class")}
+                                   "error_class": first.get("error_class"), "escalated_to": escalate_to}
 
     # 기록은 명시적으로 켠 실행에서만 남긴다. 기본을 "남김"으로 두었더니 임시 폴더에서
     # CLI 를 호출하는 테스트가 이 프로젝트의 스트림에 사건 8건을 흘렸다(실측).
@@ -280,6 +282,9 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         record_pilot_in_stream(Path(getattr(args, "coord_project", ".")), summary)
 
     print(json.dumps(summary, indent=2, ensure_ascii=False))
+    # ACCEPT_INFRA·ACCEPT_NOT_RUN으로 state가 SUCCEEDED여도 BLOCKED 판정이면 1 반환
+    if summary.get("verdict_hint") == "BLOCKED":
+        return 1
     return 0 if summary.get("state") == "SUCCEEDED" else 1
 
 
@@ -382,6 +387,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_run.add_argument("--print-timeout", type=int, default=600, help="Print timeout in seconds")
     p_pilot_run.add_argument("--agy-command", nargs="*", default=None, help="Custom worker command prefix (overrides --worker)")
     p_pilot_run.add_argument("--worker", choices=["agy", "local", "lane", "cascade"], default="agy", help="agy = remote worker (uses account quota); local = this machine's Ollama model, one-shot; lane = Claude Code tool loop on the local model")
+    # cascade 승격 대상 작업자(lane의 e2e 실패 빈발로 기본값은 agy)
+    p_pilot_run.add_argument("--escalate-to", choices=["agy", "lane"], default="agy", help="Worker for cascade second stage when local gets REWORK (default: agy)")
     p_pilot_run.add_argument("--coord-log", action="store_true", default=False, help="Record this run in the coordination stream (.coord/stream)")
     p_pilot_run.add_argument("--coord-project", default=".", help="Project whose coordination stream records this run (default: .)")
     p_pilot_run.add_argument("--model", default=None, help="Model name to pass to agy (e.g. gemini-3.7-flash)")

@@ -126,5 +126,51 @@ class PilotAcceptanceTests(unittest.TestCase):
         self.assertNotIn("rework_class", s)
 
 
+class U20AcceptTriageTests(unittest.TestCase):
+    def test_database_is_locked_falls_to_unknown(self):
+        out = "sqlite3.OperationalError: database is locked\n"
+        self.assertEqual("UNKNOWN", classify(out, 1)[0])
+
+    def test_winerror_32_falls_to_unknown(self):
+        out = "PermissionError: [WinError 32] The process cannot access the file because it is being used by another process: 'coord.sqlite3'\n"
+        self.assertEqual("UNKNOWN", classify(out, 1)[0])
+
+    def test_cant_open_file_inside_staging_is_code(self):
+        with tempfile.TemporaryDirectory() as d:
+            staging = Path(d)
+            out = "python: can't open file 'missing.py': [Errno 2] No such file or directory\n"
+            self.assertEqual("CODE", classify(out, 2, staging=staging)[0])
+
+    def test_cant_open_file_subdir_inside_staging_is_code(self):
+        with tempfile.TemporaryDirectory() as d:
+            staging = Path(d)
+            out = "python: can't open file 'subdir/missing.py': [Errno 2] No such file or directory\n"
+            self.assertEqual("CODE", classify(out, 2, staging=staging)[0])
+
+    def test_cant_open_file_absolute_inside_staging_is_code(self):
+        with tempfile.TemporaryDirectory() as d:
+            staging = Path(d)
+            target = (staging / "missing.py").resolve()
+            out = f"python: can't open file '{target}': [Errno 2] No such file or directory\n"
+            self.assertEqual("CODE", classify(out, 2, staging=staging)[0])
+
+    def test_cant_open_file_relative_outside_staging_is_infra(self):
+        with tempfile.TemporaryDirectory() as d:
+            staging = Path(d)
+            out = "python: can't open file '../outside.py': [Errno 2] No such file or directory\n"
+            self.assertEqual("INFRA", classify(out, 2, staging=staging)[0])
+
+    def test_cant_open_file_absolute_outside_staging_is_infra(self):
+        with tempfile.TemporaryDirectory() as d:
+            staging = Path(d)
+            out = "python: can't open file 'C:/some/external/tool.py': [Errno 2] No such file or directory\n"
+            self.assertEqual("INFRA", classify(out, 2, staging=staging)[0])
+
+    def test_cant_open_file_without_staging_uses_changed_files(self):
+        out = "python: can't open file 'moved.py': [Errno 2] No such file or directory\n"
+        self.assertEqual("CODE", classify(out, 2, changed_files=["src/moved.py"], staging=None)[0])
+        self.assertEqual("INFRA", classify(out, 2, changed_files=["other.py"], staging=None)[0])
+
+
 if __name__ == "__main__":
     unittest.main()

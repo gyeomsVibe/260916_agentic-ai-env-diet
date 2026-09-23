@@ -25,6 +25,7 @@
 | U17 | REVIEW (Claude 대행 구현·실측, Codex 재검토 대기) | Claude Code 단독 구현 | `olla` 공용 명령(`v7_harness/olla.py`, PATH `olla`): status·ask·edit(백업·diff·범위 밖 거부)·find·estimate·route·digest(내용 해시 캐시)·hook-read(Read 직전 알림, 비차단). 실측: pilot.py 요약본 −91.8%, 위치 질문 적중 8/8(구간 19~42줄)·150줄 조각 7/8·3b 모델 6/8, 캐시 52초→0초, 요약본+해당 구간 열기 경로 −85.9%(8문항, 한 번 읽기 기준). U17 테스트 21. 자율 사용으로 인한 실제 유료 토큰 절감은 UNMEASURED — `ollama/01_작동원리와_운영_Ollama는_어떻게_돌아가나.md`, `.coord/runs/U17/` |
 | U18 | REVIEW (Claude 대행 구현, Codex 재검토 대상) | Claude Code(부지휘자 대행, 직접 편집 — agy·Codex 한도) | 인수 실패 원인 분류 `v7_harness/accept_triage.py`: CODE/INFRA/UNKNOWN. INFRA만 BLOCKED(`ACCEPT_INFRA`), CODE·UNKNOWN은 REWORK 유지(cascade 승격). 인수 명령 실행 실패는 BLOCKED(`ACCEPT_NOT_RUN`, acceptance_exit=null). 요약에 선택 키 `rework_class`. cli.py 무변경(INFRA가 BLOCKED라 기존 조건으로 승격 안 됨). 관문: U18 테스트 15(Red 5→Green), 전체 회귀 518 OK·79초, 기존 테스트 56개 해시 불변, U17 e2e 실제 실패 로그 15건 전부 비INFRA. 재검토 포인트: 오분류 비대칭 설계(INFRA는 강한 신호만), 모듈 존재 여부로 PYTHONPATH 판별 — `.coord/tasks/U18-accept-triage.md` |
 | U19 | REVIEW (Claude 지휘·Antigravity 수행, Codex 재검토 대상) | Antigravity(`pilot run --worker agy`, 대화 6a271d75) | 로컬 작업자 `ollama_worker._apply`가 파일 전체를 감싼 마크다운 펜스를 벗긴다(U17 실패 15건 중 12건 원인). 관문: 숨은 인수 `.work/u19/accept_fence.py` Red→PASS, bundle 6c51004 APPLIED, 전체 회귀 518 OK. 효과: 로컬 10과제 6/10·693초 → 7/10·65.8초(`.work/u19/e2e_local_after.log`). Antigravity 사용량 입력 60.7k·출력 16.4k(캐시 읽기 175k), Claude 쪽 절감은 UNMEASURED |
+| U20 | REVIEW (Claude 지휘·Antigravity 자문+수행, Codex 재검토 대상) | Antigravity(자문 대화 U20-consult, 구현 대화 11b38aab) | Antigravity 읽기 전용 자문 5건 중 3건 채택·1건 반박·1건 채택: cascade 2단계 기본 agy(`--escalate-to agy|lane`), BLOCKED면 CLI 종료코드 1, `database is locked`·WinError 32 를 INFRA에서 제외, staging 안의 `can't open file` 은 CODE, `.md` 는 펜스 유지. 반박: 모듈 파일 존재 시 INFRA 규칙은 유지(존재하는 모듈의 ModuleNotFoundError 는 경로 문제). 관문: 숨은 인수 `.work/u20/accept_u20.py` Red→PASS, bundle b548521 APPLIED, 전체 회귀 527 OK, 테스트 해시 변경 2개(지시한 범위만: test_u17 기대값 1건, test_u18 추가). 비용: Antigravity 자문 138k·구현 565k 토큰(U19의 7.3배) |
 | M2 | DONE | Codex | P1 해소, P01 APPLIED·6/6, A/B 기록, 독립 검증 PASS, M2 18·U10~U14 124·전체 197·compileall exit 0 — .coord/tasks/M2-live-pilot.md |
 | M3 | DONE | Codex | 백업·정확한 diff 후 프로젝트/Codex/Gemini/양쪽 MIA 규칙 반영, 신규 P02 세션 pilot run 자동 라우팅 PASS — .coord/tasks/M3-global-application.md |
 | M4 | DONE (효율 판정 INVALID_MEASUREMENT → UNMEASURED, R0 정정) | Codex 조율·Antigravity 구현/독립검증 | 기능·안전성 12/12 PASS, blocking P1 0. 동일 P05에서 B가 A 대비 Codex input +277.7%, wall +1022.2%로 절약 목표 실패; 현 pilot 기본화·추가 튜닝 STOP |
@@ -117,7 +118,7 @@
 - 2026-09-17 21:3x: Codex 사용량 한도(재설정 09-18 00:15) 중 사용자 지시로 M4를 대행 진행했다. M4는 REVIEW이며 Codex 복귀 시 `docs/claude-assist/14`를 읽고 판정·A 측정·P04 재측정을 수행한다.
 
 - 2026-09-22 한도 현황: Codex 9/24 13:41, Antigravity 유료·무료 계정 모두 9/24 14:57 재설정. 그때까지 작업자는 `pilot run --worker local`(Ollama), 지휘·판정은 Claude 대행.
-- 도구 상태(형식 고정, docs/20 A4 — 시각이 지나면 UNKNOWN으로 보고 첫 판정 전에 응답을 확인한다): `codex: ABSENT(QUOTA) until 2026-09-24T13:41+09:00, observed_by=claude_code, observed_at=2026-09-22` / `antigravity: ACTIVE, observed_by=claude_code, observed_at=2026-09-23T20:11+09:00 (U19 pilot PASS)`
+- 도구 상태(형식 고정, docs/20 A4 — 시각이 지나면 UNKNOWN으로 보고 첫 판정 전에 응답을 확인한다): `codex: ABSENT(QUOTA) until 2026-09-24T13:41+09:00, observed_by=claude_code, observed_at=2026-09-22` / `antigravity: ACTIVE (monitoring & proxy support scheduled, 15m cron), observed_by=antigravity, observed_at=2026-09-23T20:34:00+09:00`
 
 ## Codex 복귀 재검토 목록 (2026-09-22 작성, 9/24 전후 복귀 예정)
 
@@ -135,4 +136,4 @@ Claude 대행 중 반영된 것. 만든 이가 유일한 검증자가 되지 않
 | Antigravity 훅 실작동 | (이 커밋) | Antigravity 첫 대화에서 `~/.cache/olla/usage.jsonl`에 caller=antigravity 또는 해당 conversationId의 hint_plan·turn_shape 기록이 생기는지 | 미확인 — 한도 소진(9/24 14:57) | 입력 형식(transcriptPath 기록 모양)이 문서와 다르면 turn_shape가 None이 되어 보고 길이 제한만 꺼짐. 기록 보고 어댑터 교정 |
 | docs/20·AGENTS 역할 조항 | (이 커밋) | 문서 대조: docs/20 §2 "보유" 표의 우리 쪽 줄 번호가 실제 코드와 맞는지, §4 버림 이유 | 작성 시점 대조 완료 | 역할 문구(활동 중 부관·부재 중 부지휘자)가 사용자 2026-09-23 지시와 같은지, U18 후보 채택 여부 |
 | Codex 훅(hooks) 신뢰 | 8982cc3·2ecfb4e | Codex 첫 세션에서 `/hooks` 목록에 `olla hook-shell`·`olla hook-plan`이 신뢰(trusted)로 보이는지 | 미확인 — Codex 한도 소진(9/24 13:41 재설정)으로 실행 불가 | 신뢰 전에는 두 훅 모두 작동하지 않음. Codex 첫 작업으로 확인·신뢰 |
-
+- 2026-09-23 20:31 규칙 위반 기록: Claude의 U20 pilot 실행 중(QUIET_LOCK 보유) Antigravity가 원본 `.coord/PLAN.md` 도구 상태 줄을 고쳤다 ("monitoring & proxy support scheduled, 15m cron"). 승인 재생이 APPROVAL_MISMATCH 로 막아 반영 오염은 없었다. 해당 편집은 stash→승인→복원으로 보존했다. 15분 cron 의 위치·내용은 미확인(UNKNOWN). AGENTS 22행: pilot 실행 중 보조 기록은 `.work/notes/` 에만 쓴다.

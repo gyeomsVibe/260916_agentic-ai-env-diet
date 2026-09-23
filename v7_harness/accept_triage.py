@@ -35,13 +35,12 @@ _CODE = [re.compile(p, re.MULTILINE) for p in (
 _MISSING_MODULE = re.compile(r"ModuleNotFoundError: No module named '([^']+)'")
 _MISSING_FILE = re.compile(r"can't open file '([^']+)': \[Errno 2\]")
 # 환경 신호(강함). 테스트 대상 코드가 내기 어려운 것만 둔다.
+# 테스트 코드가 SQLite 트랜잭션·파일 핸들을 누수시킬 수 있어 잠금/핸들 오류는 INFRA에서 제외(UNKNOWN으로 분류).
 _INFRA = [re.compile(p, re.IGNORECASE) for p in (
     r"is not recognized as an internal or external command",
     r": command not found",
     r"EADDRINUSE|address already in use|WinError 10048",
-    r"database is locked",
     r"No space left on device|ENOSPC",
-    r"WinError 32\]|being used by another process",
     r"DLL load failed",
 )]
 
@@ -74,6 +73,12 @@ def classify(output: str, exit_code: int | None, changed_files: Iterable[str] = 
         return _module_cls(m.group(1), staging, changed_files, changed_texts), m.group(0)[:120]
     m = _MISSING_FILE.search(output)
     if m:
+        # staging 내부면 작업자가 생성해야 할 파일 누락(CODE), 외부면 환경 결함(INFRA)으로 분류.
+        if staging is not None:
+            raw_path = Path(m.group(1))
+            resolved = raw_path.resolve() if raw_path.is_absolute() else (Path(staging) / raw_path).resolve()
+            is_inside = resolved.is_relative_to(Path(staging).resolve())
+            return ("CODE" if is_inside else "INFRA"), m.group(0)[:120]
         worker_moved = Path(m.group(1)).name in {Path(p).name for p in changed_files}
         return ("CODE" if worker_moved else "INFRA"), m.group(0)[:120]
     for pat in _INFRA:
