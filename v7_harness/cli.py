@@ -365,7 +365,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_run.add_argument("--watch-root", action="append", default=[], help="Watch roots for external write detection")
     p_pilot_run.add_argument("--print-timeout", type=int, default=600, help="Print timeout in seconds")
     p_pilot_run.add_argument("--agy-command", nargs="*", default=None, help="Custom worker command prefix (overrides --worker)")
-    p_pilot_run.add_argument("--worker", choices=["agy", "local"], default="agy", help="agy = remote worker (uses account quota); local = this machine's Ollama model")
+    p_pilot_run.add_argument("--worker", choices=["agy", "local", "lane"], default="agy", help="agy = remote worker (uses account quota); local = this machine's Ollama model, one-shot; lane = Claude Code tool loop on the local model")
     p_pilot_run.add_argument("--coord-log", action="store_true", default=False, help="Record this run in the coordination stream (.coord/stream)")
     p_pilot_run.add_argument("--coord-project", default=".", help="Project whose coordination stream records this run (default: .)")
     p_pilot_run.add_argument("--model", default=None, help="Model name to pass to agy (e.g. gemini-3.7-flash)")
@@ -473,6 +473,8 @@ def resolve_worker_command(worker: str, explicit: Optional[Sequence[str]]) -> li
         return list(explicit)
     if worker == "local":
         return [sys.executable, str(Path(__file__).resolve().parent / "adapters" / "ollama_worker.py")]
+    if worker == "lane":  # Claude Code's tool loop on the local model; kept beside "local" for the A/B
+        return [sys.executable, "-m", "v7_harness.adapters.lane_worker"]
     return ["agy"]
 
 
