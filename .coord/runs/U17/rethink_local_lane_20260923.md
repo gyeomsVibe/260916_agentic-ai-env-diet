@@ -72,6 +72,17 @@ ANTHROPIC_SMALL_FAST_MODEL) go to Ollama with the tool list pruned to Read/Grep/
   (cause not logged then; error head now logged).
 - Not enabled globally: that needs ANTHROPIC_BASE_URL in ~/.claude/settings.json (user approval: settings change).
 
+## Antigravity on Ollama (2026-09-23, agy 1.2.9)
+- No documented local-model setting (`agy models` is cloud only; binary has `customModels`, format unknown).
+- Route found: sandbox USERPROFILE/HOME with settings.json `{"modelProvider":"gemini"}`, GEMINI_API_KEY=dummy,
+  GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:8788 -> v7_harness/gemini_shim.py (Gemini API <-> Ollama /api/chat,
+  qwen3.5-32k). Real user agy config untouched.
+- Toy fix task (calc.py add uses `-`): agy's own loop ran on the local model: title call 1 s, agent turn ~15k tokens /
+  14 tools, view_file 69 s, then correct `replace_file_content` 7 s; 78 s wall. The write was denied by agy's headless
+  permission default (`denied_actions: write_file`). Running with --dangerously-skip-permissions was refused by the
+  Claude Code auto-mode classifier, so an end-to-end edit through agy: UNKNOWN (needs the user's permission rule).
+- Relative paths fail in agy's view_file; prompts must give absolute paths.
+
 ## Next (proposed, not done)
 0. Done above: cascade implemented and gated. Remaining: real repo tasks.
 1. Implement the cascade in the pilot (local first, lane on REWORK) and run it end to end on the same 10 tasks
