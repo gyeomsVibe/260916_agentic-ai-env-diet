@@ -1,0 +1,56 @@
+[
+ {
+  "task": "fix_bug_r1",
+  "model": "qwen3.5-32k",
+  "pass": true,
+  "wall_s": 17,
+  "turns": 8,
+  "in": 508,
+  "out": 591
+ },
+ {
+  "task": "add_func_r1",
+  "model": "qwen3.5-32k",
+  "pass": true,
+  "wall_s": 23,
+  "turns": 8,
+  "in": 1325,
+  "out": 819
+ },
+ {
+  "task": "rename_3files_r1",
+  "model": "qwen3.5-32k",
+  "pass": true,
+  "wall_s": 27,
+  "turns": 14,
+  "in": 1569,
+  "out": 969
+ },
+ {
+  "task": "fix_bug_r2",
+  "model": "qwen3.5-32k",
+  "pass": false,
+  "wall_s": 43,
+  "turns": 16,
+  "in": 1182,
+  "out": 1867
+ },
+ {
+  "task": "add_func_r2",
+  "model": "qwen3.5-32k",
+  "pass": true,
+  "wall_s": 27,
+  "turns": 10,
+  "in": 1281,
+  "out": 962
+ },
+ {
+  "task": "rename_3files_r2",
+  "model": "qwen3.5-32k",
+  "pass": true,
+  "wall_s": 34,
+  "turns": 14,
+  "in": 1541,
+  "out": 1263
+ }
+]
