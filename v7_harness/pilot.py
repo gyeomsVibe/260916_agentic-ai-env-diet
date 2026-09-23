@@ -13,6 +13,7 @@ import sys
 import time
 from typing import Any
 
+from v7_harness.accept_triage import classify as classify_acceptance
 from v7_harness.adapters.agy import AgyOutcome, AgyRequest
 from v7_harness.broker.core import BrokerCore
 from v7_harness.execution.agy_launcher import AgyProcessLauncher
@@ -556,6 +557,9 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
         changed_files: list[str] = []
         acceptance_exit: int | None = None
         accept_log_path: Path | None = None
+        _accept_not_run: str | None = None
+        rework_class: str | None = None
+        _rework_sig = ""
         verdict_hint: str = "BLOCKED"
         _checkpoint_refused: str | None = None
 
@@ -626,8 +630,11 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                     acceptance_exit = 124
                     accept_stdout = te.stdout or b""
                     accept_stderr = te.stderr or b""
-                except Exception:
-                    acceptance_exit = 1
+                except Exception as exc:
+                    # U18: 인수 명령을 띄우지 못했으면 작업자 결과를 잰 적이 없다. REWORK 로 두면 cascade 가
+                    # 같은 이유로 실패할 lane 을 또 돌린다.
+                    acceptance_exit = None
+                    _accept_not_run = f"{type(exc).__name__}: {exc}"[:300]
 
                 # Save acceptance log (last 4000 chars of combined stdout+stderr)
                 accept_log_path = runs_dir / "acceptance.log"
@@ -637,10 +644,28 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                 except OSError:
                     pass
 
-                if acceptance_exit == 0:
+                if _accept_not_run is not None:
+                    verdict_hint = "BLOCKED"
+                    error_class = "ACCEPT_NOT_RUN"
+                elif acceptance_exit == 0:
                     verdict_hint = "PASS"
                 else:
-                    verdict_hint = "REWORK"
+                    # U18: 실패 원인을 나눈다. INFRA 만 멈추고 CODE·UNKNOWN 은 지금처럼 REWORK(cascade 승격).
+                    # 분류는 4000바이트로 자르기 전 전체 출력으로 한다.
+                    changed_texts = []
+                    for rel in changed_files:
+                        try:
+                            changed_texts.append((workspace.staging_dir / rel).read_text(encoding="utf-8", errors="replace"))
+                        except OSError:
+                            pass
+                    rework_class, _rework_sig = classify_acceptance(
+                        (accept_stdout + b"\n" + accept_stderr).decode("utf-8", "replace"), acceptance_exit,
+                        changed_files, changed_texts, workspace.staging_dir)
+                    if rework_class == "INFRA":
+                        verdict_hint = "BLOCKED"
+                        error_class = "ACCEPT_INFRA"
+                    else:
+                        verdict_hint = "REWORK"
             elif dry_run_passed:
                 acceptance_exit = None
                 verdict_hint = "NEEDS_ACCEPTANCE"
@@ -734,6 +759,14 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
         if execute_error is not None and state == "FAILED":
             detail = f"{type(execute_error).__name__}: {execute_error}"
             summary["error_detail"] = detail[:300]
+
+        # U18: 인수 실패 원인. 14키 밖 선택 키라 PASS·미실행 요약에는 넣지 않는다.
+        if rework_class is not None:
+            summary["rework_class"] = rework_class
+            if _rework_sig:
+                summary.setdefault("error_detail", _rework_sig)
+        if _accept_not_run is not None:
+            summary.setdefault("error_detail", _accept_not_run)
 
         # B52: checkpoint refusal must not be hidden
         if _checkpoint_refused is not None:
