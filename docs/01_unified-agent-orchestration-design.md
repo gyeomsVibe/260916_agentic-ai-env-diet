@@ -227,3 +227,12 @@ BACKLOG -> READY -> ACTIVE -> REVIEW -> DONE
 - 사용자가 해야 할 일이 없으면 행동을 요청하지 않는다. 단계가 `DONE`이면 Codex가 다음 `READY` 단계의 `[U##]` 대화창을 열어 진행한다.
 - 정상적인 범위 안 조사·편집·테스트·재작업은 추가 승인 없이 수행한다.
 - 목표나 범위를 바꿔야 하거나 삭제·덮어쓰기·push·배포·결제·계정/권한/자격증명 변경이 필요할 때만 사용자 결정을 요청한다.
+
+## 16. 계산기 원칙
+
+- 계층: 지휘자(Codex·Claude Code, 가장 비쌈) → Antigravity(계정 한도가 드는 하인) → Ollama(이 PC, 한도 없음). 아래 계층이 할 수 있는 일은 위 계층이 하지 않는다. 사람이 손으로 계산하지 않고 계산기를 쓰는 것과 같다.
+- 지휘자의 몫: 지시문(바꿀 파일·함수·값을 구체적으로), 숨은 인수 테스트(`.work/<과제>/accept_*.py`, 먼저 Red 확인), diff 검토와 `--approve` 판정. 코드는 손으로 쓰지 않는다.
+- 배정: `pilot run --worker auto`. 지시 구체성 점수(`adapters/worker_advice.py`)가 60 이상이면 cascade(Ollama 먼저, REWORK 또는 로컬 실패 `PROVIDER_ERROR`·`TIMEOUT`·`EXECUTION_ERROR`면 Antigravity로 1회 승격), 미만이면 Antigravity. 요약의 `routed_by`에 배정 근거를 남긴다.
+- Antigravity의 계산기: Antigravity가 IDE에서 직접 일할 때도 요약·변환·반복 편집·테스트 틀·로그 분류는 `pilot run --worker local` 또는 `olla ask -f <파일> --model qwen3.5-32k`로 Ollama에 먼저 넘기고, 결과는 원문 대조로만 채택한다.
+- 관문: `.githooks/commit-msg`가 `python -m v7_harness.calculator_gate`를 불러, 커밋에 오른 `v7_harness/` 아래 `.py`가 APPLIED pilot 결과물과 내용이 다르면 커밋을 막는다. pilot이 막힌 경우의 예외는 커밋 메시지의 `Calculator-Exempt: <이유>` 한 줄로만 허용하고 이유가 기록에 남는다.
+- 측정: 작업자별 토큰은 요약의 `agy_usage`로 남긴다. 지휘자 쪽 실제 한도 절감은 직접 측정 전까지 `UNMEASURED`로 기록한다. 실측(2026-09-23): U19 Antigravity 77k 토큰·85초 PASS, U20 자문 138k+구현 565k 토큰, U21a 로컬 7b 600초 `PROVIDER_ERROR` → Antigravity 335k 토큰 PASS.

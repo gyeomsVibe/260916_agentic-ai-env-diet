@@ -29,6 +29,9 @@ from .reporter import generate_report
 from .snapshot import take_snapshot
 from .stage_evaluator import AcceptanceCheck, StageEvaluator
 
+# 로컬 계산기가 멈추면(시간 초과·공급자 오류) 다음 계산기로 넘긴다 (실측 2026-09-23: qwen2.5-coder 7b 가 cli.py 과제에서 600초 PROVIDER_ERROR).
+LOCAL_FAILURE_CLASSES = ("PROVIDER_ERROR", "TIMEOUT", "EXECUTION_ERROR")
+
 
 def cmd_lease_check(args: argparse.Namespace) -> int:
     lease_path = Path(args.file)
@@ -189,6 +192,12 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
 
     advice = advise(prompt)
     chosen = getattr(args, "worker", "agy")
+    # auto 는 지시가 구체적이면 로컬 먼저(cascade), 모호하면 agy 로 보낸다 — 계산기 원칙.
+    if chosen == "auto":
+        chosen = "cascade" if advice.worker == "local" else "agy"
+        routed = {"worker": chosen, "specificity": advice.specificity}
+    else:
+        routed = None
     if advice.worker != chosen:
         print(
             f"[조언] 지시문 구체성 {advice.specificity}/100 → --worker {advice.worker} 권장"
@@ -206,7 +215,7 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
     ]
     explicit_roots = [Path(w).resolve() for w in args.watch_root] if args.watch_root else []
     watch_roots = list(dict.fromkeys(mandatory_roots + explicit_roots))
-    agy_cmd = resolve_worker_command(getattr(args, "worker", "agy"), args.agy_command)
+    agy_cmd = resolve_worker_command(chosen, args.agy_command)
 
     from .pilot import PilotConfig, run_pilot
 
@@ -262,7 +271,14 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
     # A/B(2026-09-23, 10과제): local 6/10·51.8초, lane 9/10·218초(4.2배), 계산상 cascade 10/10·2.7배.
     # BLOCKED 는 작업자 탓이 아닐 수 있어(격리·DB) 넘기지 않는다. 승인 실행은 원래 task 로만 한다.
     # 승격 작업자는 별도 task id(<ID>-<escalate_to>)로 돌린다. 같은 id 재실행은 원장이 막는다.
-    if (chosen == "cascade" and not args.approve and summary.get("verdict_hint") == "REWORK"):
+    should_escalate = (
+        summary.get("verdict_hint") == "REWORK"
+        or (
+            summary.get("verdict_hint") == "BLOCKED"
+            and summary.get("error_class") in LOCAL_FAILURE_CLASSES
+        )
+    )
+    if (chosen == "cascade" and not args.approve and should_escalate):
         first = summary
         # lane의 BLOCKED/VALIDATION 빈발(5건 중 4건)로 기본 승격 대상을 agy로 전환하고 지정 가능하게 함
         escalate_to = getattr(args, "escalate_to", "agy")
@@ -281,6 +297,8 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
     if getattr(args, "coord_log", False):
         record_pilot_in_stream(Path(getattr(args, "coord_project", ".")), summary)
 
+    if routed is not None:
+        summary["routed_by"] = routed
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     # ACCEPT_INFRA·ACCEPT_NOT_RUN으로 state가 SUCCEEDED여도 BLOCKED 판정이면 1 반환
     if summary.get("verdict_hint") == "BLOCKED":
@@ -386,7 +404,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_run.add_argument("--watch-root", action="append", default=[], help="Watch roots for external write detection")
     p_pilot_run.add_argument("--print-timeout", type=int, default=600, help="Print timeout in seconds")
     p_pilot_run.add_argument("--agy-command", nargs="*", default=None, help="Custom worker command prefix (overrides --worker)")
-    p_pilot_run.add_argument("--worker", choices=["agy", "local", "lane", "cascade"], default="agy", help="agy = remote worker (uses account quota); local = this machine's Ollama model, one-shot; lane = Claude Code tool loop on the local model")
+    p_pilot_run.add_argument("--worker", choices=["agy", "local", "lane", "cascade", "auto"], default="agy", help="agy = remote worker (uses account quota); local = this machine's Ollama model, one-shot; lane = Claude Code tool loop on the local model")
     # cascade 승격 대상 작업자(lane의 e2e 실패 빈발로 기본값은 agy)
     p_pilot_run.add_argument("--escalate-to", choices=["agy", "lane"], default="agy", help="Worker for cascade second stage when local gets REWORK (default: agy)")
     p_pilot_run.add_argument("--coord-log", action="store_true", default=False, help="Record this run in the coordination stream (.coord/stream)")

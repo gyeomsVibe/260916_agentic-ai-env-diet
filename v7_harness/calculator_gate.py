@@ -1,0 +1,104 @@
+"""계산기 원칙 관문. Claude·Codex(지휘자)는 코드를 손으로 쓰지 않고
+Antigravity·Ollama(계산기)에 pilot 으로 맡긴다. 커밋에 올라간 `v7_harness/` 아래 .py 파일은 APPLIED 된 pilot 결과물과
+내용이 같아야 한다. 예외는 커밋 메시지의 `Calculator-Exempt: <이유>` 줄로만 허용하고 이유가 커밋에 남는다.
+"""
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+GATED_PREFIX = "v7_harness/"
+
+
+def _digest(data: bytes) -> str:
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
+
+
+def applied_digests(pilot_dir: Path) -> dict[str, set[str]]:
+    pilot_dir = Path(pilot_dir)
+    result: dict[str, set[str]] = {}
+    runs_dir = pilot_dir / "runs"
+    if not runs_dir.is_dir():
+        return result
+    for task_dir in runs_dir.iterdir():
+        if not task_dir.is_dir():
+            continue
+        summary_path = task_dir / "summary.json"
+        if not summary_path.is_file():
+            continue
+        try:
+            with summary_path.open("r", encoding="utf-8") as f:
+                summary = json.load(f)
+        except Exception:
+            continue
+        if not isinstance(summary, dict) or summary.get("promotion") != "APPLIED":
+            continue
+        changed = summary.get("changed_files")
+        if not isinstance(changed, list):
+            continue
+        for path in changed:
+            if not isinstance(path, str):
+                continue
+            stage_file = pilot_dir / "stage" / task_dir.name / path
+            if stage_file.is_file():
+                try:
+                    result.setdefault(path, set()).add(_digest(stage_file.read_bytes()))
+                except Exception:
+                    continue
+    return result
+
+
+def check(staged: dict[str, bytes], message: str, pilot_dir: Path) -> list[str]:
+    exempt_pattern = re.compile(r"^Calculator-Exempt:\s*\S")
+    for line in message.splitlines():
+        if exempt_pattern.match(line):
+            return []
+
+    digests = applied_digests(pilot_dir)
+    violations: list[str] = []
+    for path, content in staged.items():
+        if path.startswith(GATED_PREFIX) and path.endswith(".py"):
+            if _digest(content) not in digests.get(path, set()):
+                violations.append(f"{path}: not produced by an APPLIED pilot bundle")
+    return violations
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Calculator gate check")
+    parser.add_argument("--commit-msg", type=Path, required=True)
+    parser.add_argument("--pilot-dir", type=Path, default=Path(".coord/pilot"))
+    args = parser.parse_args(argv)
+
+    diff_out = subprocess.check_output(
+        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
+        text=True,
+    )
+    staged_paths = [p for p in diff_out.splitlines() if p.strip()]
+
+    staged: dict[str, bytes] = {}
+    for path in staged_paths:
+        if path.startswith(GATED_PREFIX) and path.endswith(".py"):
+            staged[path] = subprocess.check_output(["git", "show", f":{path}"])
+
+    message = args.commit_msg.read_text(encoding="utf-8")
+    violations = check(staged, message, args.pilot_dir)
+
+    for v in violations:
+        print(v, file=sys.stderr)
+
+    if violations:
+        print(
+            'delegate via: python -m v7_harness.cli pilot run --worker auto --task <ID> --source . --prompt-file <md> --accept-cmd "<test>" --work-dir .coord/pilot',
+            file=sys.stderr,
+        )
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

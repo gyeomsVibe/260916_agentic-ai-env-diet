@@ -1,0 +1,3 @@
+
+# 훅은 sh 가 읽으므로 CRLF 로 바뀌면 깨진다
+.githooks/* text eol=lf
