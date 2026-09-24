@@ -52,13 +52,16 @@ def applied_digests(pilot_dir: Path) -> dict[str, set[str]]:
     return result
 
 
-def check(staged: dict[str, bytes], message: str, pilot_dir: Path) -> list[str]:
+def check(staged: dict[str, bytes], message: str, pilot_dir: Path | list[Path]) -> list[str]:
     exempt_pattern = re.compile(r"^Calculator-Exempt:\s*\S")
     for line in message.splitlines():
         if exempt_pattern.match(line):
             return []
 
-    digests = applied_digests(pilot_dir)
+    digests: dict[str, set[str]] = {}
+    for directory in pilot_dir if isinstance(pilot_dir, list) else [pilot_dir]:
+        for path, found in applied_digests(directory).items():
+            digests.setdefault(path, set()).update(found)
     violations: list[str] = []
     for path, content in staged.items():
         if path.startswith(GATED_PREFIX) and path.endswith(".py"):
@@ -71,7 +74,9 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Calculator gate check")
     parser.add_argument("--commit-msg", type=Path)
     parser.add_argument("--install", action="store_true", help="set git core.hooksPath to .githooks")
-    parser.add_argument("--pilot-dir", type=Path, default=Path(".coord/pilot"))
+    # Default: every pilot work dir (.coord/pilot, .coord, .work/*). P08/P09 ran in .work/pilot_P08 and had to
+    # use Calculator-Exempt although they were APPLIED pilot output.
+    parser.add_argument("--pilot-dir", type=Path, default=None)
     args = parser.parse_args(argv)
 
     if args.install:
@@ -94,7 +99,13 @@ def main(argv=None) -> int:
             staged[path] = subprocess.check_output(["git", "show", f":{path}"])
 
     message = args.commit_msg.read_text(encoding="utf-8")
-    violations = check(staged, message, args.pilot_dir)
+    if args.pilot_dir is not None:
+        pilot_dirs: list[Path] = [args.pilot_dir]
+    else:
+        from v7_harness.pilot_dirs import discover
+
+        pilot_dirs = discover(Path("."))
+    violations = check(staged, message, pilot_dirs)
 
     for v in violations:
         print(v, file=sys.stderr)

@@ -110,14 +110,56 @@ def _target(workspace: Path, raw: str) -> tuple[str, Path]:
     return rel, target
 
 
-def _apply(text: str, workspace: Path) -> list[str]:
+DEFINITION_RE = re.compile(r"^[ \t]*(?:async[ \t]+def|def|class)[ \t]+([A-Za-z_]\w*)", re.M)
+DELETION_WORDS = re.compile(r"(?i)\b(?:remove|delete|drop|rename|replace)\b|삭제|제거|이름을")
+NEGATION_WORDS = re.compile(r"(?i)\b(?:do not|don't|never|must not)\b|금지|하지 마|말 것|않는다")
+
+
+def _deletion_requested(name: str, task: str) -> bool:
+    # A name alone is not a request: "forbidden: do not delete cmd_coord_log" mentions it too.
+    named = re.compile(rf"\b{re.escape(name)}\b")
+    return any(
+        named.search(line) and DELETION_WORDS.search(line) and not NEGATION_WORDS.search(line)
+        for line in task.splitlines()
+    )
+
+
+def dictated_paths(text: str) -> list[str]:
+    """Paths of the ===FILE/===EDIT blocks written in *text* (placeholder paths excluded)."""
+    found = [m.group("path").strip() for m in (*BLOCK_RE.finditer(text), *EDIT_RE.finditer(text))]
+    return sorted({path for path in found if path != TEMPLATE_PATH})
+
+
+def _guard(rel: str, target: Path, content: str, task: str) -> None:
+    """Deterministic checks on a worker's new file before anything is written.
+
+    A small model can drop whole functions while "rewriting" a file (P08 lost `cmd_coord_log` and passed its
+    one-test acceptance), or return prose instead of code. A definition may only disappear when the task names it.
+    """
+    if target.suffix.lower() != ".py":
+        return
+    try:
+        compile(content, rel, "exec")
+    except SyntaxError as exc:
+        raise ValueError(f"SYNTAX_ERROR:{rel}:{exc.lineno}") from exc
+    if not target.is_file():
+        return
+    removed = set(DEFINITION_RE.findall(target.read_text(encoding="utf-8"))) - set(DEFINITION_RE.findall(content))
+    unrequested = sorted(name for name in removed if not _deletion_requested(name, task))
+    if unrequested:
+        raise ValueError(f"UNREQUESTED_DELETION:{rel}:{','.join(unrequested[:5])}")
+
+
+def _apply(text: str, workspace: Path, task: str = "") -> list[str]:
     """모델이 돌려준 블록을 작업공간에 쓴다. 작업공간 밖 경로는 거부한다.
 
     두 형식을 받는다. `===FILE:`는 파일 전체, `===EDIT:`는 찾아서 바꾸기다.
     찾아서 바꾸기는 SEARCH가 정확히 한 번 나올 때만 적용한다. 0번이면 모델이 원문을
     잘못 옮긴 것이고, 2번 이상이면 어디를 바꿀지 모호하다. 둘 다 추측하지 않고 실패로 끝낸다.
+    `task` 에 이름이 없는 함수·클래스를 지우거나 문법이 깨진 .py 는 거부한다(_guard).
     """
     written: list[str] = []
+    pending: dict[Path, tuple[str, str]] = {}
     for match in BLOCK_RE.finditer(text):
         if match.group("path").strip() == TEMPLATE_PATH:
             continue
@@ -128,26 +170,32 @@ def _apply(text: str, workspace: Path) -> list[str]:
         lines = body.splitlines()
         if target.suffix.lower() != ".md" and len(lines) >= 2 and lines[0].strip().startswith("```") and lines[-1].strip() == "```":
             body = "\n".join(lines[1:-1])
-        target.write_text(body + "\n", encoding="utf-8")
-        written.append(rel)
+        pending[target] = (rel, body + "\n")
+        if rel not in written:
+            written.append(rel)
 
-    pending: dict[Path, str] = {}
     for match in EDIT_RE.finditer(text):
         if match.group("path").strip() == TEMPLATE_PATH:
             continue
         rel, target = _target(workspace, match.group("path"))
-        if not target.is_file():
+        if target in pending:
+            current = pending[target][1]
+        elif target.is_file():
+            current = target.read_text(encoding="utf-8")
+        else:
             raise ValueError(f"EDIT_TARGET_MISSING:{rel}")
-        current = pending.get(target) or target.read_text(encoding="utf-8")
         search = match.group("search")
         hits = current.count(search)
         if hits != 1:
             raise ValueError(f"EDIT_SEARCH_{'NOT_FOUND' if hits == 0 else 'AMBIGUOUS'}:{rel}")
-        pending[target] = current.replace(search, match.group("replace"), 1)
+        pending[target] = (rel, current.replace(search, match.group("replace"), 1))
         if rel not in written:
             written.append(rel)
+
+    for target, (rel, content) in pending.items():
+        _guard(rel, target, content, task)
     # 모든 블록이 검증된 뒤에만 쓴다. 중간에 하나라도 실패하면 아무 파일도 바뀌지 않는다.
-    for target, content in pending.items():
+    for target, (_rel, content) in pending.items():
         target.write_text(content, encoding="utf-8")
     return written
 
@@ -227,7 +275,7 @@ def main(argv: list[str] | None = None) -> int:
     if "===FILE:" not in text and "===EDIT:" not in text:
         return envelope("ERROR", "", usage, "model returned no file block")
     try:
-        written = _apply(text, workspace)
+        written = _apply(text, workspace, task=args.prompt)
     except ValueError as exc:
         return envelope("ERROR", "", usage, str(exc))
     if not written:

@@ -23,6 +23,7 @@ from v7_harness.execution.errors import WorkerExecutionError
 from v7_harness.isolation.errors import (
     ExternalWriteDetectedError,
     IsolationError,
+    ScopeExpansionError,
     SourceDivergenceError,
     WatchScanUnavailableError,
 )
@@ -65,6 +66,8 @@ class PilotConfig:
     accept_cmd: str | None = None
     model: str | None = None
     allow_no_changes: bool = False
+    # Paths/globs the work manual allows the worker to change. None keeps the old unrestricted behavior.
+    allowed_scopes: list[str] | None = None
 
 
 _PYTHON_NAMES = frozenset({"python", "python.exe", "python3", "py"})
@@ -558,6 +561,7 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
         acceptance_exit: int | None = None
         accept_log_path: Path | None = None
         _accept_not_run: str | None = None
+        _scope_detail: str | None = None
         rework_class: str | None = None
         _rework_sig = ""
         verdict_hint: str = "BLOCKED"
@@ -587,7 +591,9 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
 
             dry_run_passed = False
             try:
-                dry = dry_run_promotion(source_dir=config.source_dir, patch_bundle=bundle)
+                dry = dry_run_promotion(
+                    source_dir=config.source_dir, patch_bundle=bundle, allowed_scopes=config.allowed_scopes
+                )
                 promotion = "DRY_RUN_PASSED" if dry.success else dry.status
                 dry_run_passed = dry.success
             except SourceDivergenceError:
@@ -595,6 +601,13 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                 error_class = "SOURCE_DIVERGED"
                 promotion = "REJECTED"
                 verdict_hint = "BLOCKED"
+            except ScopeExpansionError as exc:
+                # The worker changed a file the manual does not allow: its output is wrong, the environment is fine.
+                # REWORK (not BLOCKED) so the sentinel does not page the commander for a worker mistake.
+                error_class = "SCOPE_VIOLATION"
+                promotion = "REJECTED"
+                verdict_hint = "REWORK"
+                _scope_detail = str(exc)[:300]
             except IsolationError as exc:
                 state = "FAILED"
                 error_class = getattr(exc, "error_class", "ISOLATION_ERROR")
@@ -759,6 +772,8 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
         if execute_error is not None and state == "FAILED":
             detail = f"{type(execute_error).__name__}: {execute_error}"
             summary["error_detail"] = detail[:300]
+        if _scope_detail is not None:
+            summary["error_detail"] = _scope_detail
 
         # U18: 인수 실패 원인. 14키 밖 선택 키라 PASS·미실행 요약에는 넣지 않는다.
         if rework_class is not None:
@@ -787,7 +802,8 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
             from v7_harness.coord.usage_ledger import record_usage
             proj_root = config.source_dir.resolve()
             if (proj_root / ".git").is_dir() or (proj_root / ".coord" / "PLAN.md").is_file():
-                worker_type = "ollama" if any("ollama" in str(c) for c in config.agy_command) else "agy"
+                command_text = " ".join(str(c) for c in config.agy_command)
+                worker_type = "apply" if "apply_worker" in command_text else ("ollama" if "ollama" in command_text else "agy")
                 usage_dict = outcome.usage if outcome else {}
                 in_tok = usage_dict.get("input_tokens")
                 out_tok = usage_dict.get("output_tokens")
@@ -797,7 +813,7 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                     "schema": "uaos-usage-v2",
                     "work_id": config.task_id,
                     "actor": "coordinator",
-                    "model": config.model or ("qwen2.5-coder:7b" if worker_type == "ollama" else None),
+                    "model": config.model or {"ollama": "qwen2.5-coder:7b", "apply": "deterministic"}.get(worker_type),
                     "kind": "pilot",
                     "collection_mode": "automatic",
                     "input_tokens": input_tokens,

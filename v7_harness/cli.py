@@ -175,7 +175,37 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         print(f"Error: source directory '{source_dir}' does not exist.", file=sys.stderr)
         return 1
 
-    if args.prompt_file:
+    # U34: a manual is a contract. It is linted before anything runs and its fields drive the run, so the
+    # worker receives exactly the checked text and cannot change files outside `allow`.
+    contract: Optional[dict] = None
+    manual_path = getattr(args, "manual", None)
+    if manual_path:
+        from .manual import lint
+
+        mfile = Path(manual_path)
+        if not mfile.is_file():
+            print(f"Error: manual '{mfile}' does not exist.", file=sys.stderr)
+            return 1
+        prompt = mfile.read_text(encoding="utf-8")
+        report = lint(prompt, source_dir)
+        if not report.ok:
+            print(json.dumps({"task_id": task_id, "state": "REFUSED", "error_class": "MANUAL_INVALID",
+                              "verdict_hint": "BLOCKED", "manual_errors": report.errors,
+                              "manual_warnings": report.warnings}, indent=2, ensure_ascii=False))
+            return 2
+        contract = report.contract
+        for warning in report.warnings:
+            print(f"[manual] {warning}", file=sys.stderr)
+        if contract.get("work_id") != task_id:
+            print(f"[manual] work_id {contract.get('work_id')} differs from --task {task_id}", file=sys.stderr)
+        if args.approve:
+            approver = getattr(args, "coord_actor", None) or detect_actor()
+            if approver and approver != contract["judge"].lower():
+                print(json.dumps({"task_id": task_id, "state": "REFUSED", "error_class": "APPROVER_NOT_JUDGE",
+                                  "verdict_hint": "BLOCKED", "judge": contract["judge"], "approver": approver},
+                                 indent=2, ensure_ascii=False))
+                return 2
+    elif args.prompt_file:
         pfile = Path(args.prompt_file)
         if not pfile.is_file():
             print(f"Error: prompt file '{pfile}' does not exist.", file=sys.stderr)
@@ -184,22 +214,26 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
     elif args.prompt:
         prompt = args.prompt
     else:
-        print("Error: either --prompt-file or --prompt must be provided.", file=sys.stderr)
+        print("Error: one of --manual, --prompt-file or --prompt must be provided.", file=sys.stderr)
         return 2
 
     # 실행 전에 지시문의 구체성을 알려 준다. 막지는 않는다. 벤치에서 로컬 모델이 실패한
     # 유일한 축이 모호함이었으므로, 고르기 전에 한 줄이라도 보이는 편이 낫다.
+    from .adapters.ollama_worker import dictated_paths
     from .adapters.worker_advice import advise
 
     advice = advise(prompt)
-    chosen = getattr(args, "worker", "agy")
-    # auto 는 지시가 구체적이면 로컬 먼저(cascade), 모호하면 agy 로 보낸다 — 계산기 원칙.
+    chosen = contract["worker"] if contract else getattr(args, "worker", "agy")
+    # auto: 지휘자가 코드를 이미 적었으면(받아쓰기) 모델 없이 그대로 적용하고, 아니면 구체성으로 고른다.
     if chosen == "auto":
-        chosen = "cascade" if advice.worker == "local" else "agy"
+        if dictated_paths(prompt):
+            chosen = "apply"
+        else:
+            chosen = "cascade" if advice.worker == "local" else "agy"
         routed = {"worker": chosen, "specificity": advice.specificity}
     else:
         routed = None
-    if advice.worker != chosen:
+    if advice.worker != chosen and chosen != "apply":
         print(
             f"[조언] 지시문 구체성 {advice.specificity}/100 → --worker {advice.worker} 권장"
             f" (현재 {chosen}): {'; '.join(advice.reasons[:2])}",
@@ -220,6 +254,9 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
 
     from .pilot import PilotConfig, run_pilot
 
+    allowed = list(contract["allow"]) if contract else []
+    allowed += list(getattr(args, "allow", None) or [])
+    remote_budget = int(contract.get("remote_budget_tokens") or 0) if contract else None
     config = PilotConfig(
         task_id=task_id,
         title=args.title or f"Pilot task {task_id}",
@@ -228,11 +265,12 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         work_dir=work_dir,
         agy_command=agy_cmd,
         watch_roots=watch_roots,
-        print_timeout_s=args.print_timeout,
+        print_timeout_s=int(contract["timeout_s"]) if contract else args.print_timeout,
         approve_bundle_id=args.approve,
-        accept_cmd=args.accept_cmd,
+        accept_cmd=args.accept_cmd or (contract["acceptance"] if contract else None),
         model=getattr(args, "model", None),
         allow_no_changes=getattr(args, "allow_no_changes", False),
+        allowed_scopes=allowed or None,
     )
 
     from .broker.core import BrokerAlreadyRunning
@@ -279,7 +317,9 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
             and summary.get("error_class") in LOCAL_FAILURE_CLASSES
         )
     )
-    if (chosen == "cascade" and not args.approve and should_escalate):
+    # U34 / docs/27 §5: with a manual, cascade exists only when remote_budget_tokens > 0 (the lint refuses
+    # otherwise), and the escalated run is compared with that budget below.
+    if chosen == "cascade" and not args.approve and should_escalate:
         first = summary
         # lane의 BLOCKED/VALIDATION 빈발(5건 중 4건)로 기본 승격 대상을 agy로 전환하고 지정 가능하게 함
         escalate_to = getattr(args, "escalate_to", "agy")
@@ -292,6 +332,12 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
                        "effect_state": "UNKNOWN", "verdict_hint": "BLOCKED", "message": str(exc)}
         summary["cascade_from"] = {"task_id": task_id, "verdict_hint": first.get("verdict_hint"),
                                    "error_class": first.get("error_class"), "escalated_to": escalate_to}
+        if remote_budget:
+            used = (summary.get("agy_usage") or {}).get("input_tokens")
+            if not isinstance(used, int) or isinstance(used, bool):
+                summary["cost_gate"] = "UNKNOWN"
+            else:
+                summary["cost_gate"] = "WITHIN" if used <= remote_budget else f"EXCEEDED:{used}>{remote_budget}"
 
     # U33: 보고는 기억이 아니라 실행 끝에서 저절로 남는다(비둘기 퇴출). 기록 대상은 --source 프로젝트이고,
     # .coord/PLAN.md 가 있는 UAOS 프로젝트일 때만 쓴다. 예전에 기본을 켰을 때 CLI 를 부르는 테스트가 실제
@@ -309,6 +355,40 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
     if summary.get("verdict_hint") == "BLOCKED":
         return 1
     return 0 if summary.get("state") == "SUCCEEDED" else 1
+
+
+def cmd_pilot_manual_lint(args: argparse.Namespace) -> int:
+    from .manual import lint
+
+    report = lint(Path(args.manual).read_text(encoding="utf-8"), Path(args.source))
+    print(json.dumps(report.as_dict(), indent=2, ensure_ascii=False))
+    return 0 if report.ok else 1
+
+
+def cmd_pilot_manual_new(args: argparse.Namespace) -> int:
+    from .manual import lint, new_manual
+
+    source = Path(args.source)
+    instructions = Path(args.instructions_file).read_text(encoding="utf-8") if args.instructions_file else ""
+    text = new_manual(
+        source,
+        work_id=args.work_id,
+        worker=args.worker,
+        goal=args.goal,
+        inputs=args.input,
+        allow=args.allow,
+        acceptance=args.accept,
+        judge=args.judge,
+        timeout_s=args.timeout,
+        remote_budget_tokens=args.remote_budget,
+        instructions=instructions,
+    )
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text, encoding="utf-8")
+    report = lint(text, source)
+    print(json.dumps({"written": str(out), **report.as_dict()}, indent=2, ensure_ascii=False))
+    return 0 if report.ok else 1
 
 
 def cmd_pilot_reconcile(args: argparse.Namespace) -> int:
@@ -409,7 +489,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_run.add_argument("--watch-root", action="append", default=[], help="Watch roots for external write detection")
     p_pilot_run.add_argument("--print-timeout", type=int, default=600, help="Print timeout in seconds")
     p_pilot_run.add_argument("--agy-command", nargs="*", default=None, help="Custom worker command prefix (overrides --worker)")
-    p_pilot_run.add_argument("--worker", choices=["agy", "local", "lane", "cascade", "auto"], default="agy", help="agy = remote worker (uses account quota); local = this machine's Ollama model, one-shot; lane = Claude Code tool loop on the local model")
+    p_pilot_run.add_argument("--worker", choices=["agy", "local", "lane", "cascade", "auto", "apply"], default="agy", help="agy = remote worker (uses account quota); local = this machine's Ollama model, one-shot; lane = Claude Code tool loop on the local model; apply = apply the ===FILE/===EDIT blocks written in the prompt, no model (0 tokens)")
+    p_pilot_run.add_argument("--manual", default=None,
+                             help="Work manual with a ```contract block: linted first, then its worker, acceptance, allow list and timeout drive the run")
+    p_pilot_run.add_argument("--allow", action="append", default=[],
+                             help="Path or glob the worker may change (repeatable); anything else is rejected as SCOPE_VIOLATION")
     # cascade 승격 대상 작업자(lane의 e2e 실패 빈발로 기본값은 agy)
     p_pilot_run.add_argument("--escalate-to", choices=["agy", "lane"], default="agy", help="Worker for cascade second stage when local gets REWORK (default: agy)")
     p_pilot_run.add_argument("--coord-log", dest="coord_log", action="store_true", default=True,
@@ -424,6 +508,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_run.add_argument("--accept-cmd", default=None, help="Acceptance test command to run in staging")
     p_pilot_run.add_argument("--allow-no-changes", action="store_true", default=False, help="Allow PASS verdict even when no files were changed (for read-only tasks)")
     p_pilot_run.set_defaults(func=cmd_pilot_run)
+
+    # pilot manual: U34 work-manual contracts
+    p_pilot_manual = p_pilot_subs.add_parser("manual")
+    p_manual_subs = p_pilot_manual.add_subparsers(dest="manual_subcommand", required=True)
+    p_manual_lint = p_manual_subs.add_parser("lint")
+    p_manual_lint.add_argument("--manual", required=True)
+    p_manual_lint.add_argument("--source", default=".", help="Project the manual's paths are relative to")
+    p_manual_lint.set_defaults(func=cmd_pilot_manual_lint)
+    p_manual_new = p_manual_subs.add_parser("new")
+    p_manual_new.add_argument("--out", required=True, help="Manual file to write")
+    p_manual_new.add_argument("--source", default=".")
+    p_manual_new.add_argument("--work-id", required=True)
+    p_manual_new.add_argument("--worker", required=True, choices=["local", "apply", "agy", "lane", "cascade"])
+    p_manual_new.add_argument("--goal", required=True)
+    p_manual_new.add_argument("--input", action="append", default=[], help="Input file to pin by SHA-256 (repeatable)")
+    p_manual_new.add_argument("--allow", action="append", default=[], required=True)
+    p_manual_new.add_argument("--accept", required=True, help="Acceptance command")
+    p_manual_new.add_argument("--judge", required=True, choices=["codex", "claude", "antigravity"])
+    p_manual_new.add_argument("--timeout", type=int, default=180)
+    p_manual_new.add_argument("--remote-budget", type=int, default=0)
+    p_manual_new.add_argument("--instructions-file", default=None, help="Prose instructions to append")
+    p_manual_new.set_defaults(func=cmd_pilot_manual_new)
 
     # pilot reconcile
     p_pilot_rec = p_pilot_subs.add_parser("reconcile")
@@ -595,6 +701,8 @@ def resolve_worker_command(worker: str, explicit: Optional[Sequence[str]]) -> li
         return [sys.executable, str(Path(__file__).resolve().parent / "adapters" / "ollama_worker.py")]
     if worker == "lane":  # Claude Code's tool loop on the local model; kept beside "local" for the A/B
         return [sys.executable, str(Path(__file__).resolve().parent / "adapters" / "lane_worker.py")]
+    if worker == "apply":  # U34: the commander already wrote the code; apply it without a model
+        return [sys.executable, str(Path(__file__).resolve().parent / "adapters" / "apply_worker.py")]
     return ["agy"]
 
 
