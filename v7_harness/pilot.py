@@ -828,6 +828,8 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                     "exit_code": acceptance_exit if acceptance_exit is not None else (0 if state == "SUCCEEDED" else 1),
                     "bundle_id": bundle_id,
                     "rework_class": rework_class,
+                    # RSI groups failures by cause; verdict_hint alone cannot tell SCOPE_VIOLATION from a failed test.
+                    "error_class": error_class,
                     "error_detail": summary.get("error_detail"),
                 }
                 record_usage(proj_root, ledger_entry)

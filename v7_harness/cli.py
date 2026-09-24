@@ -592,6 +592,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_coord_sentinel.add_argument("--interval", type=int, default=30, help="Loop interval in seconds (default: 30)")
     p_coord_sentinel.add_argument("--write-brief", action="store_true", default=False, help="Write .coord/codex_brief.md")
     p_coord_sentinel.add_argument("--recipient", default="codex", help="P1 alert recipient (default: codex)")
+    p_coord_sentinel.add_argument("--log", default=None,
+                                  help="Append each cycle's JSON line to this file (a resident loop has no console)")
     p_coord_sentinel.add_argument("--ring", action="store_true", default=False,
                                   help="Ring Codex (codex queue) for waiting P1 wakes while Codex has a fresh ACTIVE heartbeat")
     p_coord_sentinel.set_defaults(func=cmd_coord_sentinel)
@@ -601,7 +603,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_coord_presence.add_argument("--tool", choices=["codex", "claude", "antigravity"], default=None)
     p_coord_presence.add_argument("--state", choices=["ACTIVE", "LIMITED", "ABSENT"], default=None)
     p_coord_presence.add_argument("--ttl", type=int, default=3600, help="Seconds until the heartbeat reads UNKNOWN")
+    p_coord_presence.add_argument("--if-uaos", action="store_true", default=False,
+                                  help="Do nothing unless the project has .coord/PLAN.md (for global session hooks)")
+    p_coord_presence.add_argument("--from-hook", action="store_true", default=False,
+                                  help="Find the project from the hook payload on stdin (cwd, workspacePaths), "
+                                       "CLAUDE_PROJECT_DIR or --project, walking up to .coord/PLAN.md; never fails the hook")
+    p_coord_presence.add_argument("--say", choices=["json", "brief", "none", "empty-json"], default="json",
+                                  help="What to print: presence JSON (default), one context line, nothing, or {}")
     p_coord_presence.set_defaults(func=cmd_coord_presence)
+
+    p_coord_init = p_coord_subs.add_parser("init")
+    p_coord_init.add_argument("--project", default=".", help="Project to prepare for UAOS (default: .)")
+    p_coord_init.set_defaults(func=cmd_coord_init)
 
     p_coord_inbox = p_coord_subs.add_parser("inbox")
     p_coord_inbox.add_argument("--project", default=".", help="Project root (default: .)")
@@ -623,6 +636,34 @@ def build_parser() -> argparse.ArgumentParser:
     p_coord_pub.add_argument("--thread-id", default=None, help="Optional thread UUID")
     p_coord_pub.add_argument("--project", default=".", help="Project root (default: .)")
     p_coord_pub.set_defaults(func=cmd_coord_publish_thread)
+
+    # rsi: evidence-gated self-improvement (docs/38). observe → propose → try → gate → judge → rollback.
+    p_rsi = subparsers.add_parser("rsi", help="Evidence-gated self-improvement: report, propose, gate, adopt, rollback")
+    p_rsi_subs = p_rsi.add_subparsers(dest="rsi_subcommand", required=True)
+    p_rsi_report = p_rsi_subs.add_parser("report", help="Per-worker pass/rework/blocked rates and recurring causes")
+    p_rsi_report.add_argument("--project", default=".")
+    p_rsi_report.set_defaults(func=cmd_rsi_report)
+    p_rsi_propose = p_rsi_subs.add_parser("propose", help="Deterministic remedies for the causes in the ledger")
+    p_rsi_propose.add_argument("--project", default=".")
+    p_rsi_propose.add_argument("--candidate-for", default=None, metavar="PROPOSAL_ID",
+                               help="Print a candidate file to fill after the trial runs")
+    p_rsi_propose.add_argument("--author", default=None, help="Author of the candidate (default: detected tool)")
+    p_rsi_propose.set_defaults(func=cmd_rsi_propose)
+    p_rsi_gate = p_rsi_subs.add_parser("gate", help="Judge a tried candidate on ledger evidence (read only)")
+    p_rsi_gate.add_argument("--project", default=".")
+    p_rsi_gate.add_argument("--candidate", required=True, help="Candidate JSON file")
+    p_rsi_gate.set_defaults(func=cmd_rsi_gate)
+    p_rsi_adopt = p_rsi_subs.add_parser("adopt", help="The judge adopts a candidate that passed the gate")
+    p_rsi_adopt.add_argument("--project", default=".")
+    p_rsi_adopt.add_argument("--candidate", required=True)
+    p_rsi_adopt.add_argument("--judge", required=True, choices=["codex", "claude", "user"],
+                             help="Codex, Claude while Codex is absent, or the user (docs/31 §3)")
+    p_rsi_adopt.set_defaults(func=cmd_rsi_adopt)
+    p_rsi_rollback = p_rsi_subs.add_parser("rollback", help="Restore the policy from before the last adoption")
+    p_rsi_rollback.add_argument("--project", default=".")
+    p_rsi_rollback.add_argument("--judge", required=True, choices=["codex", "claude", "user"])
+    p_rsi_rollback.add_argument("--reason", required=True)
+    p_rsi_rollback.set_defaults(func=cmd_rsi_rollback)
 
     return parser
 
@@ -884,19 +925,44 @@ def cmd_coord_sentinel(args: argparse.Namespace) -> int:
             brief_file.write_text(brief_text, encoding="utf-8")
         return cycle_res
 
+    log_path = Path(args.log) if getattr(args, "log", None) else None
+
+    def _report(res: dict[str, Any]) -> None:
+        line = json.dumps(res, ensure_ascii=False)
+        print(line, flush=True)  # a no-op under pythonw, where stdout is None
+        if log_path is not None:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            # One line a minute is ~0.4 MB a day; keep one previous file instead of growing forever.
+            if log_path.is_file() and log_path.stat().st_size > SENTINEL_LOG_MAX_BYTES:
+                os.replace(log_path, log_path.with_name(log_path.name + ".1"))
+            with log_path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+
     if args.loop:
+        # A logon task and a manual start must not run two operators on one project.
+        from .coord.sentinel import _is_pid_alive
+
+        pid_file = project / ".work" / "sentinel" / "loop.pid"
+        try:
+            running = int(pid_file.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            running = 0
+        if running and running != os.getpid() and _is_pid_alive(running):
+            _report({"ok": True, "skipped": "ALREADY_RUNNING", "pid": running})
+            return 0
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(str(os.getpid()), encoding="utf-8")
         while True:
             # A resident operator must outlive one bad cycle (locked file, corrupt line); it reports and goes on.
             try:
                 res = _execute_once()
             except Exception as exc:  # noqa: BLE001
                 res = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
-            print(json.dumps(res, ensure_ascii=False), flush=True)
+            _report(res)
             time.sleep(args.interval)
         return 0
 
-    res = _execute_once()
-    print(json.dumps(res, ensure_ascii=False))
+    _report(_execute_once())
     return 0
 
 
@@ -904,13 +970,98 @@ def cmd_coord_presence(args: argparse.Namespace) -> int:
     """U32b: record one tool's heartbeat, or show all three. Called from each tool's session hooks."""
     from .coord.presence import mark, read_all
 
+    say = getattr(args, "say", "json")
+
+    def _emit(data: dict[str, Any], line: str = "") -> None:
+        if say == "json":
+            print(json.dumps(data, ensure_ascii=False))
+        elif say == "brief" and line:
+            print(line)
+        elif say == "empty-json":
+            print("{}")
+
+    if getattr(args, "from_hook", False):
+        from .coord.hook_context import brief_line, hook_project, read_stdin
+
+        # A session hook must never break the session: every failure is reported and the exit code stays 0.
+        try:
+            project = hook_project(read_stdin(), args.project)
+            if project is None:
+                _emit({"ok": True, "skipped": "NOT_A_UAOS_PROJECT"})
+                return 0
+            if args.tool and args.state:
+                mark(project, args.tool, args.state, ttl_s=args.ttl)
+            presence = read_all(project)
+            _emit({"ok": True, "project": str(project), "presence": presence}, brief_line(project, presence))
+        except Exception as exc:  # noqa: BLE001
+            _emit({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]})
+        return 0
+
     project = Path(args.project)
+    if getattr(args, "if_uaos", False) and not (project / ".coord" / "PLAN.md").is_file():
+        # Global hooks fire in every project; only UAOS projects get a presence file.
+        _emit({"ok": True, "skipped": "NOT_A_UAOS_PROJECT"})
+        return 0
     if args.tool or args.state:
         if not (args.tool and args.state):
             print(json.dumps({"ok": False, "error": "--tool and --state go together"}, ensure_ascii=False))
             return 2
         mark(project, args.tool, args.state, ttl_s=args.ttl)
-    print(json.dumps({"ok": True, "presence": read_all(project)}, ensure_ascii=False))
+    _emit({"ok": True, "presence": read_all(project)})
+    return 0
+
+
+SENTINEL_LOG_MAX_BYTES = 5 * 1024 * 1024
+
+UAOS_GITIGNORE_LINES = (
+    ".work/",
+    ".coord/pilot/",
+    ".coord/stream/",
+    ".coord/codex_brief.md",
+    ".coord/mailbox/",
+    ".coord/presence/",
+    ".coord/usage/runs.jsonl",
+)
+
+PLAN_TEMPLATE = """# 통합 실행 계획 (UAOS)
+
+상태 기준: `READY → ACTIVE → REVIEW → DONE`. 한 번에 활성 단계 하나, 단계마다 소유자 한 명.
+
+| ID | 상태 | 소유자 | 산출물/판정 |
+|---|---|---|---|
+| S01 | READY | (지휘자) | 첫 단계: 인수 명령을 먼저 정한다 |
+
+도구 상태(시각이 지나면 UNKNOWN): `python -m v7_harness.cli coord presence`로 확인한다.
+"""
+
+
+def cmd_coord_init(args: argparse.Namespace) -> int:
+    """Prepare any project for UAOS. Idempotent: existing files are never overwritten, only missing lines are added."""
+    project = Path(args.project)
+    if not project.is_dir():
+        print(json.dumps({"ok": False, "error": f"not a directory: {project}"}, ensure_ascii=False))
+        return 1
+    created: list[str] = []
+    plan = project / ".coord" / "PLAN.md"
+    if not plan.is_file():
+        plan.parent.mkdir(parents=True, exist_ok=True)
+        plan.write_text(PLAN_TEMPLATE, encoding="utf-8")
+        created.append(".coord/PLAN.md")
+    for folder in (".coord/tasks", ".coord/mailbox", ".work"):
+        if not (project / folder).is_dir():
+            (project / folder).mkdir(parents=True)
+            created.append(folder + "/")
+    gitignore = project / ".gitignore"
+    existing = gitignore.read_text(encoding="utf-8").splitlines() if gitignore.is_file() else []
+    missing = [line for line in UAOS_GITIGNORE_LINES if line not in existing]
+    if missing:
+        prefix = "" if not existing or existing[-1] == "" else "\n"
+        with gitignore.open("a", encoding="utf-8") as handle:
+            handle.write(prefix + "# UAOS runtime state (coord init)\n" + "\n".join(missing) + "\n")
+    print(json.dumps({"ok": True, "created": created, "gitignore_added": missing,
+                      "next": ["coord presence --tool <codex|claude|antigravity> --state ACTIVE",
+                               "pilot manual new ... then pilot manual lint ... then pilot run --manual ..."]},
+                     ensure_ascii=False))
     return 0
 
 
@@ -954,6 +1105,87 @@ def cmd_coord_ack(args: argparse.Namespace) -> int:
         print(json.dumps({"ok": False, "id": args.message_id, "error": str(exc)}, ensure_ascii=False))
         return 1
     print(json.dumps({"ok": True, "id": args.message_id}, ensure_ascii=False))
+    return 0
+
+
+def _print_json(data: Any) -> None:
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def cmd_rsi_report(args: argparse.Namespace) -> int:
+    from .rsi import analyze, load_policy, load_rows, open_trials, read_decisions
+
+    project = Path(args.project)
+    policy = load_policy(project)
+    rows = load_rows(project)
+    report = analyze(rows, policy)
+    report["policy"] = policy
+    report["decisions"] = len(read_decisions(project))
+    # An adopted change whose window is complete is due for its re-check: keep it or `rsi rollback`.
+    report["trials"] = open_trials(project, len(rows))
+    _print_json(report)
+    return 0
+
+
+def cmd_rsi_propose(args: argparse.Namespace) -> int:
+    from .rsi import analyze, candidate_template, load_policy, load_rows, propose
+
+    project = Path(args.project)
+    policy = load_policy(project)
+    proposals = propose(analyze(load_rows(project), policy), policy)
+    if args.candidate_for:
+        match = [proposal for proposal in proposals if proposal["id"] == args.candidate_for]
+        if not match:
+            _print_json({"ok": False, "error": f"unknown proposal id: {args.candidate_for}"})
+            return 1
+        _print_json(candidate_template(match[0], args.author or detect_actor() or "unknown"))
+        return 0
+    _print_json({"proposals": proposals,
+                 "next": "try one proposal on a trial manual, then `rsi gate --candidate FILE` and hand it to the judge"})
+    return 0
+
+
+def _read_candidate(path: str) -> dict[str, Any]:
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("the candidate file must hold a JSON object")
+    return data
+
+
+def cmd_rsi_gate(args: argparse.Namespace) -> int:
+    from .rsi import gate_from_ledger
+
+    try:
+        candidate = _read_candidate(args.candidate)
+    except (OSError, ValueError) as exc:
+        _print_json({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]})
+        return 1
+    verdict = gate_from_ledger(Path(args.project), candidate)
+    _print_json(verdict)
+    return 0 if verdict["decision"] == "ADOPT_CANDIDATE" else 2
+
+
+def cmd_rsi_adopt(args: argparse.Namespace) -> int:
+    from .rsi import RsiRefused, adopt
+
+    try:
+        result = adopt(Path(args.project), _read_candidate(args.candidate), args.judge)
+    except (OSError, ValueError, RsiRefused) as exc:
+        _print_json({"ok": False, "error": str(exc)[:500]})
+        return 2
+    _print_json({"ok": True, **result})
+    return 0
+
+
+def cmd_rsi_rollback(args: argparse.Namespace) -> int:
+    from .rsi import RsiRefused, rollback
+
+    try:
+        result = rollback(Path(args.project), args.judge, args.reason)
+    except RsiRefused as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        return 2
+    _print_json({"ok": True, **result})
     return 0
 
 

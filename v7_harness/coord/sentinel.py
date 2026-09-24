@@ -148,6 +148,9 @@ def generate_briefing(project_root: Path, box: Mailbox | None = None, max_lines:
         bad = box.list_bad()
         if bad:
             lines.append(f"  Quarantined unreadable messages: {len(bad)} (.coord/mailbox/bad)")
+        reviews = [item for item in items if item.startswith("rsi_review_")]
+        if reviews:
+            lines.append(f"  RSI reviews waiting: {', '.join(reviews[:3])} (python -m v7_harness.cli rsi propose)")
 
     from .presence import read_all
 
@@ -293,6 +296,20 @@ def run_sentinel_cycle(
             )
             p1_wake_emitted = True
 
+    rsi_published: list[str] = []
+    rsi_error = None
+    try:
+        # RSI observe step: a finished window of runs becomes one review message (never P1, never repeated).
+        from ..rsi import analyze, load_policy, load_rows, rsi_review_messages
+
+        policy = load_policy(project_root)
+        for message_id, payload in rsi_review_messages(project_root, analyze(load_rows(project_root), policy), policy):
+            if not box.has_message(message_id):
+                box.publish(message_id=message_id, payload=payload)
+                rsi_published.append(message_id)
+    except Exception as exc:  # noqa: BLE001 - a broken ledger line must not stop the operator
+        rsi_error = f"{type(exc).__name__}: {exc}"[:200]
+
     bell = ring_bell(project_root, box, runner=runner, sessions_dir=sessions_dir) if ring else {"rung": False, "reason": "RING_OFF"}
 
     wall_time_s = time.time() - t0
@@ -304,5 +321,7 @@ def run_sentinel_cycle(
         "reconcile_tasks": reconcile_tasks,
         "recovered_claims": recovered,
         "sync_error": sync_error,
+        "rsi_review_published": rsi_published,
+        "rsi_error": rsi_error,
         "bell": bell,
     }

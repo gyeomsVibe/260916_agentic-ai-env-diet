@@ -207,10 +207,16 @@ def lint(text: str, project: Path) -> ManualReport:
 
     # A forbidden line such as "no refactoring" names vague words on purpose; it must not lower the score.
     specificity = advise(re.sub(r"(?m)^\s*forbidden:.*$", "", text)).specificity
-    if worker in ("local", "cascade") and specificity < LOCAL_MIN_SPECIFICITY:
-        report.errors.append(f"LOW_SPECIFICITY:{specificity}<{LOCAL_MIN_SPECIFICITY} for a local model")
-    elif worker in ("agy", "lane") and specificity < REMOTE_MIN_SPECIFICITY:
-        report.warnings.append(f"LOW_SPECIFICITY:{specificity}<{REMOTE_MIN_SPECIFICITY}")
+    # The thresholds can only tighten through an adopted RSI policy (floors 80/60 are enforced in v7_harness.rsi).
+    from v7_harness.rsi import load_policy
+
+    policy = load_policy(project)
+    local_min = max(LOCAL_MIN_SPECIFICITY, int(policy["local_min_specificity"]))
+    remote_min = max(REMOTE_MIN_SPECIFICITY, int(policy["remote_min_specificity"]))
+    if worker in ("local", "cascade") and specificity < local_min:
+        report.errors.append(f"LOW_SPECIFICITY:{specificity}<{local_min} for a local model")
+    elif worker in ("agy", "lane") and specificity < remote_min:
+        report.warnings.append(f"LOW_SPECIFICITY:{specificity}<{remote_min}")
 
     covering = related_tests(project, allow)
     acceptance = contract.get("acceptance", "")

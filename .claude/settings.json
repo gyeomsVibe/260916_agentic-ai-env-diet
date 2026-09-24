@@ -1,5 +1,4 @@
 {
-  "_status": "APPLIED 2026-09-25 after the user approved B77. Live copy: .claude/settings.json (this project). Every project on a PC: python install_uaos_everywhere.py --apply (docs/39).",
   "permissions": {
     "deny": [
       "CronCreate",
