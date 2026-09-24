@@ -10,6 +10,7 @@ import os
 import threading
 import re
 import secrets
+import tempfile
 import time
 from multiprocessing.connection import Client, Listener
 from pathlib import Path
@@ -61,7 +62,9 @@ def make_local_pipe_name(nonce: str | None = None) -> str:
     suffix = nonce or secrets.token_hex(12)
     if os.name == "nt":
         return rf"\\.\pipe\coordd-{user}-{suffix}"
-    return str(Path(os.getenv("TEMP", ".")) / f"coordd-{user}-{suffix}.sock")
+    # POSIX has no TEMP by default, so the old fallback "." put sockets into the project, where a crashed broker
+    # left them behind (B75) and the source manifest then failed on them.
+    return str(Path(tempfile.gettempdir()) / f"coordd-{user}-{suffix}.sock")
 
 
 def _validate_endpoint(address: str) -> None:
