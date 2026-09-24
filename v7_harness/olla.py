@@ -1062,7 +1062,13 @@ def squeeze_text(text: str, full_log: Path) -> str:
 
 def cmd_squeeze(args: argparse.Namespace) -> int:
     script = Path(args.script)
-    done = subprocess.run([os.environ.get("SHELL") or "bash", str(script)], stdout=subprocess.PIPE,
+    bash_path = os.environ.get("SHELL") or shutil.which("bash")
+    if not bash_path and sys.platform == "win32":
+        for candidate in [r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files\Git\usr\bin\bash.exe"]:
+            if os.path.exists(candidate):
+                bash_path = candidate
+                break
+    done = subprocess.run([bash_path or "bash", str(script)], stdout=subprocess.PIPE,
                           stderr=subprocess.STDOUT)
     text = done.stdout.decode("utf-8", errors="replace")
     stamp = datetime.now().strftime("%Y%m%dT%H%M%S")

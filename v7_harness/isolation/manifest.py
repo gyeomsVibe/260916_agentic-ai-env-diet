@@ -35,6 +35,8 @@ DEFAULT_EXCLUDES = {
     # U15: 세 도구가 파일럿 실행 중에도 조율 사건을 기록해야 하므로 스트림과 브리핑은
     # 원본 매니페스트에서 제외한다. 제외하지 않으면 기록 한 줄이 SOURCE_DIVERGED를 만든다.
     ".coord/stream",
+    ".coord/mailbox",  # Runtime mailbox is transport evidence and must not trigger SOURCE_DIVERGED
+    ".coord/usage",    # Runtime telemetry ledger and must not trigger SOURCE_DIVERGED
     ".coord/codex_brief.md",
 }
 

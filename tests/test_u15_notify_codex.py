@@ -141,6 +141,24 @@ class U15NotifyTests(unittest.TestCase):
             self._notify(thread="  ")
         self.assertEqual("MISSING_THREAD", str(caught.exception))
 
+    def test_verdict_requested_explicit_no(self) -> None:
+        result, runner = self._notify(verdict_requested=False, pending=["task1 waiting"])
+        self.assertTrue(result.sent)
+        self.assertIn("verdict_requested=no", runner.calls[0][5])
+
+    def test_notify_refused_when_codex_absent_in_plan(self) -> None:
+        coord_dir = self.project / ".coord"
+        coord_dir.mkdir(parents=True, exist_ok=True)
+        (coord_dir / "PLAN.md").write_text("- 상태: codex: LIMITED_6_PERCENT\n", encoding="utf-8")
+        with self.assertRaises(NotifyRefused) as caught:
+            self._notify(pending=["task1 waiting"])
+        self.assertEqual("CODEX_ABSENT", str(caught.exception))
+
+    def test_actor_headline_prefix_antigravity(self) -> None:
+        result, runner = self._notify(actor="antigravity", headline="새로운 진행 보고")
+        self.assertTrue(result.sent)
+        self.assertIn("[안티그래비티에서 온 대화] 새로운 진행 보고", runner.calls[0][5])
+
 
 
 class U15ResolveThreadTests(unittest.TestCase):

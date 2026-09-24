@@ -1,0 +1,87 @@
+{
+  "timestamp": 1790264555.918323,
+  "total": 13,
+  "passed": 13,
+  "failed": 0,
+  "all_passed": true,
+  "checks": [
+    {
+      "name": "B64 Broker stop budget",
+      "status": "PASS",
+      "elapsed_s": 5.92,
+      "exit_code": 0
+    },
+    {
+      "name": "B63 Stream lock contention",
+      "status": "PASS",
+      "elapsed_s": 2.28,
+      "exit_code": 0
+    },
+    {
+      "name": "Agent English headers & Notify",
+      "status": "PASS",
+      "elapsed_s": 1.01,
+      "exit_code": 0
+    },
+    {
+      "name": "olla CLI & Squeeze test",
+      "status": "PASS",
+      "elapsed_s": 3.55,
+      "exit_code": 0
+    },
+    {
+      "name": "U16 Local worker",
+      "status": "PASS",
+      "elapsed_s": 0.48,
+      "exit_code": 0
+    },
+    {
+      "name": "U15 Coordination stream",
+      "status": "PASS",
+      "elapsed_s": 4.19,
+      "exit_code": 0
+    },
+    {
+      "name": "U21 Calculator Principle",
+      "status": "PASS",
+      "elapsed_s": 0.57,
+      "exit_code": 0
+    },
+    {
+      "name": "U22 Worker limits & Install",
+      "status": "PASS",
+      "elapsed_s": 0.34,
+      "exit_code": 0
+    },
+    {
+      "name": "U23 Mailbox & Sentinel",
+      "status": "PASS",
+      "elapsed_s": 1.97,
+      "exit_code": 0
+    },
+    {
+      "name": "U24 Codex bridge",
+      "status": "PASS",
+      "elapsed_s": 0.2,
+      "exit_code": 0
+    },
+    {
+      "name": "U27 Usage ledger automation",
+      "status": "PASS",
+      "elapsed_s": 0.82,
+      "exit_code": 0
+    },
+    {
+      "name": "Bytecode compilation (compileall)",
+      "status": "PASS",
+      "elapsed_s": 0.18,
+      "exit_code": 0
+    },
+    {
+      "name": "Sentinel live cycle health check",
+      "status": "PASS",
+      "elapsed_s": 0.7,
+      "exit_code": 0
+    }
+  ]
+}

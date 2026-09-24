@@ -85,12 +85,49 @@ def write_cursor(project: Path, cursor: dict[str, Any]) -> None:
     path.write_text(json.dumps(cursor, ensure_ascii=False, sort_keys=True), encoding="utf-8")
 
 
-def build_message(*, actor: str, brief_path: str, headline: str, pending: Sequence[str]) -> str:
+def is_codex_absent(project: Path | None) -> bool:
+    """Check if Codex is marked absent or limited in PLAN.md."""
+    if project is None:
+        return False
+    plan_path = project / ".coord" / "PLAN.md"
+    if not plan_path.is_file():
+        return False
+    try:
+        content = plan_path.read_text(encoding="utf-8")
+        return bool(re.search(r"codex:\s*(LIMITED|ABSENT)", content, re.IGNORECASE))
+    except OSError:
+        return False
+
+
+def build_message(
+    *,
+    actor: str,
+    brief_path: str,
+    headline: str,
+    pending: Sequence[str],
+    verdict_requested: bool | None = None,
+    project: Path | None = None,
+) -> str:
     """Codex가 한눈에 읽고 판정으로 들어갈 수 있는 최소 메시지."""
-    verdict = "yes" if pending else "no"
+    if verdict_requested is False:
+        verdict = "no"
+    elif verdict_requested is True:
+        verdict = "yes"
+    elif is_codex_absent(project):
+        verdict = "no"
+    else:
+        verdict = "yes" if pending else "no"
+
+    actor_label = "안티그래비티에서 온 대화" if actor.lower() in ("agy", "antigravity") else ("클로드에게서 온 대화" if actor.lower() == "claude" else f"{actor}에서 온 대화")
+    clean_hl = headline.strip()
+    if not clean_hl.startswith(f"<{actor_label}>") and not clean_hl.startswith(f"[{actor_label}]"):
+        display_hl = f"[{actor_label}] {clean_hl}"
+    else:
+        display_hl = clean_hl
+
     lines = [
         DATA_HEADER.format(actor=actor, verdict=verdict),
-        headline.strip(),
+        display_hl,
         f"브리핑: {brief_path}",
     ]
     for item in list(pending)[:2]:
@@ -113,6 +150,7 @@ def notify(
     headline: str,
     pending: Sequence[str] = (),
     brief_path: str = ".coord/codex_brief.md",
+    verdict_requested: bool | None = None,
     now: datetime | None = None,
     dry_run: bool = True,
     runner: Any = None,
@@ -121,10 +159,20 @@ def notify(
     if not thread or not thread.strip():
         raise NotifyRefused("MISSING_THREAD")
 
+    if is_codex_absent(project):
+        raise NotifyRefused("CODEX_ABSENT")
+
     moment = now or datetime.now().astimezone()
     cursor = read_cursor(project)
     digest = brief_hash(brief_text)
-    message = build_message(actor=actor, brief_path=brief_path, headline=headline, pending=pending)
+    message = build_message(
+        actor=actor,
+        brief_path=brief_path,
+        headline=headline,
+        pending=pending,
+        verdict_requested=verdict_requested,
+        project=project,
+    )
     command = ("codex", "queue", "--thread", thread, "--message", message)
 
     if cursor.get("last_hash") == digest:

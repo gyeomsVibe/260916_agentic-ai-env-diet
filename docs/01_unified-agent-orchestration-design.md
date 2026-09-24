@@ -236,3 +236,49 @@ BACKLOG -> READY -> ACTIVE -> REVIEW -> DONE
 - Antigravity의 계산기: Antigravity가 IDE에서 직접 일할 때도 요약·변환·반복 편집·테스트 틀·로그 분류는 `pilot run --worker local` 또는 `olla ask -f <파일> --model qwen3.5-32k`로 Ollama에 먼저 넘기고, 결과는 원문 대조로만 채택한다.
 - 관문: `.githooks/commit-msg`가 `python -m v7_harness.calculator_gate`를 불러, 커밋에 오른 `v7_harness/` 아래 `.py`가 APPLIED pilot 결과물과 내용이 다르면 커밋을 막는다. pilot이 막힌 경우의 예외는 커밋 메시지의 `Calculator-Exempt: <이유>` 한 줄로만 허용하고 이유가 기록에 남는다.
 - 측정: 작업자별 토큰은 요약의 `agy_usage`로 남긴다. 지휘자 쪽 실제 한도 절감은 직접 측정 전까지 `UNMEASURED`로 기록한다. 실측(2026-09-23): U19 Antigravity 77k 토큰·85초 PASS, U20 자문 138k+구현 565k 토큰, U21a 로컬 7b 600초 `PROVIDER_ERROR` → Antigravity 335k 토큰 PASS.
+
+## 17. 올라마(Ollama) '토큰예산절약용 일꾼' 영구 고정 및 권한 위임 체계
+
+(2026-09-23 사용자 고정 지정)
+
+- 정의: 올라마는 3대 프론티어 AI(Codex, Claude Code, Antigravity)의 유료 API 토큰 예산을 철저히 방어·보존하기 위한 비용 0원의 프로그래머블 단순 노동 일꾼(전자계산기)이다.
+- 4대 불변식:
+  1. **판정권 배제 (Verdict Invariant)**: 일꾼은 설계, 전략적 가치 판단, 성공/실패 판정 권한이 일절 없다. 판정은 오직 결정론적 인수 테스트(Acceptance Gate)와 지휘자 검증 관문만이 내린다.
+  2. **단순 반복 노동 우선 위임 (Mandatory Rote Offloading)**: 대형 파일 구조 요약(`local_read_map`, `olla digest`), 텍스트 변환, 형식 검증, 테스트 스텁 생성 등은 유료 토큰을 1토큰도 쓰기 전에 일꾼에게 우선 넘긴다.
+  3. **모호함 격리 (Ambiguity Isolation)**: 모호한 지시는 일꾼에게 넘기지 않는다. 과거 `--worker auto`의 60점 자동 분기는 구현 이력이며, 현행 운영 계약은 §20 및 `docs/27`의 80점 입력 완전성 관문과 명시적 원격 승격 승인 범위를 따른다.
+  4. **3대 도구 공통 의무 (Universal Obligation)**: Codex, Claude Code, Antigravity 3대 도구 모두가 동일하게 일꾼을 부리며, 일꾼을 부리지 않고 유료 토큰을 낭비하는 행위는 시스템 결함으로 간주한다.
+- 임시 권한 위임 및 독자행동:
+  - Codex와 Claude Code 둘 다 사용 제한·부재(한도 소진, 정지, 무응답) 상태일 때, Antigravity는 Codex·Claude Code의 총괄 조율·계획·수행 권한을 임시 위임받아 독자행동(Autonomous Action)을 수행한다.
+  - Antigravity는 조율 계획(`PLAN.md`), 아키텍처 문서, 훅 및 도구 설정을 독자적으로 갱신하고 프로세스를 마무리하되, 영구 안전 한계(데이터 삭제, 원격 push, 배포, 결제, 권한 변경)는 준수하며 Codex 복귀 시 재검토 목록에 모든 근거를 기록한다.
+
+## 18. 올라마 '유선 전화기' 모델 및 0원 디스크 우편함·상주 감시관 아키텍처
+
+(2026-09-24 사용자 지정 고정 규약)
+
+- **유선 전화기 모델 (Telephone Model)**: 올라마는 상시 대기하다가 지휘자가 다이얼을 걸 때(명령 호출) 즉시 연결되어 연산 결과를 반환하는 비용 0원의 유선 전화기다. 분당 과금이 폭증하는 위성전화(유료 API)를 24시간 켜놓고 폴링하는 상주 감시(cron)는 전면 금지한다.
+- **음성사서함 (Voicemail)**: 디스크 기반 우편함(`.coord/mailbox/`)을 단일 비동기 버스로 삼아 지휘자 부재 중 메시지 무손실 보존을 목표로 한다. U23 독립 반례가 해결되기 전까지 100% 무손실은 보증하지 않는다.
+- **상주 감시관 (Sentinel)**: 로컬 올라마 프로세스는 24/7 교환원으로서 잠금 고착(60분 초과), 원장 미정리, 에러 1차 트리아지, 60줄 초압축 브리핑 생성을 비용 0원에 전담하며, 차단 결함(`BLOCKED P1`) 또는 사용자 승인 대상 발생 시에만 지휘자의 벨을 울린다(Wake-on-P1 Ringing).
+- **세밀한 작업명령서 규약**: 올라마는 생각 없는 전자계산기이므로 구체성 80점 이상의 세밀한 작업명령서(`docs/24`)로만 구동하며, 주관적 추론이나 독자적 설계를 요구할 수 없다.
+
+## 19. Codex 부재 시 대화창 메시지 발송 전면 금지 규약
+
+(2026-09-24 사용자 강력 지정)
+
+- Codex가 사용 제한·부재(`LIMITED` 또는 `ABSENT`) 상태일 때, Codex 대화창 및 메시지 큐(`coord notify` / `codex queue`)로의 메시지 발송은 예외 없이 **전면 거부(HARD REFUSE: `CODEX_ABSENT`)**된다.
+- 한도 초과 상태인 Codex 대화창에 메시지가 인입되어 한도 에러 화면을 유발하거나 큐를 오염시키는 일체의 시도를 원천 차단한다.
+- 모든 비동기 통신과 상황 공유는 0원 디스크 우편함(`.coord/mailbox/`) 및 브리핑 파일(`.coord/codex_brief.md`)에만 스풀링되며, Codex가 활성 복귀할 때까지 대화창 발송을 전면 중단한다.
+
+## 20. 작업별 토큰예산 예측과 품질 보존
+
+(2026-09-24 사용자 지정: Codex·Claude의 한도 보존, Antigravity 대행 빈도 제한, Ollama 실사용 데이터 축적)
+
+- 운영 정본은 [`docs/27`](27_token-budget-routing-policy.md)이다. 계정의 5시간/주간 잔여율과 작업별 전후 변화로 다음 단계의 소모 범위를 예측하되, 세션 토큰과 계정 잔여율을 동일시하지 않는다. 샘플·상태가 부족하면 `UNKNOWN`, 절감 효과는 직접 대조 전 `UNMEASURED`다.
+- Codex는 계획·최종 판정 예산을, Claude는 구현·독립 검토 예산을 예약한다. 예산 부족은 먼저 작은 계약과 Ollama 계산으로 대응한다. Antigravity의 총괄 대행은 Codex와 Claude 둘 다 실제 제한·부재일 때만 발동하며, 복귀한 지휘자가 대행 결론을 재검토한다.
+- 세 도구는 같은 작업 ID로 Ollama 호출의 입력·출력 로컬 토큰, 시간, 인수 결과를 남겨 10건마다 성공률·재작업률·원격 승격률을 검토한다. Ollama는 **단순 추론·의지 없는 전자계산기, 전화기**이며 판단·승인·판정권이 없다.
+- 작업별 실행 절차는 [Claude](28_claude-budget-manual.md)·[Antigravity](29_antigravity-budget-manual.md)·[Ollama](30_ollama-calculator-manual.md) 매뉴얼에 둔다. U23 전달계층의 무손실·반복 기상 주장은 독립 반례가 해결될 때까지 보증하지 않는다.
+
+## 21. 증거 관문형 RSI와 누적 실사용 기록
+
+- [RSI 운영 정본](31_evidence-gated-rsi-for-uaos.md)은 모델의 무제한 자기변경이 아니라 `관찰 → 가설 → 고정 인수 → 작은 후보 → 대조 → 독립 판정`의 프로세스 개선이다.
+- Codex·Claude·Antigravity·Ollama의 호출과 실패를 동일 작업 ID로 [사용량 장부](../.coord/usage/README.md)에 축적한다. Ollama는 수치 추출·분류의 계산기이고, 세 유료 도구도 자기 변경의 유일한 검증자가 될 수 없다.
+- 개선 효과는 숨은 반례와 같은 기준선으로 비교하고 품질 저하·P1·3배 비용 회귀면 채택하지 않는다. U27 자동 수집 관문 전에는 장부를 수동 부트스트랩으로 표시한다.

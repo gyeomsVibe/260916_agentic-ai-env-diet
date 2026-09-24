@@ -781,6 +781,44 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
 
         # 13. Persist summary and return
         _write_summary(summary_path, summary)
+
+        # U27 / RSI: Automatically record run into usage ledger for zero-cost tracking
+        try:
+            from v7_harness.coord.usage_ledger import record_usage
+            proj_root = config.source_dir.resolve()
+            if (proj_root / ".git").is_dir() or (proj_root / ".coord" / "PLAN.md").is_file():
+                worker_type = "ollama" if any("ollama" in str(c) for c in config.agy_command) else "agy"
+                usage_dict = outcome.usage if outcome else {}
+                in_tok = usage_dict.get("input_tokens")
+                out_tok = usage_dict.get("output_tokens")
+                input_tokens = int(in_tok) if (in_tok is not None and not isinstance(in_tok, bool)) else None
+                output_tokens = int(out_tok) if (out_tok is not None and not isinstance(out_tok, bool)) else None
+                ledger_entry = {
+                    "schema": "uaos-usage-v2",
+                    "work_id": config.task_id,
+                    "actor": "coordinator",
+                    "model": config.model or ("qwen2.5-coder:7b" if worker_type == "ollama" else None),
+                    "kind": "pilot",
+                    "collection_mode": "automatic",
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "wall_time_s": None,
+                    "outcome": verdict_hint,
+                    "receipt": str(summary_path),
+                    "independent_verifier": None,
+                    "rsi_eligible": False,
+                    "exclusion_reason": "PENDING_INDEPENDENT_VERIFICATION",
+                    "worker": worker_type,
+                    "exit_code": acceptance_exit if acceptance_exit is not None else (0 if state == "SUCCEEDED" else 1),
+                    "bundle_id": bundle_id,
+                    "rework_class": rework_class,
+                    "error_detail": summary.get("error_detail"),
+                }
+                record_usage(proj_root, ledger_entry)
+        except Exception as ledger_exc:
+            summary["usage_ledger_error"] = f"{type(ledger_exc).__name__}: {ledger_exc}"[:300]
+            _write_summary(summary_path, summary)
+
         return summary
     finally:
         core.close()

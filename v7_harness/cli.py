@@ -451,12 +451,38 @@ def build_parser() -> argparse.ArgumentParser:
     p_coord_notify.add_argument("--headline", required=True, help="One line for the Codex window")
     p_coord_notify.add_argument("--thread", default=None, help="Codex session id (default: newest session for this project)")
     p_coord_notify.add_argument("--pending", action="append", default=[], help="Verdict-waiting item (default: read from PLAN)")
+    p_coord_notify.add_argument(
+        "--verdict-requested",
+        choices=["yes", "no", "auto"],
+        default="auto",
+        help="Override verdict_requested (yes/no/auto; auto sets no if codex is absent)",
+    )
     p_coord_notify.add_argument("--send", action="store_true", default=False, help="Actually queue it (default: dry run)")
     p_coord_notify.set_defaults(func=cmd_coord_notify)
 
     p_coord_archive = p_coord_subs.add_parser("archive")
     p_coord_archive.add_argument("--project", default=".", help="Project root (default: .)")
     p_coord_archive.set_defaults(func=cmd_coord_archive)
+
+    p_coord_sentinel = p_coord_subs.add_parser("sentinel")
+    p_coord_sentinel.add_argument("--project", default=".", help="Project root (default: .)")
+    p_coord_sentinel.add_argument("--once", action="store_true", default=False, help="Run single cycle and exit")
+    p_coord_sentinel.add_argument("--loop", action="store_true", default=False, help="Run continuous monitoring loop")
+    p_coord_sentinel.add_argument("--interval", type=int, default=30, help="Loop interval in seconds (default: 30)")
+    p_coord_sentinel.add_argument("--write-brief", action="store_true", default=False, help="Write .coord/codex_brief.md")
+    p_coord_sentinel.add_argument("--recipient", default="codex", help="P1 alert recipient (default: codex)")
+    p_coord_sentinel.set_defaults(func=cmd_coord_sentinel)
+
+    p_coord_pub = p_coord_subs.add_parser("publish-thread")
+    p_coord_pub.add_argument("--actor", required=True, choices=["agy", "claude", "antigravity"])
+    p_coord_pub.add_argument("--task", required=True, help="Task name (e.g. 'MIA 전략 레드팀')")
+    p_coord_pub.add_argument("--prompt", default="", help="User prompt text (optional if --transcript is given)")
+    p_coord_pub.add_argument("--response", default=None, help="Assistant response text")
+    p_coord_pub.add_argument("--response-file", default=None, help="File containing assistant response text")
+    p_coord_pub.add_argument("--transcript", default=None, help="Path to transcript.jsonl for full session import")
+    p_coord_pub.add_argument("--thread-id", default=None, help="Optional thread UUID")
+    p_coord_pub.add_argument("--project", default=".", help="Project root (default: .)")
+    p_coord_pub.set_defaults(func=cmd_coord_publish_thread)
 
     return parser
 
@@ -586,6 +612,9 @@ def cmd_coord_notify(args: argparse.Namespace) -> int:
         print(json.dumps({"ok": False, "error": "THREAD_UNRESOLVED"}, ensure_ascii=False))
         return 1
 
+    vr_arg = getattr(args, "verdict_requested", "auto")
+    vr_val = True if vr_arg == "yes" else (False if vr_arg == "no" else None)
+
     try:
         result = notify(
             project,
@@ -594,6 +623,7 @@ def cmd_coord_notify(args: argparse.Namespace) -> int:
             brief_text=brief_file.read_text(encoding="utf-8"),
             headline=args.headline,
             pending=list(args.pending) or pending_from_plan(project),
+            verdict_requested=vr_val,
             dry_run=not args.send,
         )
     except NotifyRefused as exc:
@@ -610,6 +640,66 @@ def cmd_coord_archive(args: argparse.Namespace) -> int:
 
     report = archive_settled(Path(args.project))
     print(json.dumps({"ok": True, **report}, ensure_ascii=False))
+    return 0
+
+
+def cmd_coord_publish_thread(args: argparse.Namespace) -> int:
+    """U24 / docs/24: 도구의 프로세스 대화를 Codex 데스크톱 프로젝트 대화로 편입·발행한다."""
+    from .coord.codex_session_bridge import parse_transcript_to_turns, publish_codex_thread
+
+    if args.transcript:
+        turns = parse_transcript_to_turns(Path(args.transcript))
+        if not turns:
+            print(json.dumps({"ok": False, "error": "EMPTY_OR_INVALID_TRANSCRIPT"}, ensure_ascii=False))
+            return 1
+    else:
+        resp_text = args.response or ""
+        if args.response_file:
+            resp_text = Path(args.response_file).read_text(encoding="utf-8")
+        if not resp_text:
+            print(json.dumps({"ok": False, "error": "MISSING_RESPONSE"}, ensure_ascii=False))
+            return 1
+        turns = [(args.prompt, resp_text)]
+
+    result = publish_codex_thread(
+        actor=args.actor,
+        task_name=args.task,
+        turns=turns,
+        project_dir=Path(args.project),
+        thread_id=args.thread_id,
+    )
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
+def cmd_coord_sentinel(args: argparse.Namespace) -> int:
+    """U23 S4: 0원 비용 로컬 올라마 상주 감시관(Sentinel) 사이클 및 루프 실행."""
+    import time
+    from .coord.mailbox import Mailbox
+    from .coord.sentinel import generate_briefing, run_sentinel_cycle
+
+    project = Path(args.project)
+    mailbox_dir = project / ".coord" / "mailbox"
+    box = Mailbox(mailbox_dir)
+
+    def _execute_once() -> dict[str, Any]:
+        cycle_res = run_sentinel_cycle(project, box, recipient=args.recipient)
+        if args.write_brief:
+            brief_text = generate_briefing(project, box=box)
+            brief_file = project / ".coord" / "codex_brief.md"
+            brief_file.parent.mkdir(parents=True, exist_ok=True)
+            brief_file.write_text(brief_text, encoding="utf-8")
+        return cycle_res
+
+    if args.loop:
+        while True:
+            res = _execute_once()
+            print(json.dumps(res, ensure_ascii=False), flush=True)
+            time.sleep(args.interval)
+        return 0
+
+    res = _execute_once()
+    print(json.dumps(res, ensure_ascii=False))
     return 0
 
 

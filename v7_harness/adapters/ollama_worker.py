@@ -190,6 +190,10 @@ def main(argv: list[str] | None = None) -> int:
         for candidate in re.findall(r"`([^`\n]+\.(?:md|py|txt))`", args.prompt)
         if (workspace / candidate.replace("\\", "/")).is_file()
     } | {
+        candidate.strip().replace("\\", "/")
+        for candidate in re.findall(r"^===(?:FILE|EDIT):\s*([^\n=]+?)\s*===", args.prompt, re.M)
+        if (workspace / candidate.strip().replace("\\", "/")).is_file()
+    } | {
         name for name in ("core.md", "GLOBAL_RULES.ko.md", "VERSION", "history.md")
         if (workspace / name).is_file() and name in args.prompt
     })
