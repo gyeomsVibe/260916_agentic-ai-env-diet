@@ -61,7 +61,9 @@ class B24RejectedSummaryTests(unittest.TestCase):
             )
 
             # Mock workspace & promotion to simulate IsolationError
-            with mock.patch("v7_harness.pilot.NonGitStagingAdapter") as mock_adapter_cls:
+            # source_dir is the real project, so keep the U27 auto-record out of its usage ledger.
+            with mock.patch("v7_harness.coord.usage_ledger.record_usage"), \
+                    mock.patch("v7_harness.pilot.NonGitStagingAdapter") as mock_adapter_cls:
                 mock_adapter_cls.return_value.create_staging.return_value = dummy_ws
                 with mock.patch("v7_harness.pilot.snapshot_watch_roots", return_value=DummyWatch()):
                     from v7_harness.adapters.agy import AgyOutcome
