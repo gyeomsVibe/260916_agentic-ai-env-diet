@@ -16,6 +16,9 @@ from typing import Any
 from .mailbox import Mailbox
 from .adapter import sync_stream_to_mailbox
 
+# A consumer that crashed mid-delivery gets its message back after this long. Long consumers call Mailbox.renew().
+CLAIM_LEASE_S = 600.0
+
 
 def _is_pid_alive(pid: int) -> bool:
     if pid <= 0:
@@ -73,6 +76,19 @@ def check_quiet_lock(project_root: Path, max_age_s: float = 3600.0) -> dict[str,
     return {"status": "ACTIVE", "is_stale": False, "lock_data": data}
 
 
+def needs_reconciliation(summary: dict[str, Any]) -> bool:
+    """Same condition under which pilot.py tells the operator to run `pilot reconcile`.
+
+    pilot writes NEEDS_RECONCILIATION into error_class, never into verdict_hint, so the old verdict_hint check
+    never fired on a real run. `pilot reconcile` rewrites the summary to ABANDONED, which clears the alert.
+    """
+    if summary.get("verdict_hint") in ("NEEDS_RECONCILIATION", "UNKNOWN"):
+        return True
+    return summary.get("state") == "FAILED" and (
+        summary.get("error_class") in ("TIMEOUT", "NEEDS_RECONCILIATION") or summary.get("effect_state") == "UNKNOWN"
+    )
+
+
 def check_ledger_reconciliation(pilot_dir: Path) -> list[str]:
     runs_dir = pilot_dir / "runs"
     if not runs_dir.is_dir():
@@ -85,12 +101,18 @@ def check_ledger_reconciliation(pilot_dir: Path) -> list[str]:
             if summary_file.is_file():
                 try:
                     data = json.loads(summary_file.read_text(encoding="utf-8"))
-                    verdict = data.get("verdict_hint", "")
-                    if verdict in ("NEEDS_RECONCILIATION", "UNKNOWN"):
-                        needs_reconcile.append(item.name)
                 except Exception:
                     needs_reconcile.append(item.name)
+                    continue
+                if not isinstance(data, dict) or needs_reconciliation(data):
+                    needs_reconcile.append(item.name)
     return sorted(needs_reconcile)
+
+
+def check_all_pilot_dirs(project_root: Path) -> list[str]:
+    from ..pilot_dirs import discover
+
+    return sorted({task for pilot_dir in discover(project_root) for task in check_ledger_reconciliation(pilot_dir)})
 
 
 def triage_failure(error_log: str, staging: Path | None = None) -> dict[str, Any]:
@@ -120,9 +142,19 @@ def generate_briefing(project_root: Path, box: Mailbox | None = None, max_lines:
     if box is not None:
         items = box.list_inbox()
         lines.append(f"- Mailbox Inbox: {len(items)} messages pending")
+        wakes = [item for item in items if item.startswith("wake_")]
+        if wakes:
+            lines.append(f"  P1 wakes waiting: {', '.join(wakes[:3])}")
+        bad = box.list_bad()
+        if bad:
+            lines.append(f"  Quarantined unreadable messages: {len(bad)} (.coord/mailbox/bad)")
 
-    pilot_dir = project_root / ".coord" / "pilot"
-    reconciles = check_ledger_reconciliation(pilot_dir)
+    from .presence import read_all
+
+    desk = ", ".join(f"{tool}={info['state']}" for tool, info in read_all(project_root).items())
+    lines.append(f"- Presence: {desk}")
+
+    reconciles = check_all_pilot_dirs(project_root)
     if reconciles:
         lines.append(f"- Unreconciled Tasks: {', '.join(reconciles)}")
     else:
@@ -135,18 +167,69 @@ def generate_briefing(project_root: Path, box: Mailbox | None = None, max_lines:
     return briefing
 
 
-def run_sentinel_cycle(project_root: Path, box: Mailbox, recipient: str = "codex") -> dict[str, Any]:
+def ring_bell(project_root: Path, box: Mailbox, *, runner: Any = None, sessions_dir: Path | None = None) -> dict[str, Any]:
+    """Ring the commander for P1 wakes still waiting in the mailbox.
+
+    Rings only when Codex has a fresh ACTIVE heartbeat: AGENTS.md forbids sending into an absent or limited
+    Codex window. Otherwise the wake simply waits in the mailbox and rings once Codex is back. `codex queue`
+    wakes an idle session. notify() adds the rate limit and sends the same waiting set only once.
+    """
+    from .notify import NotifyRefused, notify, resolve_thread
+    from .presence import read as read_presence
+
+    pending = [(message_id, payload) for message_id, payload in box.peek() if message_id.startswith("wake_")]
+    if not pending:
+        return {"rung": False, "reason": "NO_PENDING_WAKE"}
+    state = read_presence(project_root, "codex")["state"]
+    if state != "ACTIVE":
+        return {"rung": False, "reason": f"CODEX_{state}", "pending": len(pending)}
+    thread = resolve_thread(project_root, sessions_dir=sessions_dir)
+    if not thread:
+        return {"rung": False, "reason": "NO_THREAD", "pending": len(pending)}
+    ids = [message_id for message_id, _ in pending]
+    first = pending[0][1] if isinstance(pending[0][1], dict) else {}
+    headline = f"P1 {len(ids)}: {first.get('wake_reason', 'see mailbox')}"[:160]
+    try:
+        result = notify(
+            project_root,
+            thread=thread,
+            actor="sentinel",
+            brief_text="\n".join(ids),
+            headline=headline,
+            pending=ids,
+            verdict_requested=True,
+            dry_run=False,
+            runner=runner,
+        )
+    except NotifyRefused as exc:
+        return {"rung": False, "reason": str(exc), "pending": len(ids)}
+    return {"rung": result.sent, "reason": result.reason, "pending": len(ids)}
+
+
+def run_sentinel_cycle(
+    project_root: Path,
+    box: Mailbox,
+    recipient: str = "codex",
+    *,
+    ring: bool = False,
+    runner: Any = None,
+    sessions_dir: Path | None = None,
+) -> dict[str, Any]:
     import hashlib
+
+    from .stream import StreamRejected
 
     t0 = time.time()
     lock_info = check_quiet_lock(project_root)
-    pilot_dir = project_root / ".coord" / "pilot"
-    reconcile_tasks = check_ledger_reconciliation(pilot_dir)
+    reconcile_tasks = check_all_pilot_dirs(project_root)
+    recovered = box.recover_stale_claims(stale_timeout_s=CLAIM_LEASE_S)
 
+    sync_error = None
     try:
-        sync_stream_to_mailbox(project_root, box)
-    except Exception:
-        pass
+        # The cursor keeps already-synced events from being republished every cycle.
+        sync_stream_to_mailbox(project_root, box, cursor_file=box.root / ".sync_cursor.json")
+    except (StreamRejected, OSError) as exc:
+        sync_error = f"{type(exc).__name__}: {exc}"[:200]
 
     p1_reasons: list[str] = []
     p1_events: list[dict[str, Any]] = []
@@ -165,29 +248,26 @@ def run_sentinel_cycle(project_root: Path, box: Mailbox, recipient: str = "codex
         p1_reasons.append(f"NEEDS_RECONCILIATION: {','.join(stable_tasks)}")
         p1_events.append({"kind": "needs_reconciliation", "tasks": stable_tasks})
 
-    for msg_id in box.list_inbox():
-        claimed = box.claim(msg_id, consumer_id="sentinel_probe")
-        if claimed:
-            payload = claimed.payload
-            box.nack(claimed)
-            if not isinstance(payload, dict):
-                continue
-            expires_at = payload.get("expires_at")
-            if (
-                isinstance(expires_at, (int, float))
-                and not isinstance(expires_at, bool)
-                and float(expires_at) <= t0
-            ):
-                continue
-            if payload.get("kind") == "BLOCKED" or payload.get("is_p1"):
-                p1_reasons.append(f"BLOCKED_TASK: {payload.get('step')}")
-                p1_events.append(
-                    {
-                        "kind": "mailbox_p1",
-                        "message_id": msg_id,
-                        "payload": payload,
-                    }
-                )
+    # Read only. Claiming to look hid each message from real consumers for the length of the check.
+    for msg_id, payload in box.peek():
+        if not isinstance(payload, dict):
+            continue
+        expires_at = payload.get("expires_at")
+        if (
+            isinstance(expires_at, (int, float))
+            and not isinstance(expires_at, bool)
+            and float(expires_at) <= t0
+        ):
+            continue
+        if payload.get("kind") == "BLOCKED" or payload.get("is_p1"):
+            p1_reasons.append(f"BLOCKED_TASK: {payload.get('step')}")
+            p1_events.append(
+                {
+                    "kind": "mailbox_p1",
+                    "message_id": msg_id,
+                    "payload": payload,
+                }
+            )
 
     p1_wake_emitted = False
     if p1_events:
@@ -199,9 +279,8 @@ def run_sentinel_cycle(project_root: Path, box: Mailbox, recipient: str = "codex
         ).encode("utf-8")
         event_fingerprint = hashlib.sha256(canonical).hexdigest()
         wake_id = f"wake_{event_fingerprint[:24]}"
-        wake_name = f"{wake_id}.json"
-        already_recorded = (box.inbox_dir / wake_name).is_file() or (box.ack_dir / wake_name).is_file()
-        if not already_recorded:
+        # has_message also sees a wake that someone has claimed but not yet acked, so it is not sent twice.
+        if not box.has_message(wake_id):
             box.publish(
                 message_id=wake_id,
                 payload={
@@ -214,6 +293,8 @@ def run_sentinel_cycle(project_root: Path, box: Mailbox, recipient: str = "codex
             )
             p1_wake_emitted = True
 
+    bell = ring_bell(project_root, box, runner=runner, sessions_dir=sessions_dir) if ring else {"rung": False, "reason": "RING_OFF"}
+
     wall_time_s = time.time() - t0
     return {
         "wall_time_s": wall_time_s,
@@ -221,4 +302,7 @@ def run_sentinel_cycle(project_root: Path, box: Mailbox, recipient: str = "codex
         "p1_wake_emitted": p1_wake_emitted,
         "lock_status": lock_info["status"],
         "reconcile_tasks": reconcile_tasks,
+        "recovered_claims": recovered,
+        "sync_error": sync_error,
+        "bell": bell,
     }

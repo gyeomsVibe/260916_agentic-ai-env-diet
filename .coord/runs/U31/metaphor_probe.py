@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from v7_harness.coord.mailbox import Mailbox  # noqa: E402
+from v7_harness.coord.mailbox import Mailbox, MailboxRejected  # noqa: E402
 from v7_harness.coord.sentinel import check_ledger_reconciliation, run_sentinel_cycle  # noqa: E402
 from v7_harness.coord.stream import append_event  # noqa: E402
 
@@ -60,7 +60,13 @@ def probe_nack_loss() -> None:
     root, box = fresh()
     box.publish("m2", {"v": "old"})
     claim = box.claim("m2", "worker")
-    box.publish("m2", {"v": "new"})
+    try:
+        box.publish("m2", {"v": "new"})
+    except MailboxRejected:
+        box.nack(claim)
+        print("P3 nack after a same-id republish keeps only one of two messages:", verdict(False),
+              "(a different content under a claimed id is refused; the original returns to the inbox)")
+        return
     box.nack(claim)
     inbox_file = box.inbox_dir / "m2.json"
     survivors = [json.loads(inbox_file.read_text(encoding="utf-8"))["payload"]] if inbox_file.exists() else []
@@ -82,10 +88,35 @@ def probe_bell() -> None:
     root, box = fresh()
     (root / ".work").mkdir()
     (root / ".work" / "QUIET_LOCK").write_text(json.dumps({"pid": 999999, "started_at": time.time()}), encoding="utf-8")
-    result = run_sentinel_cycle(root, box)
+    calls: list[list[str]] = []
+
+    class Done:
+        returncode = 0
+
+    def runner(argv, **_kwargs):
+        calls.append(list(argv))
+        return Done()
+
+    kwargs = {}
+    try:
+        from v7_harness.coord.presence import mark
+
+        mark(root, "codex", "ACTIVE")
+        sessions = root / "sessions"
+        sessions.mkdir()
+        head = json.dumps({"cwd": str(root), "session_id": "0199aaaa-bbbb-cccc-dddd-eeeeffff0000"})
+        (sessions / "s.jsonl").write_text(head + "\n", encoding="utf-8")
+        kwargs = {"ring": True, "runner": runner, "sessions_dir": sessions}
+    except ImportError:
+        pass
+    try:
+        result = run_sentinel_cycle(root, box, **kwargs)
+    except TypeError:
+        result = run_sentinel_cycle(root, box)
     wakes = [i for i in box.list_inbox() if i.startswith("wake_")]
+    rang = bool(calls) and calls[0][1:3] == ["queue", "--thread"]
     print("P5 P1 wake exists only as a mailbox file (no queue/OS signal):",
-          verdict(result["p1_wake_emitted"] and bool(wakes)), wakes)
+          verdict(result["p1_wake_emitted"] and bool(wakes) and not rang), wakes, "| codex queue calls:", len(calls))
 
 
 if __name__ == "__main__":

@@ -475,7 +475,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_coord_sentinel.add_argument("--interval", type=int, default=30, help="Loop interval in seconds (default: 30)")
     p_coord_sentinel.add_argument("--write-brief", action="store_true", default=False, help="Write .coord/codex_brief.md")
     p_coord_sentinel.add_argument("--recipient", default="codex", help="P1 alert recipient (default: codex)")
+    p_coord_sentinel.add_argument("--ring", action="store_true", default=False,
+                                  help="Ring Codex (codex queue) for waiting P1 wakes while Codex has a fresh ACTIVE heartbeat")
     p_coord_sentinel.set_defaults(func=cmd_coord_sentinel)
+
+    p_coord_presence = p_coord_subs.add_parser("presence")
+    p_coord_presence.add_argument("--project", default=".", help="Project root (default: .)")
+    p_coord_presence.add_argument("--tool", choices=["codex", "claude", "antigravity"], default=None)
+    p_coord_presence.add_argument("--state", choices=["ACTIVE", "LIMITED", "ABSENT"], default=None)
+    p_coord_presence.add_argument("--ttl", type=int, default=3600, help="Seconds until the heartbeat reads UNKNOWN")
+    p_coord_presence.set_defaults(func=cmd_coord_presence)
+
+    p_coord_inbox = p_coord_subs.add_parser("inbox")
+    p_coord_inbox.add_argument("--project", default=".", help="Project root (default: .)")
+    p_coord_inbox.set_defaults(func=cmd_coord_inbox)
+
+    p_coord_ack = p_coord_subs.add_parser("ack")
+    p_coord_ack.add_argument("--project", default=".", help="Project root (default: .)")
+    p_coord_ack.add_argument("--id", dest="message_id", required=True, help="Mailbox message id to mark handled")
+    p_coord_ack.add_argument("--consumer", default="commander", help="Who handled it (default: commander)")
+    p_coord_ack.set_defaults(func=cmd_coord_ack)
 
     p_coord_pub = p_coord_subs.add_parser("publish-thread")
     p_coord_pub.add_argument("--actor", required=True, choices=["agy", "claude", "antigravity"])
@@ -708,17 +727,18 @@ def cmd_coord_publish_thread(args: argparse.Namespace) -> int:
 
 
 def cmd_coord_sentinel(args: argparse.Namespace) -> int:
-    """U23 S4: 0원 비용 로컬 올라마 상주 감시관(Sentinel) 사이클 및 루프 실행."""
+    """U23 S4 / U32b: 0-token sentinel (deterministic rules, no model call) — one cycle or a resident loop."""
     import time
     from .coord.mailbox import Mailbox
     from .coord.sentinel import generate_briefing, run_sentinel_cycle
 
     project = Path(args.project)
     mailbox_dir = project / ".coord" / "mailbox"
+    mailbox_dir.mkdir(parents=True, exist_ok=True)
     box = Mailbox(mailbox_dir)
 
     def _execute_once() -> dict[str, Any]:
-        cycle_res = run_sentinel_cycle(project, box, recipient=args.recipient)
+        cycle_res = run_sentinel_cycle(project, box, recipient=args.recipient, ring=getattr(args, "ring", False))
         if args.write_brief:
             brief_text = generate_briefing(project, box=box)
             brief_file = project / ".coord" / "codex_brief.md"
@@ -728,13 +748,74 @@ def cmd_coord_sentinel(args: argparse.Namespace) -> int:
 
     if args.loop:
         while True:
-            res = _execute_once()
+            # A resident operator must outlive one bad cycle (locked file, corrupt line); it reports and goes on.
+            try:
+                res = _execute_once()
+            except Exception as exc:  # noqa: BLE001
+                res = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
             print(json.dumps(res, ensure_ascii=False), flush=True)
             time.sleep(args.interval)
         return 0
 
     res = _execute_once()
     print(json.dumps(res, ensure_ascii=False))
+    return 0
+
+
+def cmd_coord_presence(args: argparse.Namespace) -> int:
+    """U32b: record one tool's heartbeat, or show all three. Called from each tool's session hooks."""
+    from .coord.presence import mark, read_all
+
+    project = Path(args.project)
+    if args.tool or args.state:
+        if not (args.tool and args.state):
+            print(json.dumps({"ok": False, "error": "--tool and --state go together"}, ensure_ascii=False))
+            return 2
+        mark(project, args.tool, args.state, ttl_s=args.ttl)
+    print(json.dumps({"ok": True, "presence": read_all(project)}, ensure_ascii=False))
+    return 0
+
+
+def cmd_coord_inbox(args: argparse.Namespace) -> int:
+    """U32b: list what waits in the voicemail without claiming it."""
+    from .coord.mailbox import Mailbox
+
+    mailbox_dir = Path(args.project) / ".coord" / "mailbox"
+    if not mailbox_dir.is_dir():
+        print(json.dumps({"ok": True, "messages": [], "bad": []}, ensure_ascii=False))
+        return 0
+    box = Mailbox(mailbox_dir)
+    messages = []
+    for message_id, payload in box.peek():
+        data = payload if isinstance(payload, dict) else {}
+        messages.append({
+            "id": message_id,
+            "kind": data.get("kind") or ("P1" if data.get("p1_alert") else None),
+            "step": data.get("step"),
+            "summary": data.get("summary") or data.get("wake_reason"),
+        })
+    print(json.dumps({"ok": True, "messages": messages, "bad": box.list_bad()}, ensure_ascii=False))
+    return 0
+
+
+def cmd_coord_ack(args: argparse.Namespace) -> int:
+    """U32b: mark one voicemail message as handled so it stops showing up in briefs and bells."""
+    from .coord.mailbox import Mailbox, MailboxRejected
+
+    box = Mailbox(Path(args.project) / ".coord" / "mailbox")
+    claim = box.claim(args.message_id, consumer_id=args.consumer)
+    if claim is None:
+        already = (box.ack_dir / f"{args.message_id}.json").is_file()
+        print(json.dumps({"ok": already, "id": args.message_id,
+                          "error": None if already else "NOT_IN_INBOX"}, ensure_ascii=False))
+        return 0 if already else 1
+    try:
+        box.ack(claim)
+    except (MailboxRejected, OSError) as exc:
+        box.nack(claim)
+        print(json.dumps({"ok": False, "id": args.message_id, "error": str(exc)}, ensure_ascii=False))
+        return 1
+    print(json.dumps({"ok": True, "id": args.message_id}, ensure_ascii=False))
     return 0
 
 

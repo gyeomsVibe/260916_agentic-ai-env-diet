@@ -86,8 +86,15 @@ def write_cursor(project: Path, cursor: dict[str, Any]) -> None:
 
 
 def is_codex_absent(project: Path | None) -> bool:
-    """Check if Codex is marked absent or limited in PLAN.md."""
+    """A fresh heartbeat decides (.coord/presence/codex.json). Without one, fall back to the PLAN.md state line."""
     if project is None:
+        return False
+    from v7_harness.coord.presence import read as read_presence
+
+    state = read_presence(project, "codex")["state"]
+    if state in ("LIMITED", "ABSENT"):
+        return True
+    if state == "ACTIVE":
         return False
     plan_path = project / ".coord" / "PLAN.md"
     if not plan_path.is_file():

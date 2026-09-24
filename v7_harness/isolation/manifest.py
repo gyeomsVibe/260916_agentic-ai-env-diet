@@ -37,6 +37,7 @@ DEFAULT_EXCLUDES = {
     ".coord/stream",
     ".coord/mailbox",  # Runtime mailbox is transport evidence and must not trigger SOURCE_DIVERGED
     ".coord/usage",    # Runtime telemetry ledger and must not trigger SOURCE_DIVERGED
+    ".coord/presence",  # Heartbeats written by other tools' session hooks while a pilot runs
     ".coord/codex_brief.md",
 }
 
