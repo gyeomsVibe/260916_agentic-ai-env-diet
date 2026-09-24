@@ -115,7 +115,7 @@
 | 전체 회귀 | `python -m unittest discover -s tests -t .` | 663개(세션 시작 592 + 이번 71) 중 실패 1(B75), 건너뜀 5 |
 | 비유 재현 | `python .coord/runs/U31/metaphor_probe.py` | P1~P5 모두 NOT_REPRODUCED |
 | 오염 | 회귀 전후 `.coord/stream` 해시·`.coord/usage` | 불변·미생성 |
-| Windows 회귀 | `python .coord/runs/run_regression.py` | **미실행(UNKNOWN)** — Codex 재검토 1순위 |
+| Windows 회귀(2026-09-25 Codex 재검토) | `python .coord/runs/run_regression.py` | 최초 663개 중 오류 1·실패 1(exit 1); U35-W1/W2 수정 후 **663개 OK(exit 0, 94.423초)**. 로그 `.work/logs/regression-20260925T054056.log` |
 
 ---
 
@@ -170,6 +170,12 @@ python -m v7_harness.cli pilot run --task U35-A1 --source . --work-dir .work/pil
 # 판정은 Codex: summary.json 확인 → Linux에서도 인수 재실행 → --approve <bundle_id>
 ```
 
+### Windows 실행 결과(2026-09-25)
+
+- `U35-O2`의 원래 입력 SHA-256은 Git LF blob `d94f61af…`이며 Windows 체크아웃(`core.autocrlf=true`)의 실제 SHA-256은 `07c08ff8…`였다. 원래 매뉴얼은 `INPUT_HASH_MISMATCH`로 거부됐다. 허용 파일·인수·판정자를 바꾸지 않고 Windows 바이트만 고정한 `U35-O2-ollama-docs24-windows-manual.md`를 사전 발행해 lint 오류 0을 확인했다.
+- Ollama 로컬 파일럿 `U35-O2`는 3,955 입력/56 출력 로컬 토큰으로 한 줄만 바꿨다. Codex가 격리본 diff와 169줄 인수를 직접 검사했고 번들 `49fea0dd…f1508b`를 `APPLIED`했다. 유료 API 토큰 0은 로컬 계산 비용 0이나 계정 절감 실측을 뜻하지 않는다.
+- Windows 회귀의 두 결함은 서로 다른 고정 인수로 진단했다. U35-W1은 출석 시각 변환을 UTC epoch+timedelta로 바꿨고, U35-W2는 테스트가 임시 파일의 실제 바이트 해시를 제거하도록 고쳤다. 둘 다 결정적 `--worker apply`(모델 토큰 0)·독립 diff·단독 인수 통과 후 반영했다. 전체 663개 회귀도 통과했다. O2 Windows 매뉴얼은 PR에, W1/W2 원본 매뉴얼과 실행 로그는 로컬 `.work/`에 보존한다. `.coord/usage/runs.jsonl` 원시는 커밋하지 않는다.
+
 ---
 
 ## 6. 사용자 승인이 필요한 활성화 (적용하지 않고 준비만 함)
@@ -184,7 +190,7 @@ python -m v7_harness.cli pilot run --task U35-A1 --source . --work-dir .work/pil
 
 ## 7. 남은 위험과 다음 행동
 
-- **Windows 미검증**: 모든 결과는 Linux 기준이다. Windows에서 `python .coord/runs/run_regression.py`를 먼저 실행해야 한다.
+- **Windows 재검증 완료, 환경별 잔여 위험**: Codex가 Windows 전체 회귀 663개를 통과시켰다(§3·§5). 이는 이 체크아웃의 결과이며 POSIX B75와 24/7 상주 동작까지 증명하지 않는다.
 - **B75**: 소켓 위치는 고쳤지만 강제 종료 뒤 재기동 실패(EADDRINUSE)는 남았다. U35-A1로 발행했다.
 - **B78**: 승인 실행이 장부에 남지 않는다.
 - **효과 측정**: 계정 한도 절감은 여전히 `UNMEASURED`다. 측정 방법은 docs/37 §7에 있다(장부의 worker 분포, 받아쓰기 비율, 재작업률, 승격률, 10표본마다 검토).
