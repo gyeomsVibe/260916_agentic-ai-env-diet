@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -292,10 +293,14 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         summary["cascade_from"] = {"task_id": task_id, "verdict_hint": first.get("verdict_hint"),
                                    "error_class": first.get("error_class"), "escalated_to": escalate_to}
 
-    # 기록은 명시적으로 켠 실행에서만 남긴다. 기본을 "남김"으로 두었더니 임시 폴더에서
-    # CLI 를 호출하는 테스트가 이 프로젝트의 스트림에 사건 8건을 흘렸다(실측).
-    if getattr(args, "coord_log", False):
-        record_pilot_in_stream(Path(getattr(args, "coord_project", ".")), summary)
+    # U33: 보고는 기억이 아니라 실행 끝에서 저절로 남는다(비둘기 퇴출). 기록 대상은 --source 프로젝트이고,
+    # .coord/PLAN.md 가 있는 UAOS 프로젝트일 때만 쓴다. 예전에 기본을 켰을 때 CLI 를 부르는 테스트가 실제
+    # 스트림에 사건 8건을 흘렸다. 테스트 패키지는 UAOS_STREAM_AUTOLOG=0 으로 끈다(tests/__init__.py).
+    if getattr(args, "coord_log", False) and os.environ.get("UAOS_STREAM_AUTOLOG", "1") != "0":
+        coord_project = Path(getattr(args, "coord_project", None) or source_dir)
+        actor = getattr(args, "coord_actor", None) or detect_actor()
+        if (coord_project / ".coord" / "PLAN.md").is_file() and actor:
+            record_pilot_in_stream(coord_project, summary, actor=actor, task=summary.get("task_id") or task_id)
 
     if routed is not None:
         summary["routed_by"] = routed
@@ -407,8 +412,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_run.add_argument("--worker", choices=["agy", "local", "lane", "cascade", "auto"], default="agy", help="agy = remote worker (uses account quota); local = this machine's Ollama model, one-shot; lane = Claude Code tool loop on the local model")
     # cascade 승격 대상 작업자(lane의 e2e 실패 빈발로 기본값은 agy)
     p_pilot_run.add_argument("--escalate-to", choices=["agy", "lane"], default="agy", help="Worker for cascade second stage when local gets REWORK (default: agy)")
-    p_pilot_run.add_argument("--coord-log", action="store_true", default=False, help="Record this run in the coordination stream (.coord/stream)")
-    p_pilot_run.add_argument("--coord-project", default=".", help="Project whose coordination stream records this run (default: .)")
+    p_pilot_run.add_argument("--coord-log", dest="coord_log", action="store_true", default=True,
+                             help="Record this run in the coordination stream (.coord/stream); on by default")
+    p_pilot_run.add_argument("--no-coord-log", dest="coord_log", action="store_false",
+                             help="Do not record this run in the coordination stream")
+    p_pilot_run.add_argument("--coord-project", default=None,
+                             help="Project whose coordination stream records this run (default: the --source project)")
+    p_pilot_run.add_argument("--coord-actor", choices=["codex", "claude", "antigravity"], default=None,
+                             help="Who ran this pilot (default: detected from the calling tool's environment)")
     p_pilot_run.add_argument("--model", default=None, help="Model name to pass to agy (e.g. gemini-3.7-flash)")
     p_pilot_run.add_argument("--accept-cmd", default=None, help="Acceptance test command to run in staging")
     p_pilot_run.add_argument("--allow-no-changes", action="store_true", default=False, help="Allow PASS verdict even when no files were changed (for read-only tasks)")
@@ -510,7 +521,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def record_pilot_in_stream(project: Path, summary: dict) -> Optional[str]:
+def detect_actor() -> Optional[str]:
+    """Which of the three tools is running this command, from its shell environment. None for a plain terminal."""
+    from .olla import _caller
+
+    caller = _caller()
+    return caller if caller in ("codex", "claude", "antigravity") else None
+
+
+def record_pilot_in_stream(project: Path, summary: dict, *, actor: str = "claude", task: Optional[str] = None) -> Optional[str]:
     """파일럿 결과를 조율 스트림에 한 줄로 남긴다.
 
     사람이 기억해서 적으면 빠뜨린다. 실행이 끝나는 자리에서 바로 남겨야 지휘자가
@@ -520,7 +539,8 @@ def record_pilot_in_stream(project: Path, summary: dict) -> Optional[str]:
 
     verdict = str(summary.get("verdict_hint") or "UNKNOWN")
     state = str(summary.get("state") or "UNKNOWN")
-    task = str(summary.get("task_id") or "pilot")
+    # run_pilot's summary has no task_id on a normal run, so every event used to read "pilot".
+    task = str(task or summary.get("task_id") or "pilot")
     changed = summary.get("changed_files") or []
     bundle = summary.get("bundle_id") or ""
     promotion = summary.get("promotion") or ""
@@ -535,11 +555,21 @@ def record_pilot_in_stream(project: Path, summary: dict) -> Optional[str]:
     evidence = {"cmd": f"pilot run --task {task}", "exit": 0 if state == "SUCCEEDED" else 1}
     if bundle:
         evidence["bundle"] = bundle
-    refs = [str(summary["summary_path"]).replace("\\", "/")] if summary.get("summary_path") else []
+    refs = []
+    if summary.get("summary_path"):
+        # The stream refuses absolute refs, which silently dropped the whole event when --work-dir was absolute.
+        ref = Path(str(summary["summary_path"]).replace("\\", "/"))
+        if ref.is_absolute():
+            try:
+                ref = ref.resolve().relative_to(Path(project).resolve())
+            except ValueError:
+                ref = None
+        if ref is not None:
+            refs = [ref.as_posix()]
     try:
         event = append_event(
             project,
-            actor="claude",
+            actor=actor,
             kind=kind,
             step=task,
             summary=summary_line[:200],
