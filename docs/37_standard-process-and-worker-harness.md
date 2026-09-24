@@ -217,7 +217,9 @@ python -m v7_harness.cli coord ack --id <message_id>
 5. 계산기 관문을 켠다: `python -m v7_harness.calculator_gate --install` (클론마다 1회).
 6. 24/7 교환원(승인 뒤, Windows): `schtasks /Create /SC ONLOGON /TN "UAOS Sentinel" /TR "python -m v7_harness.cli coord sentinel --project <경로> --loop --interval 30 --write-brief --ring"`.
    이 명령은 **시스템 설정 변경이라 사용자 승인 대상**이며 이 문서 작성 환경(Linux)에서는 실행하지 않았다(UNKNOWN).
-7. 출석부 훅(승인 뒤): `tool-configs/claude/settings.uaos-proposed.json`을 참고해 각 도구 설정에 넣는다. 승인 전에는 세션 시작 시 `coord presence`를 직접 실행한다.
+7. 출석부 훅(승인 뒤): Linux용 `tool-configs/claude/settings.uaos-proposed.json`은 Windows PowerShell에서 그대로 실행하지 않는다. Windows에서는 `tool-configs/claude/settings.uaos-windows-proposed.json`의 `shell: powershell`과 `$env:CLAUDE_PROJECT_DIR` 형식을 검토·시험한 뒤 이 프로젝트의 `.claude/settings.json`에만 적용한다. 두 파일 모두 **제안안이며 아직 비활성**이다. 승인 전에는 세션 시작 시 `coord presence`를 직접 실행한다. [Claude 공식 Windows 훅 안내](https://code.claude.com/docs/en/hooks)와 실제 설정 우선순위를 확인한다.
+
+Windows 제안 훅의 `SessionStart` 명령은 격리된 `.work/b77_hook_probe`에서 실행해 `exit 0`, 출석 상태 `ACTIVE`를 확인했다. 이는 명령 자체의 동작 확인이며 Claude Code가 설정을 로드해 실제 이벤트에서 호출했다는 증거는 아니다. 예약 도구 `deny`, 세션 종료 훅, Windows 예약 작업의 실제 효력도 활성화 전 `UNVERIFIED`다.
 
 ---
 

@@ -1,0 +1,46 @@
+{
+  "_status": "PROPOSED ONLY. Do not copy to .claude/settings.json before B77 approval and a live hook check.",
+  "permissions": {
+    "deny": [
+      "CronCreate",
+      "ScheduleWakeup",
+      "mcp__Claude_Code_Remote__create_trigger",
+      "mcp__Claude_Code_Remote__send_later"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "Set-Location -LiteralPath $env:CLAUDE_PROJECT_DIR; python -m v7_harness.cli coord presence --tool claude --state ACTIVE --ttl 3600"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "Set-Location -LiteralPath $env:CLAUDE_PROJECT_DIR; python -m v7_harness.cli coord presence --tool claude --state ACTIVE --ttl 3600"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "Set-Location -LiteralPath $env:CLAUDE_PROJECT_DIR; python -m v7_harness.cli coord presence --tool claude --state ABSENT --ttl 86400"
+          }
+        ]
+      }
+    ]
+  }
+}
