@@ -23,3 +23,9 @@ Written by Claude (deputy) for Codex. Ordered by risk. Everything below was chan
 20. **U26 증거 관문형 RSI 운영 정본화 (DONE)** — `docs/31_evidence-gated-rsi-for-uaos.md` 제정, `.coord/usage/runs.jsonl` 장부 개시, 4도구 권한 경계 및 동일 작업 ID 사용량 필드 연결 검증 통과 — `.coord/tasks/U26-rsi-research-and-policy.md`
 21. **U27 최종 재검토 (DONE, Codex 2026-09-25)** — 초기 완료 판정에서 잠금·스키마·자동기록 반례를 발견해 `60246863…`, `e25fb43d…`, `c7fb6e25…`로 수리. Windows 다중 프로세스·잠금 timeout·실제 v2 append와 전체 580 OK 확인 — `.coord/tasks/U27-usage-ledger-automation.md`
 22. **올라마 RSI·Windows 호환성 (DONE, 비용 주장 정정)** — `FIX_OLLA_SQUEEZE_WIN5`는 유지하되 이후 Antigravity 원격 토큰 사용이 확인되어 유료 0원·100% 절감 주장은 철회. 실제 계정 절감은 `UNMEASURED` — `docs/32_ollama_process_improvement_manual.md`
+23. **B65 Antigravity 훅 및 턴 분석 완성** — `v7_harness/olla.py`에 Antigravity 트랜스크립트 파싱 추가, `~/.gemini/config/hooks.json` 등록, 단위 61/61 OK, 커밋 `a062e54`
+24. **P08 `coord status` CLI 명령 구현** — 로컬 Ollama 7b 파일럿으로 구현, 번들 `9f4da7542ebe` APPLIED (유료 0토큰), 커밋 `2508e73`
+25. **P09 CSV 정렬 유틸리티 구현** — 로컬 Ollama 7b 파일럿으로 `src/util.py` 구현, 번들 `2e3927305284` APPLIED (유료 0토큰)
+26. **P08 회귀 수리 (`cmd_coord_log` & `p_coord_log` 복구)** — P08에서 로컬 모델이 덮어써 삭제된 `coord log` 파서 복구, 592/592 전체 회귀 OK, 커밋 `2e0453f` `origin/main` 푸시 완료 (사용자 승인)
+27. **UNMEASURED 20건 전수 인벤토리 및 실측 세팅** — 3축 분류 완료(M1 로컬 성공률 / M2 토큰 집계 / M3 MCP 사용률 / 영구 선언)
+
