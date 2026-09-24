@@ -234,9 +234,11 @@ class ManualLintTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = _project(d)
             text = _manual(root)
+            source_sha = _sha(root / "pkg" / "config.py")
             (root / "pkg" / "config.py").write_text("TIMEOUT = 31\n", encoding="utf-8")
             self.assertIn("INPUT_HASH_MISMATCH:pkg/config.py", lint(text, root).errors)
-            unpinned = text.replace(f" sha256={hashlib.sha256(b'TIMEOUT = 30' + bytes([10])).hexdigest()}", "")
+            unpinned = text.replace(f" sha256={source_sha}", "")
+            self.assertNotEqual(text, unpinned)
             self.assertIn("INPUT_UNPINNED:pkg/config.py (add sha256=<hex>)", lint(unpinned, root).errors)
             self.assertIn("INPUT_MISSING:pkg/nope.py", lint(text.replace("- pkg/config.py sha", "- pkg/nope.py sha"), root).errors)
 

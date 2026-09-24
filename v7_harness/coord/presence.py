@@ -11,7 +11,7 @@ import json
 import os
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +42,7 @@ def mark(project: Path, tool: str, state: str, *, ttl_s: int = DEFAULT_TTL_S, no
     record = {
         "tool": tool,
         "state": state,
-        "observed_at": datetime.fromtimestamp(moment).astimezone().isoformat(timespec="seconds"),
+        "observed_at": (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=moment)).isoformat(timespec="seconds"),
         "expires_at": moment + ttl_s,
     }
     tmp = target.with_name(f".{tool}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
