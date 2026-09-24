@@ -163,7 +163,8 @@ class U20AcceptTriageTests(unittest.TestCase):
     def test_cant_open_file_absolute_outside_staging_is_infra(self):
         with tempfile.TemporaryDirectory() as d:
             staging = Path(d)
-            out = "python: can't open file 'C:/some/external/tool.py': [Errno 2] No such file or directory\n"
+            external = "C:/some/external/tool.py" if os.name == "nt" else "/some/external/tool.py"
+            out = f"python: can't open file '{external}': [Errno 2] No such file or directory\n"
             self.assertEqual("INFRA", classify(out, 2, staging=staging)[0])
 
     def test_cant_open_file_without_staging_uses_changed_files(self):

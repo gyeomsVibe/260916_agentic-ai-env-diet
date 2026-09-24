@@ -248,6 +248,23 @@ HEAVY_REINCLUDE_SUBDIRS = frozenset(
 PROTECTED_WATCH_FILES = DEFAULT_WATCH_REINCLUDES
 
 
+def _case_insensitive_existing(root: Path, rel_path: str) -> list[Path]:
+    """On-disk paths matching rel_path per component ignoring case (reinclude entries are lower-case,
+    so `root / entry` misses `.claude/CLAUDE.md` on case-sensitive filesystems)."""
+    current = [root]
+    for part in rel_path.split("/"):
+        folded = part.casefold()
+        found: list[Path] = []
+        for base in current:
+            try:
+                names = os.listdir(base)
+            except OSError:
+                continue
+            found.extend(base / name for name in sorted(names) if name.casefold() == folded)
+        current = found
+    return current
+
+
 def is_protected_watch_path(rel_path: str) -> bool:
     """Return True if rel_path matches a re-include entry or is under one, excluding heavy subdirs."""
     parts = [p.casefold() for p in rel_path.replace("\\", "/").strip("/").split("/") if p]
@@ -458,35 +475,35 @@ def _scan_watch_root(
 
             # B28: Inspect protected configuration files even if watch root is shallow
             for protected in sorted(DEFAULT_WATCH_REINCLUDES):
-                target = root / protected
-                target_rel = str(target.relative_to(root)).replace("\\", "/")
-                if target_rel in result:
-                    continue
-                if target.is_file():
-                    record(target)
-                elif target.is_dir():
-                    try:
-                        for curr, dirs, files in os.walk(target):
-                            current_path = Path(curr)
-                            surviving_dirs: list[str] = []
-                            for d in dirs:
-                                candidate = current_path / d
-                                cand_rel = str(candidate.relative_to(root)).replace("\\", "/")
-                                if is_reinclude_noise_path(cand_rel):
-                                    continue
-                                if is_symlink_or_reparse(candidate):
-                                    raise WatchScanUnavailableError(
-                                        f"WATCH_SCAN_UNAVAILABLE: reparse or junction directory {candidate}"
-                                    )
-                                surviving_dirs.append(d)
-                            dirs[:] = surviving_dirs
-                            for f in files:
-                                sub_path = current_path / f
-                                sub_rel = str(sub_path.relative_to(root)).replace("\\", "/")
-                                if sub_rel not in result:
-                                    record(sub_path)
-                    except OSError:
-                        pass
+                for target in _case_insensitive_existing(root, protected):
+                    target_rel = str(target.relative_to(root)).replace("\\", "/")
+                    if target_rel in result:
+                        continue
+                    if target.is_file():
+                        record(target)
+                    elif target.is_dir():
+                        try:
+                            for curr, dirs, files in os.walk(target):
+                                current_path = Path(curr)
+                                surviving_dirs: list[str] = []
+                                for d in dirs:
+                                    candidate = current_path / d
+                                    cand_rel = str(candidate.relative_to(root)).replace("\\", "/")
+                                    if is_reinclude_noise_path(cand_rel):
+                                        continue
+                                    if is_symlink_or_reparse(candidate):
+                                        raise WatchScanUnavailableError(
+                                            f"WATCH_SCAN_UNAVAILABLE: reparse or junction directory {candidate}"
+                                        )
+                                    surviving_dirs.append(d)
+                                dirs[:] = surviving_dirs
+                                for f in files:
+                                    sub_path = current_path / f
+                                    sub_rel = str(sub_path.relative_to(root)).replace("\\", "/")
+                                    if sub_rel not in result:
+                                        record(sub_path)
+                        except OSError:
+                            pass
         except OSError as exc:
             raise WatchScanUnavailableError(f"WATCH_SCAN_UNAVAILABLE: enumerate {root}: {exc}") from exc
         finally:
