@@ -66,12 +66,12 @@ USAGE_LOG = Path(os.environ.get("OLLA_USAGE", Path.home() / ".cache" / "olla" / 
 
 def _caller() -> str:
     names = os.environ.keys()
+    if any(n.upper().startswith(("ANTIGRAVITY", "GEMINI_CLI")) for n in names):
+        return "antigravity"
     if "CLAUDECODE" in names:
         return "claude"
     if any(n.upper().startswith("CODEX_") for n in names):
         return "codex"
-    if any(n.upper().startswith(("ANTIGRAVITY", "GEMINI_CLI")) for n in names):
-        return "antigravity"
     return "unknown"
 
 
@@ -80,8 +80,9 @@ def log_usage(event: str, **fields) -> None:
     from v7_harness.coord.stream import _exclusive
 
     # 세션별로 "올라마를 제대로 썼나"를 재려면 세션 번호가 필요하다(Biz항해 세션 분석은 기록을 시간으로만 가를 수 있었다).
-    session = os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("CODEX_SESSION_ID") or ""
-    record = {"ts": datetime.now().isoformat(timespec="seconds"), "event": event, "caller": _caller(),
+    session = fields.pop("session", None) or os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("CODEX_SESSION_ID") or ""
+    caller = fields.pop("caller", None) or _caller()
+    record = {"ts": datetime.now().isoformat(timespec="seconds"), "event": event, "caller": caller,
               **({"session": session} if session else {}), **fields}
     try:
         USAGE_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -691,7 +692,7 @@ PLAN_HINT = (
 
 
 def turn_shape(transcript: Path) -> dict | None:
-    """마지막 사용자 지시 이후 어시스턴트 글 덩어리 수와 최종 보고 길이. Claude·Codex 기록 형식 모두."""
+    """마지막 사용자 지시 이후 어시스턴트 글 덩어리 수와 최종 보고 길이. Claude·Codex·Antigravity 기록 형식 모두."""
     texts: list[str] | None = None
     for line in transcript.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
@@ -699,11 +700,14 @@ def turn_shape(transcript: Path) -> dict | None:
         except ValueError:
             continue
         kind, message, payload = row.get("type"), row.get("message") or {}, row.get("payload") or {}
+        source = row.get("source")
         content = message.get("content")
         if kind == "user" and not row.get("isMeta"):
             if isinstance(content, str) or (isinstance(content, list) and not any(
                     isinstance(b, dict) and b.get("type") == "tool_result" for b in content)):
                 texts = []
+        elif kind == "USER_INPUT" or source == "USER_EXPLICIT":
+            texts = []
         elif kind == "event_msg" and payload.get("type") == "task_started":
             texts = []
         elif texts is not None and kind == "assistant" and isinstance(content, list):
@@ -712,6 +716,10 @@ def turn_shape(transcript: Path) -> dict | None:
             text = "".join(c.get("text", "") for c in payload.get("content", []) if isinstance(c, dict))
             if text.strip():
                 texts.append(text)
+        elif texts is not None and kind == "PLANNER_RESPONSE" and source == "MODEL":
+            c = row.get("content")
+            if isinstance(c, str) and c.strip():
+                texts.append(c)
     if not texts:
         return None
     final = [l for l in texts[-1].splitlines() if l.strip()]
@@ -1166,7 +1174,7 @@ def agy_hook(event_name: str, event: dict) -> dict | None:
     if event_name == "PreInvocation":
         if event.get("invocationNum", 0) != 0 or not _server_up():
             return None
-        log_usage("hint_plan")
+        log_usage("hint_plan", caller="antigravity", session=str(event.get("conversationId") or ""))
         return {"injectSteps": [{"ephemeralMessage": PLAN_HINT + session_scorecard(str(event.get("conversationId") or ""))}]}
     if event_name == "PreToolUse":
         call = event.get("toolCall") or {}
@@ -1190,7 +1198,7 @@ def agy_hook(event_name: str, event: dict) -> dict | None:
         shape = turn_shape(path) if path.is_file() else None
         if not shape:
             return None
-        log_usage("turn_shape", **shape)  # Claude 와 같다: 되돌리면 보고가 두 번 보인다. 다음 지시에서 되비춘다
+        log_usage("turn_shape", caller="antigravity", session=str(event.get("conversationId") or ""), **shape)  # Claude 와 같다: 되돌리면 보고가 두 번 보인다. 다음 지시에서 되비춘다
     return None
 
 

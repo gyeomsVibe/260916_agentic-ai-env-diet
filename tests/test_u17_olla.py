@@ -787,6 +787,22 @@ class OllaAntigravityHookTests(unittest.TestCase):
                 self.assertIsNone(olla.agy_hook("Stop", {"transcriptPath": str(path), "executionNum": 0}))
                 self.assertIn('"final_lines": 9', (Path(tmp) / "u.jsonl").read_text(encoding="utf-8"))
 
+    def test_stop_records_antigravity_native_format(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "transcript.jsonl"
+            path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in (
+                {"step_index": 0, "source": "USER_EXPLICIT", "type": "USER_INPUT", "content": "과제 해줘"},
+                {"step_index": 1, "source": "MODEL", "type": "PLANNER_RESPONSE", "thinking": "생각 중", "content": "중간 설명"},
+                {"step_index": 2, "source": "MODEL", "type": "PLANNER_RESPONSE", "thinking": "생각 완료",
+                 "content": "**결과**: 완료\n- 과정: A -> B\n- 근거: 테스트 통과"})), encoding="utf-8")
+            with mock.patch.object(olla, "USAGE_LOG", Path(tmp) / "u.jsonl"):
+                self.assertIsNone(olla.agy_hook("Stop", {"transcriptPath": str(path), "conversationId": "conv1", "executionNum": 0}))
+                log_content = (Path(tmp) / "u.jsonl").read_text(encoding="utf-8")
+                self.assertIn('"caller": "antigravity"', log_content)
+                self.assertIn('"session": "conv1"', log_content)
+                self.assertIn('"narration_blocks": 1', log_content)
+                self.assertIn('"final_lines": 3', log_content)
+
 
 class OllaFindTests(unittest.TestCase):
     def test_ranks_files_by_similarity(self) -> None:
