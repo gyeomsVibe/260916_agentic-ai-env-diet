@@ -24,6 +24,28 @@ class TestCLI(unittest.TestCase):
         ret = main(["coord", "status", "--project", str(self.root)])
         self.assertEqual(ret, 0)
 
+    def test_cli_coord_status_counts_real_stream_and_mailbox_layout(self):
+        import contextlib
+        import io
+
+        from v7_harness.coord.mailbox import Mailbox
+        from v7_harness.coord.stream import append_event
+
+        for step in ("S1", "S2"):
+            append_event(self.root, actor="claude", kind="NOTE", step=step, summary="status probe")
+        mailbox_root = self.root / ".coord" / "mailbox"
+        mailbox_root.mkdir(parents=True)
+        Mailbox(mailbox_root).publish("m1", {"hello": "world"})
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            ret = main(["coord", "status", "--project", str(self.root)])
+        self.assertEqual(ret, 0)
+        status = json.loads(out.getvalue())
+        self.assertEqual(status["stream_events"], 2)
+        self.assertEqual(status["mailbox_pending"], 1)
+        self.assertEqual(status["lock"], "CLEAN")
+
     def test_cli_ledger_append_and_verify(self):
         ledger_path = self.root / "ledger.jsonl"
         ret1 = main([

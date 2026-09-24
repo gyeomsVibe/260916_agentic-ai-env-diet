@@ -586,8 +586,13 @@ def cmd_coord_status(args: argparse.Namespace) -> int:
     mailbox_dir = project / ".coord" / "mailbox" / "inbox"
     mailbox_count = len(list(mailbox_dir.glob("*.json"))) if mailbox_dir.is_dir() else 0
 
-    stream_file = project / ".coord" / "stream" / "events.jsonl"
-    stream_count = len(stream_file.read_text(encoding="utf-8").splitlines()) if stream_file.is_file() else 0
+    from .coord.stream import StreamRejected, read_events
+
+    try:
+        stream_count = len(read_events(project))
+    except StreamRejected as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        return 1
 
     usage_file = project / ".coord" / "usage" / "runs.jsonl"
     usage_count = len(usage_file.read_text(encoding="utf-8").splitlines()) if usage_file.is_file() else 0
