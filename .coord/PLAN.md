@@ -128,7 +128,7 @@
 - 2026-09-17 21:3x: Codex 사용량 한도(재설정 09-18 00:15) 중 사용자 지시로 M4를 대행 진행했다. M4는 REVIEW이며 Codex 복귀 시 `docs/claude-assist/14`를 읽고 판정·A 측정·P04 재측정을 수행한다.
 
 - 2026-09-25 도구 상태 전환: 사용자 지시("코덱스가 부재중이다. 코덱스의 프로세스가 멈춘 시점부터 권한대행으로서 코덱스의 프로세스를 마무리해라")에 따라 Antigravity가 총괄 권한대행(ACTING_COMMANDER_PROXY)으로 복귀하여 U30 및 남은 프로세스를 마무리함.
-- 도구 상태(형식 고정, docs/20 A4 — 시각이 지나면 UNKNOWN으로 보고 첫 판정 전에 응답을 확인한다): `codex: ABSENT(USER_DECLARED_2026-09-25T02:20), observed_by=user_and_antigravity, observed_at=2026-09-25T02:20:59+09:00` / `claude_code: ABSENT(QUOTA/STOPPED), observed_by=antigravity, observed_at=2026-09-24` / `antigravity: ACTIVE(ACTING_COMMANDER_PROXY), observed_by=user_and_antigravity, observed_at=2026-09-25T02:20:59+09:00`
+- 도구 상태(형식 고정, docs/20 A4 — 시각이 지나면 UNKNOWN으로 보고 첫 판정 전에 응답을 확인한다): `codex: ACTIVE(USER_DECLARED_2026-09-25T05:44), observed_by=user_and_antigravity, observed_at=2026-09-25T05:44:35+09:00` / `claude_code: CLOUD_ACTIVE_LOCAL_QUOTA_LIMITED, observed_by=user_and_antigravity, observed_at=2026-09-25T05:25:00+09:00` / `antigravity: ACTIVE(DEPUTY_SUPPORT), observed_by=user_and_antigravity, observed_at=2026-09-25T05:44:35+09:00`
 
 ## Codex 복귀 재검토 목록 (2026-09-22 작성, 9/24 전후 복귀 예정)
 
