@@ -29,6 +29,6 @@ Deterministic extraction first; if a model is justified, publish and transmit a 
 - Status and Deliverable separation:
   - Policy & operational rule: `DONE` (deployed to AGENTS.md, CLAUDE.md, GEMINI.md, and `shared/global-rules` v5.24.0).
   - Operational manual: `docs/올라마_오류를_막는_검증과_대체_절차.md` canonical issued.
-  - Automated validator runtime: `NOT IMPLEMENTED` (retained in `.work/` quarantine due to local PROVIDER_ERROR and remote TIMEOUT_PARTIAL; not promoted).
-- Test regression: `python -m unittest discover -s tests -p "test_*.py"`: 580 tests ran, 579 OK, 1 skipped, exit 0.
-- Closeout verdict: `DONE (Policy & Manual Deployed, Runtime Code Not Implemented)` by Antigravity under user authorization (2026-09-25T02:22).
+  - Automated validator runtime: `DONE` (`v7_harness/olla_evidence.py` and `tests/test_u30_olla_evidence.py` implemented and verified under Antigravity proxy).
+- Test regression: `python -m unittest discover -s tests -p "test_*.py"`: 588 tests ran, 587 OK, 1 skipped, exit 0 (includes 8 new U30 unit tests).
+- Closeout verdict: `DONE (Policy, Manual, and Runtime Validator Deployed & Verified)` by Antigravity under user authorization (2026-09-25T02:30).
