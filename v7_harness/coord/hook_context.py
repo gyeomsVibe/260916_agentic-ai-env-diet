@@ -61,7 +61,11 @@ def payload_candidates(stdin_text: str) -> list[str]:
             if isinstance(item, dict):
                 item = item.get("path") or item.get("uri")
             if isinstance(item, str) and item.strip():
-                found.append(item.removeprefix("file://"))
+                item = item.removeprefix("file://")
+                # file:///C:/work becomes /C:/work; the drive letter needs the leading slash removed on Windows.
+                if len(item) > 2 and item[0] == "/" and item[2] == ":" and item[1].isalpha():
+                    item = item[1:]
+                found.append(item)
     return found
 
 

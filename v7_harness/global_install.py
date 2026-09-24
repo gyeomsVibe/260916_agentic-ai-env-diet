@@ -88,7 +88,8 @@ def presence_command(python: str, launcher: Path, tool: str, state: str, ttl: in
 def launcher_text(repo: Path) -> str:
     return (
         '"""UAOS launcher written by install_uaos_everywhere.py: runs the UAOS harness (v7_harness) from any folder.\n\n'
-        f"Source repository: {repo}\n"
+        # A Windows path in a docstring is read as escapes (C:\\Users → \\U…), so the comment shows it with slashes.
+        f"Source repository: {repo.as_posix()}\n"
         'Moved the repository? Run the installer again from its new place.\n"""\n'
         "import sys\n\n"
         f"sys.path.insert(0, {str(repo)!r})\n"

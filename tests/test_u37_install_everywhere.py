@@ -86,7 +86,8 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("--say none", settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"])
         rules = (self.home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
         self.assertTrue(rules.startswith("# My rules\n- keep this\n\n<!-- UAOS:BEGIN"))
-        self.assertIn(str(self.home / ".uaos" / "uaos.py"), rules)
+        # Hook and rule commands write paths with forward slashes on every OS (bash, cmd and PowerShell all run them).
+        self.assertIn((self.home / ".uaos" / "uaos.py").as_posix(), rules)
         self.assertNotIn("{uaos}", rules)
         toml = (self.home / ".codex" / "config.toml").read_text(encoding="utf-8")
         self.assertIn("[features]\ncodex_hooks = true\nweb = true", toml)
@@ -171,6 +172,15 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("PowerShell", details["codex hooks"])
         self.assertIn("PowerShell", details["antigravity hooks"])
 
+    def test_launcher_compiles_for_a_windows_repository_path(self) -> None:
+        # Codex U37-W1 on Windows: "C:\\Users\\..." in the launcher docstring raised a unicodeescape SyntaxError.
+        from pathlib import PureWindowsPath
+
+        repo = PureWindowsPath(r"C:\Users\Kim\uaos repo\260916_agentic-ai-env-diet")
+        text = gi.launcher_text(repo)
+        compile(text, "uaos.py", "exec")
+        self.assertIn(repr(str(repo)), text)
+
     def test_extra_rules_file_for_the_canon(self) -> None:
         canon = Path(self.temp.name) / "canon" / "claude.md"
         canon.parent.mkdir()
@@ -242,6 +252,7 @@ class HookContextTests(unittest.TestCase):
         self.assertEqual(["/a"], payload_candidates('{"cwd": "/a", "session_id": "x"}'))
         self.assertEqual(["/w1", "/w2"], payload_candidates('{"workspacePaths": ["/w1", "/w2"]}'))
         self.assertEqual(["/w"], payload_candidates('{"workspaceRoots": [{"uri": "file:///w"}]}'))
+        self.assertEqual(["C:/work"], payload_candidates('{"workspaceRoots": [{"uri": "file:///C:/work"}]}'))
         self.assertEqual([], payload_candidates("not json"))
         self.assertEqual([], payload_candidates(""))
 

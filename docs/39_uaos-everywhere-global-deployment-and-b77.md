@@ -7,7 +7,7 @@
   - `uaos_everywhere/install_uaos_everywhere.py`: 실행 진입점.
   - `uaos_everywhere/uaos_global_rule_block.md`: 전역 규칙에 넣을 문단.
   - `v7_harness/coord/hook_context.py`: 훅이 어느 프로젝트에서 불렸는지 찾는 모듈.
-  - `tests/test_u37_install_everywhere.py`: 테스트 19개.
+  - `tests/test_u37_install_everywhere.py`: 테스트 20개.
 
 ---
 
@@ -147,9 +147,9 @@ python uaos_everywhere/install_uaos_everywhere.py --apply --uninstall --unregist
 
 | 항목 | 결과 |
 |---|---|
-| 테스트 | `python -m unittest tests.test_u37_install_everywhere` → 19 OK. 확인한 것: 미리보기 무변경, 설치 후 check 0, 재설치 무변경, 생성기가 지운 문단의 drift 감지, 제거 후 원본 복원, 사용자가 원래 막아 둔 차단 유지, 깨진 JSON·수동 `false` 보존, 없는 도구 건너뜀, 정본 파일 추가, 실행기로 다른 프로젝트의 하위 폴더에서 출석 기록, 작업 스케줄러 명령·261자 한도·거부 시 안내, 훅 정보 해석, 훅 실패 시 종료 코드 0, `coord init` 무덮어쓰기, 교환원 중복 실행 방지, 로그 회전 |
+| 테스트 | `python -m unittest tests.test_u37_install_everywhere` → 20 OK. 확인한 것: 미리보기 무변경, 설치 후 check 0, 재설치 무변경, 생성기가 지운 문단의 drift 감지, 제거 후 원본 복원, 사용자가 원래 막아 둔 차단 유지, 깨진 JSON·수동 `false` 보존, 없는 도구 건너뜀, 정본 파일 추가, 실행기로 다른 프로젝트의 하위 폴더에서 출석 기록, 작업 스케줄러 명령·261자 한도·거부 시 안내, 훅 정보 해석, 훅 실패 시 종료 코드 0, `coord init` 무덮어쓰기, 교환원 중복 실행 방지, 로그 회전 |
 | 수동 시연 | 가짜 홈 폴더에 미리보기 → 설치 → check(exit 0) → 제거 → 원본과 동일 확인 |
-| Windows 회귀 | U32~U35의 663개는 Codex가 사용자 PC에서 통과시켰다(`83ef179`). U36·U37 테스트 45개는 Windows 미실행 |
+| Windows 회귀 | U32~U35의 663개는 Codex가 사용자 PC에서 통과시켰다(`83ef179`). U37-W1(Codex, `0f6a8fb`): U36 26개 통과, U37 2개 실패. 원인은 실행기 설명문 속 `C:\Users`의 이스케이프 오류(실제 결함)와 테스트의 경로 표기 기대. 둘 다 수정했고 Windows 재실행 대기(메모 73 §7) |
 | Windows 실제 설치 | **미실행(UNKNOWN)**. `schtasks` 동작, 인용부호, pythonw 경로는 Windows에서 처음 확인된다 |
 | Antigravity 규칙 경로 | `~/.gemini/GEMINI.md`는 U30 배포 기록("GEMINI.md")에 근거한 **가정**이다. 다르면 `--rules-file`로 지정한다 |
 | Antigravity 훅 출력 | `{}`를 받아들이는지 UNVERIFIED(공식 문서가 이 컨테이너에서 차단됨) |
