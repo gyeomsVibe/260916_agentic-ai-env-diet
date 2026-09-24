@@ -424,17 +424,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_coord = subparsers.add_parser("coord")
     p_coord_subs = p_coord.add_subparsers(dest="coord_subcommand", required=True)
 
-    p_coord_log = p_coord_subs.add_parser("log")
-    p_coord_log.add_argument("--project", default=".", help="Project root (default: .)")
-    p_coord_log.add_argument("--actor", required=True, choices=["codex", "antigravity", "claude"])
-    p_coord_log.add_argument("--kind", required=True, choices=["PLAN", "RUN", "VERDICT", "BLOCKED", "HANDOFF", "NOTE"])
-    p_coord_log.add_argument("--step", required=True, help="Step or task id (e.g. U15-S4)")
-    p_coord_log.add_argument("--summary", required=True, help="One line, 200 chars max")
-    p_coord_log.add_argument("--ref", action="append", default=[], help="Evidence path (repeatable)")
-    p_coord_log.add_argument("--cmd", default=None, help="Command that produced the evidence")
-    p_coord_log.add_argument("--exit-code", dest="exit_code", type=int, default=None, help="Exit code of that command")
-    p_coord_log.add_argument("--bundle", default=None, help="Bundle id when a promotion is involved")
-    p_coord_log.set_defaults(func=cmd_coord_log)
+    p_coord_status = p_coord_subs.add_parser("status")
+    p_coord_status.add_argument("--project", default=".", help="Project root (default: .)")
+    p_coord_status.set_defaults(func=cmd_coord_status)
 
     p_coord_brief = p_coord_subs.add_parser("brief")
     p_coord_brief.add_argument("--project", default=".", help="Project root (default: .)")
@@ -545,31 +537,29 @@ def resolve_worker_command(worker: str, explicit: Optional[Sequence[str]]) -> li
     return ["agy"]
 
 
-def cmd_coord_log(args: argparse.Namespace) -> int:
-    """U15: 조율 사건 한 줄을 스트림에 남긴다. 세 도구가 같은 입구를 쓴다."""
-    from .coord.stream import StreamRejected, append_event
+def cmd_coord_status(args: argparse.Namespace) -> int:
+    """Report coordinator and harness health status."""
+    project = Path(args.project)
+    lock_file = project / ".work" / "QUIET_LOCK"
+    lock_status = "LOCKED" if lock_file.is_file() else "CLEAN"
 
-    evidence: dict[str, object] = {}
-    if args.cmd:
-        evidence["cmd"] = args.cmd
-    if args.exit_code is not None:
-        evidence["exit"] = args.exit_code
-    if args.bundle:
-        evidence["bundle"] = args.bundle
-    try:
-        event = append_event(
-            Path(args.project),
-            actor=args.actor,
-            kind=args.kind,
-            step=args.step,
-            summary=args.summary,
-            refs=args.ref,
-            evidence=evidence or None,
-        )
-    except StreamRejected as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
-        return 1
-    print(json.dumps({"ok": True, "id": event.id, "ts": event.ts}, ensure_ascii=False))
+    mailbox_dir = project / ".coord" / "mailbox" / "inbox"
+    mailbox_count = len(list(mailbox_dir.glob("*.json"))) if mailbox_dir.is_dir() else 0
+
+    stream_file = project / ".coord" / "stream" / "events.jsonl"
+    stream_count = len(stream_file.read_text(encoding="utf-8").splitlines()) if stream_file.is_file() else 0
+
+    usage_file = project / ".coord" / "usage" / "runs.jsonl"
+    usage_count = len(usage_file.read_text(encoding="utf-8").splitlines()) if usage_file.is_file() else 0
+
+    out = {
+        "ok": True,
+        "lock": lock_status,
+        "mailbox_pending": mailbox_count,
+        "stream_events": stream_count,
+        "ledger_entries": usage_count,
+    }
+    print(json.dumps(out, ensure_ascii=False))
     return 0
 
 

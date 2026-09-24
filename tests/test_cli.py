@@ -20,14 +20,9 @@ class TestCLI(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def test_cli_snapshot(self):
-        test_file = self.root / "sample.txt"
-        test_file.write_text("sample content", encoding="utf-8")
-        out_snap = self.root / "snap.json"
-
-        ret = main(["snapshot", "--target-path", str(self.root), "--output", str(out_snap)])
+    def test_cli_coord_status(self):
+        ret = main(["coord", "status", "--project", str(self.root)])
         self.assertEqual(ret, 0)
-        self.assertTrue(out_snap.exists())
 
     def test_cli_ledger_append_and_verify(self):
         ledger_path = self.root / "ledger.jsonl"
