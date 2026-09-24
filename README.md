@@ -143,7 +143,7 @@ python -m v7_harness.cli pilot run --task T01 --source . \
 |---|---|
 | `v7_harness/` | 파일럿 절차, 잠금장치, 제어층 |
 | `v7_harness/coord/` | 조율 스트림·브리핑·전달기 ([사용법](v7_harness/coord/README.md)) |
-| `tests/` | 인수 테스트 707개(2026-09-25) |
+| `tests/` | 인수 테스트 708개(2026-09-25) |
 | `uaos_everywhere/` | 모든 프로젝트 설치기(전역 규칙 문단·출석 훅·예약 도구 차단·24/7 교환원) [안내](uaos_everywhere/README.md) |
 | `.coord/PLAN.md` | 단계별 계획과 상태 |
 | `.coord/BACKLOG.md` | 발견한 결함과 처리 상태 |
@@ -188,5 +188,5 @@ python -m v7_harness.cli pilot run --task T01 --source . \
 | 로컬 작업자(Ollama) | 도입·벤치 완료(모델 3종 × 과제 6종), 실제 과제 1건 반영 |
 | 승인 목록 화이트리스트화 | **완료**(전역 룰 v5.6.0, 로컬 모델이 작성·게이트 통과·승인) |
 | 하루 운용 측정 | 25.4시간 창 집계 완료, 판정 왕복 미관측으로 효과는 `UNMEASURED` |
-| 자가개선 관문·전역 설치(U36·U37) | 구현(Linux 707 중 실패 1=B75). Windows 실행·Codex 판정·사용자 PC 설치 대기 |
+| 자가개선 관문·전역 설치(U36·U37) | 구현(Linux 708 중 실패 1=B75). Windows 실행·Codex 판정·사용자 PC 설치 대기 |
 | 지휘자 최종 재검토 | 대기(Codex 한도, 9/24 예상) |

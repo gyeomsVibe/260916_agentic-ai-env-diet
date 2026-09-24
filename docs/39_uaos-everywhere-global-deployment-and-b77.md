@@ -7,7 +7,7 @@
   - `uaos_everywhere/install_uaos_everywhere.py`: 실행 진입점.
   - `uaos_everywhere/uaos_global_rule_block.md`: 전역 규칙에 넣을 문단.
   - `v7_harness/coord/hook_context.py`: 훅이 어느 프로젝트에서 불렸는지 찾는 모듈.
-  - `tests/test_u37_install_everywhere.py`: 테스트 18개.
+  - `tests/test_u37_install_everywhere.py`: 테스트 19개.
 
 ---
 
@@ -83,6 +83,7 @@ flowchart LR
 "<python>" "~/.uaos/uaos.py" coord presence --tool <도구> --state ACTIVE --ttl 3600 --from-hook --say <brief|none|empty-json>
 ```
 
+- **셸 차이**: 위 명령은 실제로는 따옴표 없이 슬래시 경로로 쓴다(예: `C:/Users/…/python.exe C:/Users/…/.uaos/uaos.py coord presence …`). 이 형태는 bash(Claude 기본, Windows에서는 Git Bash)·cmd·PowerShell에서 모두 같은 명령으로 돈다. PowerShell은 따옴표로 시작하는 명령을 값으로 읽고 실행하지 않는다. Codex가 사용자 PC 검토(`67a1539`)에서 bash용 `cd "$CLAUDE_PROJECT_DIR"` 훅이 PowerShell에서 돌지 않음을 지적했고, PowerShell 훅을 쓰는 설치용 제안안 `tool-configs/claude/settings.uaos-windows-proposed.json`을 발행했다. 파이썬 경로에 공백이 있으면 따옴표가 붙고, 미리보기 `detail`에 경고가 나온다.
 - `--from-hook`은 표준 입력의 훅 정보에서 프로젝트를 찾는다. 찾는 순서는 `cwd`·`workspacePaths` → `CLAUDE_PROJECT_DIR` → 현재 폴더다. 각 후보에서 **상위 폴더로 올라가며** `.coord/PLAN.md`를 찾는다. 하위 폴더에서 세션을 열어도 된다.
 - 어떤 오류가 나도 종료 코드는 0이다. 훅이 세션을 막으면 안 되기 때문이다. Claude의 UserPromptSubmit 훅은 종료 코드 2를 내면 질문 자체가 막힌다.
 - **훅이 조용히 안 돌 때의 안전한 실패**: 출석 기록에는 만료 시각이 있다. 보고가 끊기면 1시간 뒤 스스로 `UNKNOWN`이 되고, `ACTIVE`로 잘못 남지 않는다. 교환원 벨은 Codex가 `ACTIVE`일 때만 울리므로, 훅이 고장 나면 벨이 "안 울리는" 쪽으로 실패한다.
@@ -146,8 +147,9 @@ python uaos_everywhere/install_uaos_everywhere.py --apply --uninstall --unregist
 
 | 항목 | 결과 |
 |---|---|
-| 테스트 | `python -m unittest tests.test_u37_install_everywhere` → 18 OK. 확인한 것: 미리보기 무변경, 설치 후 check 0, 재설치 무변경, 생성기가 지운 문단의 drift 감지, 제거 후 원본 복원, 사용자가 원래 막아 둔 차단 유지, 깨진 JSON·수동 `false` 보존, 없는 도구 건너뜀, 정본 파일 추가, 실행기로 다른 프로젝트의 하위 폴더에서 출석 기록, 작업 스케줄러 명령·261자 한도·거부 시 안내, 훅 정보 해석, 훅 실패 시 종료 코드 0, `coord init` 무덮어쓰기, 교환원 중복 실행 방지, 로그 회전 |
+| 테스트 | `python -m unittest tests.test_u37_install_everywhere` → 19 OK. 확인한 것: 미리보기 무변경, 설치 후 check 0, 재설치 무변경, 생성기가 지운 문단의 drift 감지, 제거 후 원본 복원, 사용자가 원래 막아 둔 차단 유지, 깨진 JSON·수동 `false` 보존, 없는 도구 건너뜀, 정본 파일 추가, 실행기로 다른 프로젝트의 하위 폴더에서 출석 기록, 작업 스케줄러 명령·261자 한도·거부 시 안내, 훅 정보 해석, 훅 실패 시 종료 코드 0, `coord init` 무덮어쓰기, 교환원 중복 실행 방지, 로그 회전 |
 | 수동 시연 | 가짜 홈 폴더에 미리보기 → 설치 → check(exit 0) → 제거 → 원본과 동일 확인 |
+| Windows 회귀 | U32~U35의 663개는 Codex가 사용자 PC에서 통과시켰다(`83ef179`). U36·U37 테스트 45개는 Windows 미실행 |
 | Windows 실제 설치 | **미실행(UNKNOWN)**. `schtasks` 동작, 인용부호, pythonw 경로는 Windows에서 처음 확인된다 |
 | Antigravity 규칙 경로 | `~/.gemini/GEMINI.md`는 U30 배포 기록("GEMINI.md")에 근거한 **가정**이다. 다르면 `--rules-file`로 지정한다 |
 | Antigravity 훅 출력 | `{}`를 받아들이는지 UNVERIFIED(공식 문서가 이 컨테이너에서 차단됨) |

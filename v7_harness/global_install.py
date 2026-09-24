@@ -58,8 +58,26 @@ def _q(value: Path | str) -> str:
     return f'"{value}"'
 
 
+_NEEDS_QUOTES = re.compile(r"[\s&()^%!;'\"`$]")
+
+
+def _arg(value: Path | str) -> str:
+    """A path every hook shell reads the same way: forward slashes, and quotes only when the path needs them.
+
+    Claude Code runs hooks in bash (Git Bash on Windows) unless a hook sets `shell: powershell`; Codex and Antigravity
+    do not document their shell. PowerShell reads a leading quoted string as a value, not a command, so an unquoted
+    C:/.../python.exe is the one form that runs in bash, cmd and PowerShell alike.
+    """
+    text = str(value).replace("\\", "/")
+    return f'"{text}"' if _NEEDS_QUOTES.search(text) else text
+
+
 def uaos_command(python: str, launcher: Path) -> str:
-    return f"{_q(python)} {_q(launcher)}"
+    return f"{_arg(python)} {_arg(launcher)}"
+
+
+def needs_quotes(python: str, launcher: Path) -> bool:
+    return uaos_command(python, launcher).startswith('"')
 
 
 def presence_command(python: str, launcher: Path, tool: str, state: str, ttl: int, say: str) -> str:
@@ -168,6 +186,8 @@ def plan(home: Path, python: str, *, repo: Path = REPO_ROOT, rules: bool = True,
     state = _load_json(uaos_dir / STATE_FILE)[0] or {}
     changes: list[Change] = []
     block = None if uninstall else rule_block(python, launcher)
+    shell_note = ("the Python or home path has spaces: the command is quoted, which bash and cmd run but a PowerShell "
+                  "hook shell does not (it needs `& ` in front)") if needs_quotes(python, launcher) and not uninstall else ""
 
     if uninstall:
         changes.append(Change("launcher", launcher, "REMOVE" if launcher.exists() else "UNCHANGED"))
@@ -226,6 +246,7 @@ def plan(home: Path, python: str, *, repo: Path = REPO_ROOT, rules: bool = True,
                 keep = sorted(set(state.get("claude_deny_added", [])) | set(added))
                 changes.append(_json_change("claude settings", path, data, after, path.exists(),
                                             {"claude_deny_added": [] if uninstall else keep}))
+                changes[-1].detail = changes[-1].detail or shell_note
         elif tool == "codex":
             path = folder / "hooks.json"
             data, problem = _load_json(path)
@@ -240,6 +261,7 @@ def plan(home: Path, python: str, *, repo: Path = REPO_ROOT, rules: bool = True,
                 }
                 changes.append(_json_change("codex hooks", path, data, _merge_hooks(data, wanted, uninstall),
                                             path.exists()))
+                changes[-1].detail = changes[-1].detail or shell_note
             if enable_codex_hooks:
                 changes.append(_codex_feature_change(folder / "config.toml", uninstall, state))
         elif tool == "antigravity":
@@ -257,6 +279,7 @@ def plan(home: Path, python: str, *, repo: Path = REPO_ROOT, rules: bool = True,
                     after[AGY_GROUP] = {"enabled": True, "PreInvocation": [{"type": "command", "command": presence_command(
                         python, launcher, "antigravity", "ACTIVE", 3600, "empty-json")}]}
                 changes.append(_json_change("antigravity hooks", path, data, after, path.exists()))
+                changes[-1].detail = changes[-1].detail or shell_note
 
     for path in extra_rules:
         path = Path(path)

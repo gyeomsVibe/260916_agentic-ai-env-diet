@@ -67,6 +67,7 @@ python uaos_everywhere/install_uaos_everywhere.py --apply --uninstall --unregist
 | Antigravity에서 출석이 안 찍힘 | API 키 인증에서는 훅이 실행되지 않는다는 보고(antigravity-cli#893) | Google 계정 로그인으로 쓴다. 출석이 없으면 1시간 뒤 UNKNOWN으로 표시될 뿐 오작동은 없다 |
 | 교환원 등록이 "액세스 거부" | 로그온 작업은 관리자 권한이 필요할 수 있다 | 관리자 PowerShell에서 다시 실행하거나, `shell:startup` 폴더에 `~/.uaos/sentinel_<이름>.cmd` 바로가기를 둔다 |
 | 저장소 폴더를 옮긴 뒤 명령이 안 됨 | 실행기(`~/.uaos/uaos.py`)에 옛 경로가 들어 있다 | 새 위치에서 `--apply`를 다시 실행한다 |
+| 미리보기 `detail`에 "PowerShell" 경고 | 파이썬 경로에 공백이 있어 명령이 따옴표로 시작한다. PowerShell은 이런 명령을 실행하지 않는다 | 공백 없는 경로의 파이썬으로 설치기를 실행하거나(`py -3.12` 등), 해당 훅 명령 앞에 `& `를 붙인다 |
 | 이미 열린 세션에 규칙이 안 보임 | 규칙·훅은 **새 세션부터** 적용된다 | 세션을 새로 연다 |
 
 ## 알고 쓰기 — 아직 확인하지 못한 것

@@ -8,6 +8,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -150,6 +151,25 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual("SKIP", actions["codex (all)"])
             self.assertEqual("SKIP", actions["antigravity (all)"])
             self.assertFalse((home / ".codex").exists())
+
+    def test_hook_commands_run_in_bash_cmd_and_powershell(self) -> None:
+        # PowerShell reads a leading quoted string as a value, so a plain path must stay unquoted (Codex b77 review).
+        self.assertEqual("C:/Users/Kim/AppData/Local/Programs/Python/Python312/python.exe",
+                         gi._arg(r"C:\Users\Kim\AppData\Local\Programs\Python\Python312\python.exe"))
+        self.assertEqual('"C:/Program Files/Python312/python.exe"', gi._arg(r"C:\Program Files\Python312\python.exe"))
+        _, report = _run(self.home)
+        self.assertEqual("", {c["target"]: c["detail"] for c in report["changes"]}["codex hooks"])
+        # Only a quoted *first* word breaks PowerShell; a quoted argument after a plain python path is fine.
+        spaced = Path(self.temp.name) / "home with space"
+        shutil.copytree(self.home, spaced)
+        _, report = _run(spaced)
+        self.assertEqual("", {c["target"]: c["detail"] for c in report["changes"]}["codex hooks"])
+        out = io.StringIO()
+        with redirect_stdout(out):
+            gi.main(["--home", str(self.home), "--python", "C:/Program Files/Python312/python.exe"])
+        details = {c["target"]: c["detail"] for c in json.loads(out.getvalue())["changes"]}
+        self.assertIn("PowerShell", details["codex hooks"])
+        self.assertIn("PowerShell", details["antigravity hooks"])
 
     def test_extra_rules_file_for_the_canon(self) -> None:
         canon = Path(self.temp.name) / "canon" / "claude.md"
