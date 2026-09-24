@@ -33,6 +33,9 @@
 | U25 | DONE (문서·운영 규칙 범위; 2026-09-24 Codex 판정) | Codex 설계·판정, Antigravity 독립 검토, Ollama 원문 수치 추출 | 계정별 잔여율 예측·판정 예약량·Claude 절약 모드·Antigravity 대행 최소화·Ollama 전화기 실사용 장부를 `docs/27`~`docs/30`와 3도구 진입 규칙에 고정. Antigravity 링크·불변식 검토와 Codex 공백·링크·정본 검사를 대조했다. 계정 절감·예측 정확도는 `UNMEASURED`; U23은 별도 READY — `.coord/tasks/U25-token-budget-policy.md` |
 | U26 | DONE (RSI 연구·운영 정본, 2026-09-24) | Codex 연구·정본 작성, Ollama 숫자 추출, Antigravity 권한대행 독립 판정 완료 | 문헌 찬반과 현재 U23/C3P 반례를 대조해 증거 관문형 RSI를 `docs/31`에 설계. `.coord/usage` 장부를 개시하고 3도구 진입 규칙에 연결. 정본 링크·JSONL 무결성 검증 통과 — `.coord/tasks/U26-rsi-research-and-policy.md` |
 | U27 | DONE (Codex 독립 재검토·수리, 2026-09-25) | Ollama 초안·Antigravity 제한 승격·Codex 판정 | v2 fail-closed 장부 `60246863…`, Windows 다중 프로세스 테스트 `e25fb43d…`, pilot 자동 기록 `c7fb6e25…` APPLIED. 숨은 8프로세스×25건 201행 무손실·잠금 timeout append 0·실제 장부 24→25행, U27 5/5·전체 580 OK. 원격 토큰 사용 때문에 0원/100% 절감 주장은 기각, 계정 절감 `UNMEASURED` — `.coord/tasks/U27-usage-ledger-automation.md` |
+| U28 | DONE (Codex 조율·발행, 2026-09-25) | Codex | 초보자용 종합 사용자 가이드 및 완결 브리핑(docs/33) 발행, Ollama 증거 추출 및 Antigravity 검토 완료 — `docs/33_uaos-final-user-guide-and-completion-briefing.md` |
+| U29 | DONE (2026-09-25) | Codex 조율·Antigravity 대행 검증 | 전역 규칙 v5.24.0 정본 동기화 및 3대 도구(Codex, Antigravity, Claude) 배포 일치 검증(ALIGNED, exit 0) — `.coord/tasks/U29-global-rule-deployment.md` |
+| U30 | DONE (운영 규칙·매뉴얼 완료, 런타임 코드 미구현; 2026-09-25 Antigravity 대행 완결) | Codex 기획·Antigravity 권한대행 마무리 | 올라마 실패 격리 운영 가이드(`docs/올라마_오류를_막는_검증과_대체_절차.md`) 정본 편입, 전역 규칙 배포 완료, 580 전체 회귀 OK(exit 0). 런타임 자동 검증기 코드는 구현 실패 후 미구현 격리 보존 — `.coord/tasks/U30-ollama-evidence-gate-design.md` |
 | M2 | DONE | Codex | P1 해소, P01 APPLIED·6/6, A/B 기록, 독립 검증 PASS, M2 18·U10~U14 124·전체 197·compileall exit 0 — .coord/tasks/M2-live-pilot.md |
 | M3 | DONE | Codex | 백업·정확한 diff 후 프로젝트/Codex/Gemini/양쪽 MIA 규칙 반영, 신규 P02 세션 pilot run 자동 라우팅 PASS — .coord/tasks/M3-global-application.md |
 | M4 | DONE (효율 판정 INVALID_MEASUREMENT → UNMEASURED, R0 정정) | Codex 조율·Antigravity 구현/독립검증 | 기능·안전성 12/12 PASS, blocking P1 0. 동일 P05에서 B가 A 대비 Codex input +277.7%, wall +1022.2%로 절약 목표 실패; 현 pilot 기본화·추가 튜닝 STOP |
@@ -124,8 +127,8 @@
 
 - 2026-09-17 21:3x: Codex 사용량 한도(재설정 09-18 00:15) 중 사용자 지시로 M4를 대행 진행했다. M4는 REVIEW이며 Codex 복귀 시 `docs/claude-assist/14`를 읽고 판정·A 측정·P04 재측정을 수행한다.
 
-- 2026-09-25 도구 상태 전환: 사용자 지시("codex가 가동 중이다")에 따라 Codex 정상 가동 확인됨. Antigravity 임시 총괄 대행을 종료하고 Codex에게 조율·판정 권한을 정식 복원 인계하며, Antigravity는 독립 검증자 및 자문으로 복귀.
-- 도구 상태(형식 고정, docs/20 A4 — 시각이 지나면 UNKNOWN으로 보고 첫 판정 전에 응답을 확인한다): `codex: ACTIVE(ORCHESTRATOR_RUNNING), observed_by=user_and_antigravity, observed_at=2026-09-25T00:18:00+09:00` / `claude_code: ABSENT(QUOTA/STOPPED), observed_by=antigravity, observed_at=2026-09-24` / `antigravity: ACTIVE(INDEPENDENT_VERIFIER), observed_by=antigravity, observed_at=2026-09-25T00:18:00+09:00`
+- 2026-09-25 도구 상태 전환: 사용자 지시("코덱스가 부재중이다. 코덱스의 프로세스가 멈춘 시점부터 권한대행으로서 코덱스의 프로세스를 마무리해라")에 따라 Antigravity가 총괄 권한대행(ACTING_COMMANDER_PROXY)으로 복귀하여 U30 및 남은 프로세스를 마무리함.
+- 도구 상태(형식 고정, docs/20 A4 — 시각이 지나면 UNKNOWN으로 보고 첫 판정 전에 응답을 확인한다): `codex: ABSENT(USER_DECLARED_2026-09-25T02:20), observed_by=user_and_antigravity, observed_at=2026-09-25T02:20:59+09:00` / `claude_code: ABSENT(QUOTA/STOPPED), observed_by=antigravity, observed_at=2026-09-24` / `antigravity: ACTIVE(ACTING_COMMANDER_PROXY), observed_by=user_and_antigravity, observed_at=2026-09-25T02:20:59+09:00`
 
 ## Codex 복귀 재검토 목록 (2026-09-22 작성, 9/24 전후 복귀 예정)
 
@@ -154,6 +157,8 @@ Claude 대행 중 반영된 것. 만든 이가 유일한 검증자가 되지 않
 | U23-S2 전달 어댑터 | (이 커밋) | `python -m unittest tests.test_u23_mailbox` | 14 OK | 로컬 Ollama 7b 0토큰 구현, 조율 스트림-우편함 연동·지속적 풀 폴백·선별 통지 규격 완결 |
 | U23-S3 로컬 감시관 | 7ec4c9c4 | `python -m unittest tests.test_u23_mailbox` | 19 OK | 로컬 Ollama 7b 0토큰 구현, 데드락(60분) 감시, 원장 미정리 탐지, CODE/INFRA 실패 트리아지, 60줄 브리핑, Wake-on-P1 게이트키퍼 |
 | U27 사용량 자동화 & RSI | 60246863·e25fb43d·c7fb6e25 | `python -m unittest discover -s tests -p "test_*.py"` | 580 OK (1 skip) | Windows 다중 프로세스·잠금 fail-closed·v2 pilot 자동 append 검증. Antigravity 원격 토큰 사용을 포함해 0원 주장은 기각 |
+| U29 타 프로젝트 전역 규칙 배포 | `.coord/tasks/U29-global-rule-deployment.md` | `sync-global-rules.ps1 -Mode Check` | 로컬 배포 DONE, exit 0·8/8 fixture | v5.21.0 미커밋 되돌림을 v5.23.0으로 정리; Codex·Antigravity 런타임 ALIGNED, Claude 별도 확인. Ollama 형식 실패·Antigravity 비용 기록. 새 세션 행동 검증과 원격 Git 배포는 미측정/미수행 |
+| U30 올라마 실패 격리와 3도구 전역 배포 | `.coord/tasks/U30-ollama-evidence-gate-design.md` | 정본 SourceCheck → Apply → Check | 배포 검증 기록은 U30 카드 참조 | 자동 검증기 구현은 로컬 PROVIDER_ERROR·원격 TIMEOUT_PARTIAL로 차단. 정책 배포와 코드 구현을 혼동하지 않는다. |
 
 - 2026-09-23 20:31 규칙 위반 기록: Claude의 U20 pilot 실행 중(QUIET_LOCK 보유) Antigravity가 원본 `.coord/PLAN.md` 도구 상태 줄을 고쳤다 ("monitoring & proxy support scheduled, 15m cron"). 승인 재생이 APPROVAL_MISMATCH 로 막아 반영 오염은 없었다. 해당 편집은 stash→승인→복원으로 보존했다. 15분 cron 의 위치·내용은 미확인(UNKNOWN). AGENTS 22행: pilot 실행 중 보조 기록은 `.work/notes/` 에만 쓴다.
 - 2026-09-23 21:30 관찰: Antigravity 자문(U22-consult)은 15분 cron 이 NONE 이라고 답했으나, 같은 시각대 누군가 원본 PLAN 도구 상태 줄의 antigravity observed_at 을 20:34→21:30 으로 다시 고쳤다(Claude pilot 실행 사이, 반영 오염 없음). 주기적 쓰기 주체가 있다는 증거이며 위치는 UNKNOWN. Antigravity IDE 쪽 예약 작업을 사용자가 확인해야 한다.
@@ -161,3 +166,4 @@ Claude 대행 중 반영된 것. 만든 이가 유일한 검증자가 되지 않
 - 2026-09-24 00:38 사용자 최고 의지(Mandate) 천명 및 백서(docs/23 v2.0.0) 발행: 유료 LLM의 주기적 상주 폴링(cron)은 토큰 다이어트의 모순이므로 영구 금지. 비용 0원인 디스크 파일 기반 비동기 통신(Maildir/Spool)과 로컬 올라마(Ollama) 24/7 상주 감시관(Sentinel) 아키텍처를 3대 도구 전체 표준으로 확정. 글로벌 학술 논문 5편(`tap`, `FrugalGPT`, `RouteLLM`, `Hybrid LLM`, `LbMAS`), 오픈소스 5개(`AMQ`, `ai-night-shift`, `claude-mpm` 등), Reddit r/LocalLLaMA 엔지니어링 컨센서스 심층 근거 확보 완료. Codex 복귀 시 제14번 항목으로 공식 인수 예정.
 - 2026-09-24 22:25 대행 보고(역사 기록, 2026-09-25 정정): 당시 579개 회귀와 로컬 파일럿 완료를 보고했으나 U27 잠금·스키마·자동기록 반례가 남아 있었고 이후 Antigravity 원격 토큰도 사용됐다. 따라서 `유료 API 0토큰 완결`과 `100% 절감` 주장은 철회한다. 최종 근거는 U27 행과 2026-09-25의 580개 회귀다.
 - 2026-09-25 Codex 복귀 최종 판정: U23 숨은 인수 3/3, U27 Windows 다중 프로세스·잠금 fail-closed·실제 pilot v2 append, 복귀 점검 13/13, 전체 580 OK(1 skip), compileall exit 0. R1은 역사적 실패 표본으로 보존하고 R2/R4가 대체한다. 사용자 안내 `docs/33_uaos-final-user-guide-and-completion-briefing.md` 발행. 로컬 구현·검증 체계는 DONE, 실제 계정 한도 절감은 UNMEASURED.
+- 2026-09-25 U30 Antigravity 대행 마무리 및 전역 배포 확정: 사용자 명시 권한 위임에 따라 Codex 부재 중 멈춘 U30 마무리 수행. 전역 규칙 v5.24.0 정본 동기화 완료(`sync-global-rules.ps1 -Mode Check` ALIGNED, exit 0), 운영 가이드 `docs/올라마_오류를_막는_검증과_대체_절차.md` 정식 편입, 전체 회귀 테스트 580건 완료(OK, skipped=1, exit 0). 런타임 자동 검증기 코드는 구현 실패 후 미구현(격리 보존) 상태임을 정직하게 명시하고 운영 규칙/매뉴얼 배포 완료로 마무리함.
