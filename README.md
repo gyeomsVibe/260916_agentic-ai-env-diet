@@ -10,6 +10,8 @@ AI 코딩 도구 **세 개(Codex, Claude Code, Antigravity)**와 **전자계산�
 
 토큰예산 운영은 [3대 도구 예측·역할 전환 규칙](docs/27_token-budget-routing-policy.md)에서 시작합니다. [Claude](docs/28_claude-budget-manual.md)·[Antigravity](docs/29_antigravity-budget-manual.md)·[Ollama](docs/30_ollama-calculator-manual.md) 실행 매뉴얼이 이어집니다.
 
+사용자 5대 비유의 실현도 감사는 [docs/35](docs/35_five-metaphors-realization-audit_2026-09-25.md), 그 보강 구현 기록은 [docs/36](docs/36_metaphor-realization-implementation-record_2026-09-25.md), 모든 프로젝트에 쓰는 표준 작업 프로세스와 Ollama·Antigravity 하네스·계약 매뉴얼 설계는 [docs/37](docs/37_standard-process-and-worker-harness.md)에 있습니다.
+
 실행 기록을 안전하게 개선에 쓰는 방법은 [증거 관문형 RSI](docs/31_evidence-gated-rsi-for-uaos.md)와 [사용량 장부](.coord/usage/README.md)에 있습니다. **현재 구현·복귀 검증은 완료**됐습니다. 설치·첫 실행·운영·문제 해결은 [최종 사용자 안내](docs/33_uaos-final-user-guide-and-completion-briefing.md)를 따르세요. 삭제·원격 push·배포·계정/권한 변경은 계속 사용자 승인 대상입니다.
 
 ---
@@ -98,7 +100,7 @@ AI 코딩 도구 **세 개(Codex, Claude Code, Antigravity)**와 **전자계산�
 | P06 | −80.2% | −98.3% | 6 → 0 | 동일 |
 | P07 | −76.3% | −98.8% | 4 → 0 | 동일 |
 
-조율 인계 1회 분량도 줄었습니다: 기존 메모 평균 1,552자 → 브리핑 828자(**−46.6%**), 지휘자 창에 실제 들어가는 메시지는 81자.
+조율 인계 1회 분량도 줄었습니다: 첫 표본(n=1)에서 기존 메모 평균 1,552자 → 브리핑 828자(**−46.6%**), 이후 측정 범위 828~1,450자·최신 측정 −32.2%(`.coord/runs/U15/measurement_s6.json`). 지휘자 창에 실제 들어가는 메시지는 81자.
 
 ---
 
@@ -139,7 +141,7 @@ python -m v7_harness.cli pilot run --task T01 --source . \
 |---|---|
 | `v7_harness/` | 파일럿 절차, 잠금장치, 제어층 |
 | `v7_harness/coord/` | 조율 스트림·브리핑·전달기 ([사용법](v7_harness/coord/README.md)) |
-| `tests/` | 인수 테스트 478개 |
+| `tests/` | 인수 테스트 663개(2026-09-25) |
 | `.coord/PLAN.md` | 단계별 계획과 상태 |
 | `.coord/BACKLOG.md` | 발견한 결함과 처리 상태 |
 | `.coord/tasks/` | 단계 카드(설계·인수 기준·결과) |

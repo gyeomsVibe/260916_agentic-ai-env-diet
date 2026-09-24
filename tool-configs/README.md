@@ -10,6 +10,7 @@
 | `codex/hooks.json` | `~/.codex/hooks.json` | 비어 있음 |
 | `antigravity/hooks.json`, `mcp_config.json` | `~/.gemini/config/` | 비어 있음 |
 | `bin/olla`, `bin/olla.cmd` | `D:/AI-Models/bin/` | 퇴역. 어느 도구에도 연결돼 있지 않음 |
+| `claude/settings.uaos-proposed.json` | (없음 — 제안) | **비활성·승인 대기.** 유료 예약 도구 차단(`permissions.deny`)과 출석부 훅. 승인되면 이 프로젝트의 `.claude/settings.json`에 넣는다(docs/37 §8) |
 
 올라마(olla) 연결은 2026-09-23에 3대 도구 모두에서 뺐습니다. 근거는 `.coord/runs/U17/mia_strategic_20260923.md`의 Retire 절을, 되돌릴 때는 `.work/backup_20260923/olla_removal/`의 원본과 이 폴더의 git 기록을 보세요.
 

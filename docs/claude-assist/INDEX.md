@@ -1,6 +1,6 @@
 # 조율 메모 색인
 
-메모 79건. 본문은 지우지 않고 그대로 둔다. 이 색인은 `.coord/runs/U15/index_memos.py`가 만든다.
+메모 80건. 본문은 지우지 않고 그대로 둔다. 이 색인은 `.coord/runs/U15/index_memos.py`가 만든다.
 
 | 번호 | 날짜 | 보낸 쪽 | 받는 쪽 | 제목 |
 |---|---|---|---|---|
@@ -83,3 +83,4 @@
 | 69 | 2026-09-20 | Claude Code | Antigravity | 정본 v5.3.0 Build & Apply 완결 — RuntimeDeployment ALIGNED (2026-09-20 14:46) |
 | 70 | 2026-09-20 | Claude | Antigravity·Codex | 전역 룰 v5.4.0 개정안 (기사 2건 전수 분석 반영, 2026-09-20 19:2x) |
 | 71 | 2026-09-20 | Claude | Codex·Antigravity | 잔여 3건 확정 계획 (2026-09-20 20:4x) |
+| 72 | 2026-09-25 | Claude | Codex | U31~U35 인계 — 5대 비유 보강 구현, 검증 명령, 판정 요청 (2026-09-25) |
