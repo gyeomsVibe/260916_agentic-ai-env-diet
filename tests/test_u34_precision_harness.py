@@ -75,6 +75,55 @@ class WorkerGuardTests(unittest.TestCase):
         self.assertEqual(["a.py"], w.dictated_paths(text))
 
 
+class _Response:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+    def read(self):
+        return json.dumps({"response": "{}", "prompt_eval_count": 1, "eval_count": 1}).encode()
+
+
+class GenerationTests(unittest.TestCase):
+    def _payload(self, **kwargs) -> dict:
+        stored: dict = {}
+
+        def fake_urlopen(request, timeout=None):
+            stored.update(json.loads(request.data.decode()))
+            return _Response()
+
+        with mock.patch.object(w.urllib.request, "urlopen", side_effect=fake_urlopen):
+            w._generate("m", "p", 5, **kwargs)
+        return stored
+
+    def test_seed_is_fixed_so_a_failure_can_be_reproduced(self) -> None:
+        payload = self._payload()
+        self.assertEqual(w.SEED, payload["options"]["seed"])
+        self.assertNotIn("format", payload)
+
+    def test_schema_is_sent_as_the_structured_output_format(self) -> None:
+        schema = {"type": "object", "properties": {"q": {"type": "string"}}, "required": ["q"]}
+        self.assertEqual(schema, self._payload(fmt=schema)["format"])
+
+    def test_evidence_extraction_constrains_the_output_shape(self) -> None:
+        from v7_harness import olla_evidence
+
+        with tempfile.TemporaryDirectory() as d:
+            manual, evidence = Path(d) / "m.md", Path(d) / "e.txt"
+            manual.write_text("Copy only.\n", encoding="utf-8")
+            evidence.write_text("SOURCE: alpha\n", encoding="utf-8")
+            argv = ["--manual", str(manual), "--evidence", str(evidence), "--sha256", _sha(evidence),
+                    "--keys", "quote,line", "--prompt", "copy"]
+            with mock.patch.object(olla_evidence.worker, "_generate", return_value=('{"quote":"SOURCE","line":"alpha"}', {})) as gen, \
+                    redirect_stdout(io.StringIO()), mock.patch("sys.stderr", io.StringIO()):
+                olla_evidence.main(argv)
+            schema = gen.call_args.kwargs["fmt"]
+            self.assertEqual(["quote", "line"], schema["required"])
+            self.assertFalse(schema["additionalProperties"])
+
+
 class ApplyWorkerTests(unittest.TestCase):
     def _run(self, prompt: str, workspace: str) -> dict:
         out = io.StringIO()

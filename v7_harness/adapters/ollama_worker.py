@@ -34,6 +34,9 @@ NUM_CTX = int(os.environ.get("OLLAMA_WORKER_NUM_CTX", "16384"))
 # 출력 상한. 무한 생성이 600초 시간 초과(PROVIDER_ERROR)로 끝나는 것을 막는다. EDIT 블록은 짧고 150줄 미만 파일 전체 재작성도 약 2k 토큰이라 4096이면 충분하다.
 NUM_PREDICT = int(os.environ.get("OLLAMA_WORKER_NUM_PREDICT", "4096"))
 KEEP_ALIVE = os.environ.get("OLLAMA_WORKER_KEEP_ALIVE", "30m")
+# Fixed seed: the same prompt gives the same output, so a failure can be reproduced and a manual change can be
+# compared against the same sample (Ollama API: `seed` makes generation reproducible).
+SEED = int(os.environ.get("OLLAMA_WORKER_SEED", "42"))
 BLOCK_RE = re.compile(r"^===FILE:\s*(?P<path>[^\n=]+?)\s*===\n(?P<body>.*?)(?=^===(?:FILE|EDIT):|\Z)", re.M | re.S)
 EDIT_RE = re.compile(
     r"^===EDIT:\s*(?P<path>[^\n=]+?)\s*===\n<<<<<<< SEARCH\n(?P<search>.*?)\n=======\n(?P<replace>.*?)\n>>>>>>> REPLACE",
@@ -79,17 +82,19 @@ Rules:
 """
 
 
-def _generate(model: str, prompt: str, timeout_s: int) -> tuple[str, dict[str, int]]:
-    payload = json.dumps(
-        {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "keep_alive": KEEP_ALIVE,
-            # 낮은 온도. 이 작업자는 창작이 아니라 지시받은 줄을 그대로 옮기는 손이다.
-            "options": {"temperature": 0.1, "num_ctx": NUM_CTX, "num_predict": NUM_PREDICT},
-        }
-    ).encode("utf-8")
+def _generate(model: str, prompt: str, timeout_s: int, *, fmt: dict | None = None) -> tuple[str, dict[str, int]]:
+    """`fmt` is an Ollama structured-output JSON schema: the model can only emit JSON of that shape."""
+    request_body: dict = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "keep_alive": KEEP_ALIVE,
+        # 낮은 온도. 이 작업자는 창작이 아니라 지시받은 줄을 그대로 옮기는 손이다.
+        "options": {"temperature": 0.1, "num_ctx": NUM_CTX, "num_predict": NUM_PREDICT, "seed": SEED},
+    }
+    if fmt is not None:
+        request_body["format"] = fmt
+    payload = json.dumps(request_body).encode("utf-8")
     request = urllib.request.Request(API, data=payload, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(request, timeout=timeout_s) as response:
         body = json.loads(response.read().decode("utf-8"))
