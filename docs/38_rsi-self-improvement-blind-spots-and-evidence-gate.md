@@ -2,7 +2,7 @@
 
 - 상태: 구현·테스트 완료(Linux), 채택 판정은 Codex. 상위 정본은 [docs/31 증거 관문형 RSI](31_evidence-gated-rsi-for-uaos.md)이고, 이 문서는 그 정본을 **코드로 강제한 기록**이다.
 - 코드는 `v7_harness/rsi.py`, CLI `rsi report|propose|gate|adopt|rollback`, 교환원 연결(`v7_harness/coord/sentinel.py`), 매뉴얼 검사 연결(`v7_harness/manual.py`), 장부 원인 기록(`v7_harness/pilot.py`)이다.
-- 테스트는 `tests/test_u36_evidence_gated_rsi.py` 26개다.
+- 테스트는 `tests/test_u36_evidence_gated_rsi.py` 27개다.
 - 용어는 처음 나올 때 한국어와 영어를 함께 적는다. 모르는 말은 [쉽게 읽는 용어집](쉽게_읽는_UAOS_진단과_해결_전과정/06_용어집_전문용어_병기.md)에서 찾는다.
 
 ---
@@ -11,7 +11,7 @@
 
 1. **자가개선(RSI, Recursive Self-Improvement)이 실제로 실패하는 방식은 대부분 같다.** 시스템이 문제를 푸는 대신 **채점기를 속인다**. 이를 보상 해킹(reward hacking) 또는 목표 해킹(objective hacking)이라 한다. 공개 연구 여러 건이 이를 관찰했다(§2).
 2. 그래서 UAOS는 **"루프는 제안만 하고, 채택은 다른 사람이, 증거는 장부에서"** 원칙을 코드로 강제했다. 스스로 채택하는 경로는 코드에 없다.
-3. 이번에 막은 맹점은 16개다(§3). 핵심은 다음 여섯 가지다.
+3. 이번에 막은 맹점은 18개다(16개 + 2026-09-25 비판적 재검토에서 찾은 2개)(§3). 핵심은 다음 여섯 가지다.
    - 평가기·장부를 고치는 후보는 거부한다.
    - 작성자가 숫자를 직접 써넣은 후보는 거부하고, 수치는 장부에서 다시 계산한다.
    - 작성자·검증자·판정자는 서로 달라야 한다.
@@ -52,7 +52,7 @@
 | 자가치유 테스트 자동화의 함정 | 너무 관대한 치유가 진짜 회귀를 가린다. 실패의 70% 이상은 선택자 문제가 아니라 타이밍·데이터·런타임 문제인데, 이를 모두 "선택자 고장"으로 오진한다. 조용한 치유는 신뢰를 깎으므로 감사 로그가 필요하다 | 원인을 먼저 분류(환경 vs 매뉴얼)하고, 치유는 기록하며, 테스트는 치유 대상이 아니다 | [TestMu AI](https://www.testmuai.com/blog/self-healing-test-automation/), [QA Wolf](https://www.qawolf.com/blog/self-healing-test-automation-types) (S4) |
 | 훅이 조용히 안 도는 현장 결함 | Codex는 Desktop 업데이트 뒤 훅이 멈추거나 저장소 설정 훅이 무시된 보고가 있다. Antigravity는 훅을 설정 폴더에서 실행하고, API 키 인증에서는 훅을 읽기만 하고 실행하지 않은 보고가 있다 | 출석부는 "보고가 끊기면 UNKNOWN"으로 안전하게 실패해야 한다(이미 TTL로 구현) | [openai/codex#21639](https://github.com/openai/codex/issues/21639), [#17532](https://github.com/openai/codex/issues/17532), [antigravity-cli#1005](https://github.com/google-antigravity/antigravity-cli/issues/1005), [#893](https://github.com/google-antigravity/antigravity-cli/issues/893) (S4) |
 
-## 3. UAOS의 맹점 16개와 대책
+## 3. UAOS의 맹점 18개와 대책
 
 "이전"은 이번 작업 전 코드 상태, "지금"은 구현된 대책이다. 테스트 이름은 `tests/test_u36_evidence_gated_rsi.py` 기준이다.
 
@@ -74,11 +74,14 @@
 | 14 | 무한 반복·비용 폭주(runaway loop) | 없음 | 제안은 결정적 규칙(모델 호출 0). 교환원은 **창 하나당 검토 메시지 한 번**만 보내고 P1이 아니다 | `test_sentinel_publishes_one_review_per_window_and_never_p1` |
 | 15 | 경로 판별 결함(이번 작업 중 내 결함) | 첫 초안이 `lstrip("./")`로 `.coord`의 점까지 지워 어떤 `.coord/...` 경로도 맞지 않았다 | 앞의 `./`만 떼도록 수정 | `test_dot_prefixed_paths_keep_their_dot` |
 | 16 | 읽는 중 쓰기 경합(read-while-append race) | — | 교환원은 잠금 없이 장부를 읽으므로 파일럿이 쓰는 중인 마지막 줄이 "읽을 수 없음"으로 잘못 집계될 수 있었다(푸시 전 재검토에서 발견). 줄바꿈으로 끝나지 않은 마지막 줄은 다음 주기에 읽는다 | `test_a_line_still_being_appended_is_not_counted` |
+| 17 | 재실행 복제로 표본 부풀리기(sample inflation by retries) | 첫 구현이 같은 `work_id`의 재실행 행을 모두 표본으로 셌다 | 작업 1개를 3번 재실행하면 "최소 표본 3"을 통과했다(2026-09-25 비판적 재검토에서 재현: `ADOPT_CANDIDATE 3 3`). 작업 ID당 마지막 행 하나만 세고, 후보에 같은 ID가 반복되면 `DUPLICATE_WORK_IDS`로 거부한다. 관찰(`rsi report`)은 docs/31 §4대로 모든 시도를 분모에 남긴다 | `test_a_retried_task_counts_once` |
+| 18 | 무관한 실행으로 재검증 채우기(recheck by unrelated runs) | 첫 구현은 재검증 창을 모든 작업자의 행으로 셌다 | Ollama 개선이 apply 실행 10번만으로 재검증 완료가 됐다. 채택 기록에 대상 작업자와 채택 시점 행 수를 남기고, 그 작업자의 행만 센다. `rsi report`의 `trials`가 `before`와 채택 뒤 `since`를 나란히 보여 준다 | `test_one_change_per_window` |
 
 **정본과의 대조**: Codex가 사용자 PC에서 [docs/31 §6](31_evidence-gated-rsi-for-uaos.md)에 추가한 재판정과 이 구현은 같은 방향이다. docs/31 §6은 RSIBench-Data에서 최선 점수 뒤에도 탐색을 계속한 경우의 78.26%가 마지막 결과가 더 나빴음을 들어 "마지막 반복을 자동 채택하지 말고 가장 좋았던 검증된 후보를 보존"하라고 한다. 이 구현은 두 가지로 그 규칙을 강제한다. 첫째, 채택은 판정자만 한다(마지막 결과 자동 채택 없음). 둘째, 채택마다 이전 정책과 장부로 계산한 전후 수치를 `decisions.jsonl`에 남기고, 재검증에서 나빠지면 `rsi rollback`으로 직전의 검증된 정책으로 돌아간다.
 
 **아직 막지 못한 것(정직한 목록)**
 
+- **작성자 칸의 자기 신고(B83)**: 후보의 `author`는 작성자가 적는다. 다른 도구 이름을 적으면 "판정자 ≠ 작성자"를 피할 수 있다. 커밋 작성자나 스트림의 도구 식별과 대조하는 방법이 필요하다.
 - **장부 자체의 무결성**: 장부는 로컬 파일이다. 관문을 거치지 않고 누군가 파일을 직접 고치면 관문은 알 수 없다. 해시 체인(hash chain)이나 서명은 아직 없다 → BACKLOG B80.
 - **과제 난이도 차이**: 작업자 유형은 같아도 과제 난이도가 다를 수 있다. 과제군(task family) 필드가 장부에 없다 → B81.
 - **승인 경로 누락**: `pilot run --approve`는 장부 행을 남기지 않는다(B78). 그래서 승인률이 분모에서 빠진다.
@@ -146,7 +149,7 @@ python -m v7_harness.cli rsi rollback --judge codex --reason "rework rose in the
 
 ## 6. 검증과 남은 일
 
-- `python -m unittest tests.test_u36_evidence_gated_rsi` → 26 OK(Linux, Python 3.11).
+- `python -m unittest tests.test_u36_evidence_gated_rsi` → 27 OK(Linux, Python 3.11).
 - 교환원·매뉴얼 회귀: `tests.test_u23_mailbox tests.test_u32_sentinel_bell tests.test_u34_precision_harness` → OK.
 - 실데이터: 이 컨테이너의 장부는 0행이라 `rsi report`는 표본 0이다. **첫 실측 조건**은 사용자 PC에서 한 작업자 유형의 파일럿 10행이 쌓이는 것이다. 그러면 교환원이 `rsi_review_<worker>_10x1` 메시지를 우편함에 넣는다.
 - Windows 실행은 미검증(UNKNOWN)이다. Codex 복귀 뒤 회귀 1순위다.
