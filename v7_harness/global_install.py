@@ -98,8 +98,14 @@ def launcher_text(repo: Path) -> str:
     )
 
 
-def rule_block(python: str, launcher: Path, source: Path = RULE_BLOCK_SOURCE) -> str:
-    body = source.read_text(encoding="utf-8").strip().replace("{uaos}", uaos_command(python, launcher))
+# For the global-rules canon (a shared, pushed repository): no machine path, and the same text on every PC.
+# `$HOME` expands in bash and in PowerShell, the shells the three tools run.
+PORTABLE_COMMAND = 'python "$HOME/.uaos/uaos.py"'
+
+
+def rule_block(python: str, launcher: Path, source: Path = RULE_BLOCK_SOURCE, *, portable: bool = False) -> str:
+    command = PORTABLE_COMMAND if portable else uaos_command(python, launcher)
+    body = source.read_text(encoding="utf-8").strip().replace("{uaos}", command)
     return f"{BLOCK_BEGIN}\n{body}\n{BLOCK_END}\n"
 
 
@@ -179,6 +185,7 @@ def _text_change(target: str, path: Path, before: str | None, after: str, detail
 
 
 def plan(home: Path, python: str, *, repo: Path = REPO_ROOT, rules: bool = True, extra_rules: tuple[Path, ...] = (),
+         portable: bool = False,
          enable_codex_hooks: bool = True, uninstall: bool = False) -> list[Change]:
     """Every change the install (or uninstall) would make, without writing anything."""
     home = Path(home)
@@ -186,7 +193,7 @@ def plan(home: Path, python: str, *, repo: Path = REPO_ROOT, rules: bool = True,
     launcher = uaos_dir / "uaos.py"
     state = _load_json(uaos_dir / STATE_FILE)[0] or {}
     changes: list[Change] = []
-    block = None if uninstall else rule_block(python, launcher)
+    block = None if uninstall else rule_block(python, launcher, portable=portable)
     shell_note = ("the Python or home path has spaces: the command is quoted, which bash and cmd run but a PowerShell "
                   "hook shell does not (it needs `& ` in front)") if needs_quotes(python, launcher) and not uninstall else ""
 
@@ -424,6 +431,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--rules-file", action="append", default=[], type=Path,
                         help="Also put the block into this file (e.g. the global-rules canon source); repeatable")
     parser.add_argument("--no-codex-feature", action="store_true", help="Do not set codex_hooks = true")
+    parser.add_argument("--portable", action="store_true",
+                        help='Write the rule block with python "$HOME/.uaos/uaos.py" instead of this PC\'s paths '
+                             "(for the shared global-rules canon)")
     parser.add_argument("--register-sentinel", type=Path, default=None, metavar="PROJECT",
                         help="Windows: start the 24/7 sentinel for PROJECT at every logon (with --apply)")
     parser.add_argument("--unregister-sentinel", type=Path, default=None, metavar="PROJECT")
@@ -439,6 +449,7 @@ def main(argv: list[str] | None = None) -> int:
                 pass
 
     changes = plan(args.home, args.python, rules=not args.no_rules, extra_rules=tuple(args.rules_file),
+                   portable=args.portable,
                    enable_codex_hooks=not args.no_codex_feature, uninstall=args.uninstall)
     pending = [c for c in changes if c.action in ("CREATE", "UPDATE", "REMOVE")]
     output: dict[str, Any] = {"mode": "apply" if args.apply else ("check" if args.check else "dry-run"),
