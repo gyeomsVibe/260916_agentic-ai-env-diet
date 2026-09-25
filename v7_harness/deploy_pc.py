@@ -37,7 +37,7 @@ from typing import Any, Callable
 
 from .global_install import BLOCK_BEGIN, REPO_ROOT
 
-BRANCH = "claude/cool-hamilton-yj6wwo"
+BRANCH = "main"  # PR #1 merged the Claude branch; the rollout runs from main (--branch overrides)
 DEFAULT_CANON = REPO_ROOT.parent / "260718_agentic-ai-platform-optimization"
 GENERATOR = Path("shared") / "global-rules" / "scripts" / "sync-global-rules.ps1"
 CANON_SOURCE_ROOT = Path("shared") / "global-rules"
@@ -107,11 +107,11 @@ def _git_out(runner: Callable[..., Any], cwd: Path, *args: str) -> tuple[int, st
     return done.returncode, (done.stdout or "").strip()
 
 
-def on_branch(runner: Callable[..., Any], repo: Path) -> tuple[int, str]:
+def on_branch(runner: Callable[..., Any], repo: Path, branch: str = BRANCH) -> tuple[int, str]:
     code, out = _git_out(runner, repo, "rev-parse", "--abbrev-ref", "HEAD")
     if code != 0:
         return code, out
-    return (0, out) if out == BRANCH else (1, f"WRONG_BRANCH: on {out}, expected {BRANCH} (git switch {BRANCH})")
+    return (0, out) if out == branch else (1, f"WRONG_BRANCH: on {out}, expected {branch} (git switch {branch})")
 
 
 def canon_clean(runner: Callable[..., Any], canon: Path) -> tuple[int, str]:
@@ -136,16 +136,16 @@ def _read(path: Path) -> str:
 
 
 def build_steps(*, repo: Path, canon: Path, home: Path, python: str, sources: dict[str, Path], push: bool,
-                register_sentinel: bool, receipt_path: Path,
+                register_sentinel: bool, receipt_path: Path, branch: str = BRANCH,
                 runner: Callable[..., Any] = subprocess.run) -> list[Step]:
     installer = [python, str(repo / "uaos_everywhere" / "install_uaos_everywhere.py")]
     rules_args = [arg for path in sources.values() for arg in ("--rules-file", str(path))]
     generator = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(canon / GENERATOR), "-Mode"]
     steps = [
-        Step("on_branch", action=lambda: on_branch(runner, repo)),
+        Step("on_branch", action=lambda: on_branch(runner, repo, branch)),
         Step("canon_clean", action=lambda: canon_clean(runner, canon)),
-        Step("fetch", ["git", "fetch", "origin", BRANCH], repo),
-        Step("merge", ["git", "merge", "--no-edit", f"origin/{BRANCH}"], repo, note="merge, never rebase"),
+        Step("fetch", ["git", "fetch", "origin", branch], repo),
+        Step("merge", ["git", "merge", "--no-edit", f"origin/{branch}"], repo, note="merge, never rebase"),
         Step("regression", [python, str(repo / ".coord" / "runs" / "run_regression.py")], repo),
         Step("install_hooks", [*installer, "--apply", "--no-rules"], repo),
         Step("canon_block", [*installer, "--apply", "--no-rules", "--portable", *rules_args], repo,
@@ -168,7 +168,7 @@ def build_steps(*, repo: Path, canon: Path, home: Path, python: str, sources: di
             Step("canon_push", ["git", "push"], canon),
             Step("receipt_commit", ["git", "commit", "-m", "chore(u41): PC deployment receipt", "--", str(receipt_path)],
                  repo, fatal=False),
-            Step("repo_push", ["git", "push", "origin", f"HEAD:{BRANCH}"], repo),
+            Step("repo_push", ["git", "push", "origin", f"HEAD:{branch}"], repo),
         ]
     return steps
 
@@ -225,6 +225,7 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] = subproce
     parser = argparse.ArgumentParser(prog="deploy_to_this_pc", description=__doc__.splitlines()[0])
     parser.add_argument("--apply", action="store_true", help="Execute the steps (default: print the plan)")
     parser.add_argument("--push", action="store_true", help="Also commit and push the canon change and the receipt")
+    parser.add_argument("--branch", default=BRANCH, help="The branch this repository must be on (default: main)")
     parser.add_argument("--canon", type=Path, default=DEFAULT_CANON, help="The global-rules repository")
     parser.add_argument("--canon-file", action="append", default=[], metavar="RUNTIME=PATH")
     parser.add_argument("--no-sentinel", action="store_true", help="Skip the 24/7 sentinel logon task")
@@ -253,7 +254,7 @@ def main(argv: list[str] | None = None, *, runner: Callable[..., Any] = subproce
         return 1
     steps = build_steps(repo=args.repo, canon=args.canon, home=args.home, python=args.python, sources=sources,
                         push=args.push, register_sentinel=not args.no_sentinel and platform.system() == "Windows",
-                        receipt_path=receipt_path, runner=runner)
+                        receipt_path=receipt_path, branch=args.branch, runner=runner)
     receipt.steps.append({"step": "canon_sources", "status": "OK",
                           "sources": {k: str(v) for k, v in sources.items()}})
     run(steps, receipt, receipt_path, execute=args.apply, runner=runner)

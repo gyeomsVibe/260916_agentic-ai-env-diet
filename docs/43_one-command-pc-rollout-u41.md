@@ -2,6 +2,7 @@
 
 - 사용자 지시(2026-09-25): "3대 도구 전역 규칙 배포, 깃 커밋, 깃 푸시가 마무리될 때까지 무승인 절차로 논스톱으로 진행하고, 사용자를 시켜야 할 일은 모두 너의 도우미로 안티그래비티를 사용하여 무승인으로 진행해라."
 - 상태: 스크립트와 테스트 완료(Linux, 가짜 실행기). **사용자 PC에서의 실제 실행은 아직 하지 않았다.** Codex가 메모 78의 과제로 실행한다.
+- 바뀐 점(PR #1 병합 뒤): Claude 브랜치가 `main`에 병합됐으므로 **배포는 `main`에서 실행한다.** 스크립트 기본 브랜치도 `main`이다(`--branch`로 바꿀 수 있다).
 
 ## 0. 쉽게 말하면
 
@@ -16,7 +17,8 @@
 
 ```powershell
 cd D:\...\260916_agentic-ai-env-diet
-git switch claude/cool-hamilton-yj6wwo
+git switch main
+git pull --ff-only                                              # 병합된 최신 main
 python uaos_everywhere/deploy_to_this_pc.py                    # ① 계획만 표시(아무것도 안 바꿈)
 python uaos_everywhere/deploy_to_this_pc.py --apply --push     # ② 실행 + 커밋 + 푸시
 ```
@@ -29,7 +31,7 @@ python uaos_everywhere/deploy_to_this_pc.py --apply --push     # ② 실행 + �
 | # | 단계 | 관문 | 실패하면 |
 |---|---|---|---|
 | 0 | 정본 원본 찾기 | 런타임마다 원본 1개(`dist`·`scripts`·백업 폴더 제외) | 멈춤. 후보 목록을 영수증에 남김 |
-| 1 | 브랜치 확인 | 현재 브랜치가 `claude/cool-hamilton-yj6wwo` | 멈춤 |
+| 1 | 브랜치 확인 | 현재 브랜치가 `main`(또는 `--branch`로 준 브랜치) | 멈춤 |
 | 2 | 정본 깨끗함 | `shared/global-rules`에 커밋 안 된 변경이 없음(U29: 관련 없는 변경이 섞이지 않게) | 멈춤 |
 | 3 | 가져오기·병합 | `git fetch` 후 `git merge`(재배치 rebase 금지) exit 0 | 멈춤 |
 | 4 | 전체 회귀 | `run_regression.py` exit 0 | 멈춤 |
@@ -39,7 +41,7 @@ python uaos_everywhere/deploy_to_this_pc.py --apply --push     # ② 실행 + �
 | 11 | 런타임 확인 | `~/.claude/CLAUDE.md`·`~/.codex/AGENTS.md`·`~/.gemini/GEMINI.md`에 UAOS 문단 있음 | 멈춤 |
 | 12 | 설치기 점검 | `--check --no-rules --portable --rules-file …` exit 0 | 멈춤 |
 | 13 | 24/7 교환원 | 로그온 작업 등록(Windows) | **경고만**. 관리자 권한 거부면 `shell:startup` 바로가기 안내 |
-| 14~19 | (`--push`) 커밋·푸시 | 정본: 이번 원본과 `dist`만 add → commit → push. 이 저장소: 영수증 add → commit → `push origin HEAD:claude/cool-hamilton-yj6wwo` | 푸시 실패는 멈춤. "커밋할 것 없음"은 재실행이라 괜찮음 |
+| 14~19 | (`--push`) 커밋·푸시 | 정본: 이번 원본과 `dist`만 add → commit → push. 이 저장소: 영수증 add → commit → `push origin HEAD:main` | 푸시 실패는 멈춤. "커밋할 것 없음"은 재실행이라 괜찮음 |
 
 영수증은 `.coord/runs/U41/deploy_receipt_<시각>.json`이다. 모든 단계의 명령, 종료 코드, 걸린 시간, 출력 끝부분을 담는다.
 
@@ -55,7 +57,7 @@ python uaos_everywhere/deploy_to_this_pc.py --apply --push     # ② 실행 + �
 
 ## 4. 검증과 한계
 
-- 테스트: `python -m unittest tests.test_u41_deploy_to_this_pc` → 8 OK. 확인한 것:
+- 테스트: `python -m unittest tests.test_u41_deploy_to_this_pc` → 9 OK. 확인한 것:
   - 정본 원본 찾기(`dist` 무시)
   - 모호하면 멈춤, 지정하면 해결
   - 계획 모드는 아무것도 실행하지 않음

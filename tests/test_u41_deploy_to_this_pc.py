@@ -104,6 +104,15 @@ class DeployTests(unittest.TestCase):
         self.assertEqual("DONE", receipt["result"])
         self.assertNotIn("rebase", " ".join(commands))
 
+    def test_the_rollout_runs_from_main_after_the_merge(self) -> None:
+        self.assertEqual("main", dp.BRANCH)
+        code, out, runner = self._main("--apply", "--push", runner=FakeRunner(branch="main"))
+        self.assertEqual((0, "DONE"), (code, out["result"]), out)
+        commands = [" ".join(c) for c in runner.calls]
+        self.assertIn("git push origin HEAD:main", commands[-1])
+        code, out, _ = self._main("--apply", "--branch", "release", runner=FakeRunner(branch="release"))
+        self.assertEqual((0, "DONE"), (code, out["result"]), out)
+
     def test_the_first_failed_gate_stops_the_run(self) -> None:
         code, out, runner = self._main("--apply", "--push", runner=FakeRunner(fail={"run_regression.py": 1}))
         self.assertEqual((1, "STOPPED", "regression"), (code, out["result"], out["stopped_at"]))
@@ -111,7 +120,7 @@ class DeployTests(unittest.TestCase):
         self.assertFalse(any(c[:2] == ["git", "push"] for c in runner.calls))
 
     def test_wrong_branch_and_a_dirty_canon_stop_first(self) -> None:
-        _code, out, _ = self._main("--apply", runner=FakeRunner(branch="main"))
+        _code, out, _ = self._main("--apply", runner=FakeRunner(branch="claude/old-branch"))
         self.assertEqual("on_branch", out["stopped_at"])
         _code, out, runner = self._main("--apply", runner=FakeRunner(dirty=" M shared/global-rules/src/claude.md"))
         self.assertEqual("canon_clean", out["stopped_at"])
