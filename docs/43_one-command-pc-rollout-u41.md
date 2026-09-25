@@ -1,7 +1,17 @@
 # 43. 사용자 PC 마무리 배포를 명령 하나로 — `deploy_to_this_pc` (U41, 2026-09-25)
 
 - 사용자 지시(2026-09-25): "3대 도구 전역 규칙 배포, 깃 커밋, 깃 푸시가 마무리될 때까지 무승인 절차로 논스톱으로 진행하고, 사용자를 시켜야 할 일은 모두 너의 도우미로 안티그래비티를 사용하여 무승인으로 진행해라."
-- 상태: 스크립트와 테스트 완료(Linux, 가짜 실행기). **사용자 PC에서의 실제 실행은 아직 하지 않았다.** Codex가 메모 78의 과제로 실행한다.
+- 상태: **사용자 PC에서 실행 완료(2026-09-25 15:17, 영수증 `.coord/runs/U41/deploy_receipt_20260925T151707.json`).**
+  - 0~12단계가 모두 OK다. 회귀, 훅 설치, 정본 문단, 생성기 Build·SourceCheck·Apply·Check, 세 런타임 규칙 확인, 설치기 점검이 여기에 들어간다.
+  - 정본 푸시에 성공했다(`260718_agentic-ai-platform-optimization` `dee64c7..be0ef78 main`).
+  - 정본 원본은 `claude.md`(Claude)와 `core.md`(Codex·Antigravity 공용)였다.
+  - 경고 2건(설계상 멈추지 않음):
+    - 교환원 등록 exit 1: 관리자 권한이 필요하다.
+    - 정본 commit exit 1: 앞선 실행이 이미 커밋해 둬서 "커밋할 것 없음"이었다.
+  - **발견한 결함(수정함)**: 커밋된 영수증이 `result: DRY_RUN`으로 적혀 있었다.
+    - 원인: 영수증을 실행 도중(`receipt_commit` 직전)에 찍어 커밋하는데, 그때 결과 칸이 기본값 `DRY_RUN` 그대로였다.
+    - 수정: 실제 실행은 시작부터 `IN_PROGRESS`로 적는다. 커밋본에는 `snapshot_of`로 "중간 사본"임을 표시한다. 최종 결과(`DONE`)는 로컬 파일에 남는다.
+    - 이 영수증은 실제로는 정본 푸시까지 성공한 실행이다.
 - 바뀐 점(PR #1 병합 뒤): Claude 브랜치가 `main`에 병합됐으므로 **배포는 `main`에서 실행한다.** 스크립트 기본 브랜치도 `main`이다(`--branch`로 바꿀 수 있다).
 
 ## 0. 쉽게 말하면
@@ -57,7 +67,7 @@ python uaos_everywhere/deploy_to_this_pc.py --apply --push     # ② 실행 + �
 
 ## 4. 검증과 한계
 
-- 테스트: `python -m unittest tests.test_u41_deploy_to_this_pc` → 9 OK. 확인한 것:
+- 테스트: `python -m unittest tests.test_u41_deploy_to_this_pc` → 10 OK. 확인한 것:
   - 정본 원본 찾기(`dist` 무시)
   - 모호하면 멈춤, 지정하면 해결
   - 계획 모드는 아무것도 실행하지 않음

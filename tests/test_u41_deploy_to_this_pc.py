@@ -24,6 +24,8 @@ class FakeRunner:
 
     def __call__(self, command, **kwargs):
         self.calls.append(list(command))
+        if command[:3] == ["git", "add", "--"] and command[-1].endswith(".json"):
+            self.committed_receipt = json.loads(Path(command[-1]).read_text(encoding="utf-8"))
         text = " ".join(command)
         if command[:3] == ["git", "rev-parse", "--abbrev-ref"]:
             return subprocess.CompletedProcess(command, 0, self.branch, "")
@@ -112,6 +114,18 @@ class DeployTests(unittest.TestCase):
         self.assertIn("git push origin HEAD:main", commands[-1])
         code, out, _ = self._main("--apply", "--branch", "release", runner=FakeRunner(branch="release"))
         self.assertEqual((0, "DONE"), (code, out["result"]), out)
+
+    def test_the_committed_receipt_never_reads_dry_run(self) -> None:
+        # The first real PC run committed result=DRY_RUN: the snapshot was taken before the loop set the result.
+        code, out, runner = self._main("--apply", "--push")
+        self.assertEqual((0, "DONE"), (code, out["result"]))
+        snapshot = runner.committed_receipt
+        self.assertEqual("IN_PROGRESS", snapshot["result"])
+        self.assertIn("receipt_commit", snapshot["snapshot_of"])
+        self.assertEqual("canon_push", snapshot["steps"][-1]["step"])
+        final = json.loads(next(self.receipts.glob("deploy_receipt_*.json")).read_text(encoding="utf-8"))
+        self.assertEqual(("DONE", None), (final["result"], final["snapshot_of"]))
+        self.assertEqual("repo_push", final["steps"][-1]["step"])
 
     def test_the_first_failed_gate_stops_the_run(self) -> None:
         code, out, runner = self._main("--apply", "--push", runner=FakeRunner(fail={"run_regression.py": 1}))
