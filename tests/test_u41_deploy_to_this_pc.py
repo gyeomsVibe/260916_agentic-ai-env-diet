@@ -18,12 +18,14 @@ from v7_harness import global_install as gi
 class FakeRunner:
     def __init__(self, fail: dict[str, int] | None = None, branch: str = dp.BRANCH, dirty: str = ""):
         self.calls: list[list[str]] = []
+        self.call_envs: list[dict[str, str]] = []
         self.fail = fail or {}
         self.branch = branch
         self.dirty = dirty
 
     def __call__(self, command, **kwargs):
         self.calls.append(list(command))
+        self.call_envs.append(dict(kwargs.get("env") or {}))
         if command[:3] == ["git", "add", "--"] and command[-1].endswith(".json"):
             self.committed_receipt = json.loads(Path(command[-1]).read_text(encoding="utf-8"))
         text = " ".join(command)
@@ -126,6 +128,15 @@ class DeployTests(unittest.TestCase):
         final = json.loads(next(self.receipts.glob("deploy_receipt_*.json")).read_text(encoding="utf-8"))
         self.assertEqual(("DONE", None), (final["result"], final["snapshot_of"]))
         self.assertEqual("repo_push", final["steps"][-1]["step"])
+
+    def test_push_override_is_scoped_to_the_two_push_commands(self) -> None:
+        code, out, runner = self._main("--apply", "--push")
+        self.assertEqual((0, "DONE"), (code, out["result"]))
+        tagged = [(call, env.get("ALLOW_PUSH")) for call, env in zip(runner.calls, runner.call_envs)]
+        enabled = [call for call, value in tagged if value == "1"]
+        self.assertEqual(2, len(enabled), tagged)
+        self.assertTrue(all(call[:2] == ["git", "push"] for call in enabled), enabled)
+        self.assertTrue(all(value is None for call, value in tagged if call[:2] != ["git", "push"]), tagged)
 
     def test_the_first_failed_gate_stops_the_run(self) -> None:
         code, out, runner = self._main("--apply", "--push", runner=FakeRunner(fail={"run_regression.py": 1}))
