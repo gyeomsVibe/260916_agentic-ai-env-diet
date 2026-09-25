@@ -58,8 +58,10 @@ CANON_SOURCE_ROOT = Path("shared") / "global-rules"
 # Which canon file feeds which runtime. Exactly one match per runtime, or the run stops (CANON_SOURCES_AMBIGUOUS).
 CANON_PATTERNS = {
     "claude": ("claude*.md",),
-    "codex": ("agents*.md", "codex*.md"),
-    "antigravity": ("gemini*.md", "antigravity*.md"),
+    # Codex and Antigravity are generated as core + adapter. The portable UAOS block belongs in the shared core
+    # exactly once; putting it in each adapter duplicates the same rule lines in both generated runtimes.
+    "codex": ("core.md",),
+    "antigravity": ("core.md",),
 }
 SKIP_DIRS = {"dist", "build", "scripts", "fixtures", "tests", "backup", "backups", ".git", "node_modules", "history"}
 RUNTIME_RULES = {"claude": Path(".claude") / "CLAUDE.md", "codex": Path(".codex") / "AGENTS.md",
@@ -116,7 +118,8 @@ def _glob_ci(name: str, pattern: str) -> bool:
 
 def _git_out(runner: Callable[..., Any], cwd: Path, *args: str) -> tuple[int, str]:
     try:
-        done = runner(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+        done = runner(["git", *args], cwd=str(cwd), capture_output=True, text=True,
+                      encoding="utf-8", errors="replace")
     except OSError as exc:
         return 127, str(exc)
     return done.returncode, (done.stdout or "").strip()
@@ -154,7 +157,8 @@ def build_steps(*, repo: Path, canon: Path, home: Path, python: str, sources: di
                 register_sentinel: bool, receipt_path: Path, branch: str = BRANCH,
                 runner: Callable[..., Any] = subprocess.run) -> list[Step]:
     installer = [python, str(repo / "uaos_everywhere" / "install_uaos_everywhere.py")]
-    rules_args = [arg for path in sources.values() for arg in ("--rules-file", str(path))]
+    unique_sources = list(dict.fromkeys(sources.values()))
+    rules_args = [arg for path in unique_sources for arg in ("--rules-file", str(path))]
     generator = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(canon / GENERATOR), "-Mode"]
     steps = [
         Step("on_branch", action=lambda: on_branch(runner, repo, branch)),
@@ -212,7 +216,8 @@ def run(steps: list[Step], receipt: Receipt, receipt_path: Path, *, execute: boo
             receipt.snapshot_of = "deployment gates through canon_push; receipt_commit and repo_push publish this snapshot"
             _write(receipt, receipt_path)  # the receipt goes into the commit with every earlier step
             receipt.snapshot_of = None
-            runner(["git", "add", "--", str(receipt_path)], cwd=str(step.cwd), capture_output=True, text=True)
+            runner(["git", "add", "--", str(receipt_path)], cwd=str(step.cwd), capture_output=True, text=True,
+                   encoding="utf-8", errors="replace")
         started = time.monotonic()
         if step.action is not None:
             code, output = step.action()
@@ -222,6 +227,8 @@ def run(steps: list[Step], receipt: Receipt, receipt_path: Path, *, execute: boo
                     "cwd": str(step.cwd) if step.cwd else None,
                     "capture_output": True,
                     "text": True,
+                    "encoding": "utf-8",
+                    "errors": "replace",
                 }
                 # ALLOW_PUSH exists only to pass the repository's remote-write hook. Giving it to tests,
                 # installers, generators, fetches, merges, adds, or commits silently broadens their authority.
