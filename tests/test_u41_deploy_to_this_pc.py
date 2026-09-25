@@ -117,13 +117,13 @@ class DeployTests(unittest.TestCase):
         code, out, _ = self._main("--apply", "--branch", "release", runner=FakeRunner(branch="release"))
         self.assertEqual((0, "DONE"), (code, out["result"]), out)
 
-    def test_the_committed_receipt_never_reads_dry_run(self) -> None:
-        # The first real PC run committed result=DRY_RUN: the snapshot was taken before the loop set the result.
+    def test_the_committed_receipt_is_a_done_deployment_snapshot(self) -> None:
+        # A remote verifier sees only the committed snapshot, so it must carry the deployment verdict itself.
         code, out, runner = self._main("--apply", "--push")
         self.assertEqual((0, "DONE"), (code, out["result"]))
         snapshot = runner.committed_receipt
-        self.assertEqual("IN_PROGRESS", snapshot["result"])
-        self.assertIn("receipt_commit", snapshot["snapshot_of"])
+        self.assertEqual("DONE", snapshot["result"])
+        self.assertIn("deployment gates through canon_push", snapshot["snapshot_of"])
         self.assertEqual("canon_push", snapshot["steps"][-1]["step"])
         final = json.loads(next(self.receipts.glob("deploy_receipt_*.json")).read_text(encoding="utf-8"))
         self.assertEqual(("DONE", None), (final["result"], final["snapshot_of"]))

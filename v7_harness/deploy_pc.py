@@ -175,7 +175,7 @@ def build_steps(*, repo: Path, canon: Path, home: Path, python: str, sources: di
                  canon, fatal=False, note="nothing to commit is fine on a re-run"),
             Step("canon_push", ["git", "push"], canon),
             Step("receipt_commit", ["git", "commit", "-m", "chore(u41): PC deployment receipt", "--", str(receipt_path)],
-                 repo, fatal=False),
+                 repo),
             Step("repo_push", ["git", "push", "origin", f"HEAD:{branch}"], repo),
         ]
     return steps
@@ -192,7 +192,11 @@ def run(steps: list[Step], receipt: Receipt, receipt_path: Path, *, execute: boo
             receipt.steps.append({**entry, "status": "PLANNED"})
             continue
         if step.name == "receipt_commit":
-            receipt.snapshot_of = "steps before receipt_commit; the final result stays in the local file"
+            # All deployment gates, including the canon push, are complete. The remaining commit and repo push
+            # only publish this evidence. If either fails, the local receipt is rewritten STOPPED and no remote
+            # verifier can mistake an unpublished snapshot for a completed rollout.
+            receipt.result = "DONE"
+            receipt.snapshot_of = "deployment gates through canon_push; receipt_commit and repo_push publish this snapshot"
             _write(receipt, receipt_path)  # the receipt goes into the commit with every earlier step
             receipt.snapshot_of = None
             runner(["git", "add", "--", str(receipt_path)], cwd=str(step.cwd), capture_output=True, text=True)
