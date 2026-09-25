@@ -39,14 +39,29 @@ from typing import Any, Callable
 from .global_install import BLOCK_BEGIN, REPO_ROOT
 
 BRANCH = "main"  # PR #1 merged the Claude branch; the rollout runs from main (--branch overrides)
-DEFAULT_CANON = REPO_ROOT.parent / "260718_agentic-ai-platform-optimization"
+PROJECT_DIR_NAME = "260916_agentic-ai-env-diet"
+CANON_DIR_NAME = "260718_agentic-ai-platform-optimization"
+
+
+def default_canon(repo: Path = REPO_ROOT) -> Path:
+    """Resolve the fixed sibling canon from either the primary checkout or one of its managed worktrees."""
+    resolved = Path(repo).resolve()
+    for node in (resolved, *resolved.parents):
+        if node.name == PROJECT_DIR_NAME:
+            return node.parent / CANON_DIR_NAME
+    return resolved.parent / CANON_DIR_NAME
+
+
+DEFAULT_CANON = default_canon()
 GENERATOR = Path("shared") / "global-rules" / "scripts" / "sync-global-rules.ps1"
 CANON_SOURCE_ROOT = Path("shared") / "global-rules"
 # Which canon file feeds which runtime. Exactly one match per runtime, or the run stops (CANON_SOURCES_AMBIGUOUS).
 CANON_PATTERNS = {
     "claude": ("claude*.md",),
-    "codex": ("agents*.md", "codex*.md"),
-    "antigravity": ("gemini*.md", "antigravity*.md"),
+    # Codex and Antigravity are generated as core + adapter. The portable UAOS block belongs in the shared core
+    # exactly once; putting it in each adapter duplicates the same rule lines in both generated runtimes.
+    "codex": ("core.md",),
+    "antigravity": ("core.md",),
 }
 SKIP_DIRS = {"dist", "build", "scripts", "fixtures", "tests", "backup", "backups", ".git", "node_modules", "history"}
 RUNTIME_RULES = {"claude": Path(".claude") / "CLAUDE.md", "codex": Path(".codex") / "AGENTS.md",
@@ -103,8 +118,8 @@ def _glob_ci(name: str, pattern: str) -> bool:
 
 def _git_out(runner: Callable[..., Any], cwd: Path, *args: str) -> tuple[int, str]:
     try:
-        env = dict(os.environ, ALLOW_PUSH="1")
-        done = runner(["git", *args], cwd=str(cwd), capture_output=True, text=True, env=env)
+        done = runner(["git", *args], cwd=str(cwd), capture_output=True, text=True,
+                      encoding="utf-8", errors="replace")
     except OSError as exc:
         return 127, str(exc)
     return done.returncode, (done.stdout or "").strip()
@@ -142,7 +157,8 @@ def build_steps(*, repo: Path, canon: Path, home: Path, python: str, sources: di
                 register_sentinel: bool, receipt_path: Path, branch: str = BRANCH,
                 runner: Callable[..., Any] = subprocess.run) -> list[Step]:
     installer = [python, str(repo / "uaos_everywhere" / "install_uaos_everywhere.py")]
-    rules_args = [arg for path in sources.values() for arg in ("--rules-file", str(path))]
+    unique_sources = list(dict.fromkeys(sources.values()))
+    rules_args = [arg for path in unique_sources for arg in ("--rules-file", str(path))]
     generator = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(canon / GENERATOR), "-Mode"]
     steps = [
         Step("on_branch", action=lambda: on_branch(runner, repo, branch)),
@@ -176,7 +192,7 @@ def build_steps(*, repo: Path, canon: Path, home: Path, python: str, sources: di
                  canon, fatal=False, note="nothing to commit is fine on a re-run"),
             Step("canon_push", ["git", "push"], canon),
             Step("receipt_commit", ["git", "commit", "-m", "chore(u41): PC deployment receipt", "--", str(receipt_path)],
-                 repo, fatal=False),
+                 repo),
             Step("repo_push", ["git", "push", "origin", f"HEAD:{branch}"], repo),
         ]
     return steps
@@ -193,16 +209,32 @@ def run(steps: list[Step], receipt: Receipt, receipt_path: Path, *, execute: boo
             receipt.steps.append({**entry, "status": "PLANNED"})
             continue
         if step.name == "receipt_commit":
-            receipt.snapshot_of = "steps before receipt_commit; the final result stays in the local file"
+            # All deployment gates, including the canon push, are complete. The remaining commit and repo push
+            # only publish this evidence. If either fails, the local receipt is rewritten STOPPED and no remote
+            # verifier can mistake an unpublished snapshot for a completed rollout.
+            receipt.result = "DONE"
+            receipt.snapshot_of = "deployment gates through canon_push; receipt_commit and repo_push publish this snapshot"
             _write(receipt, receipt_path)  # the receipt goes into the commit with every earlier step
             receipt.snapshot_of = None
-            runner(["git", "add", "--", str(receipt_path)], cwd=str(step.cwd), capture_output=True, text=True, env=dict(os.environ, ALLOW_PUSH="1"))
+            runner(["git", "add", "--", str(receipt_path)], cwd=str(step.cwd), capture_output=True, text=True,
+                   encoding="utf-8", errors="replace")
         started = time.monotonic()
         if step.action is not None:
             code, output = step.action()
         else:
             try:
-                done = runner(step.command, cwd=str(step.cwd) if step.cwd else None, capture_output=True, text=True, env=dict(os.environ, ALLOW_PUSH="1"))
+                kwargs: dict[str, Any] = {
+                    "cwd": str(step.cwd) if step.cwd else None,
+                    "capture_output": True,
+                    "text": True,
+                    "encoding": "utf-8",
+                    "errors": "replace",
+                }
+                # ALLOW_PUSH exists only to pass the repository's remote-write hook. Giving it to tests,
+                # installers, generators, fetches, merges, adds, or commits silently broadens their authority.
+                if step.name in {"canon_push", "repo_push"}:
+                    kwargs["env"] = dict(os.environ, ALLOW_PUSH="1")
+                done = runner(step.command, **kwargs)
                 code, output = done.returncode, (done.stdout or "") + (done.stderr or "")
             except OSError as exc:
                 code, output = 127, f"{type(exc).__name__}: {exc}"
