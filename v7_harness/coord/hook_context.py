@@ -105,3 +105,26 @@ def brief_line(project: Path, presence: dict[str, Any]) -> str:
     desk = ", ".join(f"{tool}={info.get('state')}" for tool, info in presence.items())
     return (f"UAOS project {Path(project).name}: inbox {len(inbox)} (P1 {wakes}, RSI reviews {reviews}); desk {desk}. "
             "Read .coord/PLAN.md; `coord inbox` lists what waits.")[:400]
+
+
+def p1_line(project: Path, presence: dict[str, Any]) -> str:
+    """U38: the P1 hand-off to Claude while Codex is away. Empty unless a wake waits and Codex is not ACTIVE, so an
+    ordinary prompt carries nothing (a hook's stdout on UserPromptSubmit is added to the prompt)."""
+    if (presence.get("codex") or {}).get("state") == "ACTIVE":
+        return ""  # the sentinel rings Codex itself (codex queue)
+    box_dir = Path(project) / ".coord" / "mailbox" / "inbox"
+    wakes = sorted(box_dir.glob("wake_*.json")) if box_dir.is_dir() else []
+    if not wakes:
+        return ""
+    reason = ""
+    try:
+        data = json.loads(wakes[0].read_text(encoding="utf-8"))
+        payload = data.get("payload") if isinstance(data, dict) else None
+        if isinstance(payload, dict):
+            reason = str(payload.get("wake_reason") or "")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        pass
+    codex = (presence.get("codex") or {}).get("state", "UNKNOWN")
+    return (f"UAOS P1 waiting ({len(wakes)}), Codex {codex}: {reason or 'see mailbox'}. Claude acts as deputy: "
+            "`coord inbox`, handle it, then `coord ack --id <id>`.")[:400]
+

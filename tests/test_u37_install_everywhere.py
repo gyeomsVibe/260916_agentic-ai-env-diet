@@ -83,7 +83,8 @@ class InstallerTests(unittest.TestCase):
         start = settings["hooks"]["SessionStart"]
         self.assertEqual("echo mine", start[0]["hooks"][0]["command"])
         self.assertIn("--tool claude --state ACTIVE", start[1]["hooks"][0]["command"])
-        self.assertIn("--say none", settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"])
+        # U38: silent on ordinary prompts; one line only for a P1 hand-off while Codex is away.
+        self.assertIn("--say p1", settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"])
         rules = (self.home / ".claude" / "CLAUDE.md").read_text(encoding="utf-8")
         self.assertTrue(rules.startswith("# My rules\n- keep this\n\n<!-- UAOS:BEGIN"))
         # Hook and rule commands write paths with forward slashes on every OS (bash, cmd and PowerShell all run them).

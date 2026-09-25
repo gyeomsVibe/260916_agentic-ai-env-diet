@@ -222,9 +222,9 @@ def plan(home: Path, python: str, *, repo: Path = REPO_ROOT, rules: bool = True,
                     # SessionStart stdout becomes context: one line, only inside a UAOS project.
                     "SessionStart": [{"hooks": [{"type": "command", "timeout": 10, "command": presence_command(
                         python, launcher, "claude", "ACTIVE", 3600, "brief")}]}],
-                    # UserPromptSubmit stdout would ride on every prompt, so it prints nothing.
+                    # UserPromptSubmit stdout rides on the prompt: only a P1 hand-off while Codex is away (U38).
                     "UserPromptSubmit": [{"hooks": [{"type": "command", "timeout": 10, "command": presence_command(
-                        python, launcher, "claude", "ACTIVE", 3600, "none")}]}],
+                        python, launcher, "claude", "ACTIVE", 3600, "p1")}]}],
                     "SessionEnd": [{"hooks": [{"type": "command", "timeout": 10, "command": presence_command(
                         python, launcher, "claude", "ABSENT", 86400, "none")}]}],
                 }

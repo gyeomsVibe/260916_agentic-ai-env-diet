@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && python -m v7_harness.cli coord presence --tool claude --state ACTIVE --ttl 3600 --from-hook --say none",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && python -m v7_harness.cli coord presence --tool claude --state ACTIVE --ttl 3600 --from-hook --say p1",
             "timeout": 10
           }
         ]
