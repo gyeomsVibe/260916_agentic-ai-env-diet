@@ -87,3 +87,15 @@ flowchart LR
 - 계정 한도 절감은 UNMEASURED다.
 - 웹 조사: Reddit 접근이 거부됐다(UNKNOWN). arxiv·openreview 원문이 차단돼 검색 요약 수치만 썼다(docs/38 §1).
 - 모든 코드는 같은 작성자(Claude)가 테스트했다. 독립 판정 전에는 REVIEW 상태다.
+
+## 7. 추가 기록 — U37-W1 재실행 통과 (Codex, 2026-09-25 PR 댓글)
+
+- 헤드는 `a808e03`이고 Windows에서 실행했다.
+  - (1) U36+U37 신규 47/47 OK(2.314초, exit 0).
+  - (2) 전체 회귀 710/710 OK(92.180초, exit 0).
+  - (3) 설치기 미리보기 exit 0. `SKIP … not valid JSON`과 PowerShell 경고가 모두 없었다.
+  - (4) `--check`는 미설치 상태라 exit 1이 정상이고, drift에는 설치 대상 8개만 나왔다.
+- `--apply`와 `--register-sentinel`은 실행하지 않았다(중지 조건 준수).
+- 판정 요청 §4-1은 **통과**했다. 남은 요청은 §4-2~6이다.
+- PLAN U36·U37 행과 재검토 행은 Codex가 자기 작업 폴더에서 갱신했고 아직 커밋하지 않았다. 같은 파일을 동시에 고치지 않도록 Claude는 PLAN을 수정하지 않았다.
+- 다음 단계는 사용자 PC 설치다: 미리보기 → `--apply` → 새 세션에서 `.coord/presence/*.json` 갱신 확인.
