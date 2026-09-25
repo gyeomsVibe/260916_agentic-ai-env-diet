@@ -1,5 +1,10 @@
 # uaos_everywhere — UAOS를 이 PC의 모든 프로젝트에 설치하기
 
+<!-- uaos-update:8eee03249cf9eb89a90d9f9421766b468308eee5ecebf5fb88460a08e9469569 -->
+## 업데이트 (0.1.0, 2026-09-25)
+
+- 검증된 근거만 버전된 PR 후보로 만드는 fail-closed 파이프라인과 결정적 변경 감시 스케줄러 구현.
+
 이 폴더 하나로 UAOS를 모든 프로젝트에서 가동한다. 설치되는 것은 다음과 같다.
 
 - 세 AI 도구(Codex·Claude Code·Antigravity)의 전역 규칙에 UAOS 문단.
