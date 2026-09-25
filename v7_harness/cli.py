@@ -285,7 +285,8 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         print_timeout_s=int(contract["timeout_s"]) if contract else args.print_timeout,
         approve_bundle_id=args.approve,
         accept_cmd=args.accept_cmd or (contract["acceptance"] if contract else None),
-        model=getattr(args, "model", None),
+        # U38: a contract may name its model (e.g. a Claude worker's Haiku or Sonnet); --model on the command line wins.
+        model=getattr(args, "model", None) or ((contract.get("model") or None) if contract else None),
         allow_no_changes=getattr(args, "allow_no_changes", False),
         allowed_scopes=allowed or None,
         # B85: every paid run is checked against the contract budget, not only a cascade escalation.

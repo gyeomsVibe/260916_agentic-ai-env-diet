@@ -7,4 +7,5 @@
 - Ollama는 단순 추론·의지 없는 전자계산기, 전화기다. 요약·추출·정확한 패치에 먼저 사용하고 작업 ID·토큰·벽시계·인수 결과를 기록한다. 설계·승인·성공 판정은 Claude 또는 복귀한 Codex가 한다.
 - 같은 파일을 동시에 수정하지 않는다. 사용량 절약은 실패한 인수나 작성자 자기 검증을 정당화하지 못한다. 유료 모델의 주기적 대기 폴링은 하지 않는다.
 - RSI 정본 `docs/31_evidence-gated-rsi-for-uaos.md`를 따른다. 같은 `work_id`의 사용·실패 영수증을 `.coord/usage/`에 기록하고, 독립 반례/고정 인수 없이 자기 제안을 승격하지 않는다. 자동 장부 수집은 `pilot run`에만 적용된다(U27). 개선 후보는 `rsi gate`(장부 재계산)를 거치고 자기 후보는 판정하지 않는다(docs/38). 모든 프로젝트 설치는 `uaos_everywhere/`(docs/39).
+- Claude Code는 UAOS 정식 작업자다(U38): `worker: claude`(예산 필수, 판정은 codex·user), 읽기 전용 검증 `pilot review --reviewer claude`(참고 증거), Codex 부재 중 P1은 다음 프롬프트에 한 줄로 받는다. 세부 docs/40.
 - Ollama·Antigravity 위임은 `pilot manual new`→`pilot manual lint`→`pilot run --manual`(계약 밖 변경·요청 밖 삭제 자동 거부, 판정자만 승인). 코드를 이미 정했으면 `worker: apply`(0토큰). 세션 시작 시 `coord presence --tool claude --state ACTIVE`, 쌓인 보고는 `coord inbox`. 세부: `docs/37`.

@@ -135,6 +135,12 @@ class RemoteBudgetContractTests(unittest.TestCase):
                     redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                 main(["pilot", "run", "--task", "U38_T", "--source", d, "--manual", str(root / "m.md")])
             self.assertEqual(120000, run.call_args.args[0].remote_budget_tokens)
+            (root / "m2.md").write_text(self._manual(root, remote_budget_tokens=120000).replace(
+                "judge: codex", "judge: codex\nmodel: claude-haiku-4-5-20251001"), encoding="utf-8")
+            with mock.patch("v7_harness.pilot.run_pilot", return_value={"state": "SUCCEEDED", "verdict_hint": "PASS"}) as run, \
+                    redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                main(["pilot", "run", "--task", "U38_T", "--source", d, "--manual", str(root / "m2.md")])
+            self.assertEqual("claude-haiku-4-5-20251001", run.call_args.args[0].model)
 
     def test_an_unidentified_approver_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as d:
