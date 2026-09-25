@@ -28,7 +28,7 @@ class AutoRoutingTest(unittest.TestCase):
         s = out.getvalue()
         return calls, json.loads(s[s.index("{"):])
 
-    def _run_err(self, err):
+    def _run_err(self, err, escalate_to="lane"):
         calls = []
 
         def fake_run(config):
@@ -40,7 +40,7 @@ class AutoRoutingTest(unittest.TestCase):
         with mock.patch("v7_harness.pilot.run_pilot", fake_run), redirect_stdout(StringIO()):
             cli.main([
                 "pilot", "run", "--task", "E1", "--source", ".", "--prompt", "x",
-                "--worker", "cascade", "--work-dir", ".work/_auto_test",
+                "--worker", "cascade", "--work-dir", ".work/_auto_test", "--escalate-to", escalate_to,
             ])
         return calls
 
@@ -51,19 +51,24 @@ class AutoRoutingTest(unittest.TestCase):
         )
         calls, s = self._run(specific, ["REWORK", "PASS"])
         self.assertTrue(calls[0][1].endswith("ollama_worker.py"))
-        self.assertEqual(calls[1], ("A1-agy", "agy"))
+        # B85 rework: the paid second stage needs a manual; without one the escalation is refused, not run.
+        self.assertEqual(1, len(calls))
+        self.assertEqual("REFUSED:REMOTE_WITHOUT_MANUAL", s["escalation"])
         self.assertEqual(s["routed_by"]["worker"], "cascade")
         self.assertTrue(s["routed_by"]["specificity"] >= 60)
 
     def test_vague_prompt_goes_agy(self):
         vague = "코드를 적절히 개선해줘"
         calls, s = self._run(vague, ["PASS"])
-        self.assertEqual(calls, [("A1", "agy")])
-        self.assertEqual(s["routed_by"]["worker"], "agy")
+        # Routed to agy, and refused before any call because a paid worker needs a manual (B85 rework).
+        self.assertEqual(calls, [])
+        self.assertEqual(("REMOTE_WITHOUT_MANUAL", "agy"), (s["error_class"], s["worker"]))
 
     def test_local_failure_escalates(self):
+        # A worker failure still moves on once (U39); to the local-model lane here, since a paid stage needs a manual.
         for err in ("PROVIDER_ERROR", "TIMEOUT", "EXECUTION_ERROR"):
-            self.assertEqual(self._run_err(err), ["E1", "E1-agy"])
+            self.assertEqual(self._run_err(err), ["E1", "E1-lane"])
+            self.assertEqual(self._run_err(err, escalate_to="agy"), ["E1"])
 
     def test_other_blocked_does_not_escalate(self):
         for err in ("SOURCE_DIVERGED", "EXTERNAL_WRITE", "ACCEPT_INFRA", "ACCEPT_NOT_RUN"):

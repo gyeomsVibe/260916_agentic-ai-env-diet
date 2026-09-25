@@ -38,6 +38,29 @@ def _is_symlink_or_reparse(path: Path) -> bool:
         pass
     return False
 
+MESSAGE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
+
+
+def _fsync_dir(path: Path) -> None:
+    # A new link is durable only after its directory entry is flushed (POSIX). Windows cannot open a directory
+    # for fsync; NTFS journals the metadata instead.
+    if os.name == "nt":
+        return
+    fd = os.open(str(path), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _read_message(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 @dataclass(frozen=True)
 class ClaimedMessage:
     message_id: str
@@ -75,7 +98,7 @@ class Mailbox:
     def publish(self, message_id: str, payload: object) -> Path:
         if not isinstance(message_id, str):
             raise MailboxRejected("message_id must be a string")
-        if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$", message_id):
+        if not MESSAGE_ID_RE.fullmatch(message_id):
             raise MailboxRejected(f"invalid message_id: {message_id!r}")
         if message_id.upper() in WINDOWS_RESERVED_NAMES:
             raise MailboxRejected(f"reserved device name: {message_id}")
@@ -98,6 +121,17 @@ class Mailbox:
             if pat.search(raw_str):
                 raise MailboxRejected("secret detected in message payload")
 
+        # One message id carries one content wherever it is (inbox, claimed or ack). An acked id is not
+        # delivered again, and a different content under a known id is refused instead of replacing it.
+        for existing in (self.ack_dir / f"{message_id}.json", *self._claimed_files(message_id)):
+            try:
+                existing_bytes = existing.read_bytes()
+            except FileNotFoundError:
+                continue
+            if existing_bytes == encoded:
+                return existing
+            raise MailboxRejected(f"collision with different content for {message_id}")
+
         tmp_name = f"{message_id}_{os.getpid()}_{uuid.uuid4().hex}.tmp"
         tmp_file = self.tmp_dir / tmp_name
         inbox_file = self.inbox_dir / f"{message_id}.json"
@@ -109,20 +143,58 @@ class Mailbox:
                 os.fsync(f.fileno())
             try:
                 os.link(str(tmp_file), str(inbox_file))
-                return inbox_file
             except FileExistsError:
                 existing_bytes = inbox_file.read_bytes()
                 if existing_bytes == encoded:
                     return inbox_file
                 raise MailboxRejected(f"collision with different content for {message_id}")
+            _fsync_dir(self.inbox_dir)
+            return inbox_file
         finally:
             try:
                 tmp_file.unlink(missing_ok=True)
             except OSError:
                 pass
 
+    def _claimed_files(self, message_id: str) -> list[Path]:
+        # Claimed names start with "<id>_", but ids may contain "_", so the id inside the file decides.
+        return [
+            path
+            for path in sorted(self.claimed_dir.glob(f"{message_id}_*.json"))
+            if (_read_message(path) or {}).get("message_id") == message_id
+        ]
+
+    def has_message(self, message_id: str) -> bool:
+        return (
+            (self.inbox_dir / f"{message_id}.json").is_file()
+            or (self.ack_dir / f"{message_id}.json").is_file()
+            or bool(self._claimed_files(message_id))
+        )
+
     def list_inbox(self) -> list[str]:
         return sorted([p.stem for p in self.inbox_dir.glob("*.json") if p.is_file()])
+
+    def peek(self) -> list[tuple[str, object]]:
+        """Read inbox payloads without claiming them, so a status check never hides a message from a consumer."""
+        messages: list[tuple[str, object]] = []
+        for path in sorted(self.inbox_dir.glob("*.json")):
+            data = _read_message(path)
+            if data is not None:
+                messages.append((path.stem, data.get("payload")))
+        return messages
+
+    def list_bad(self) -> list[str]:
+        bad_dir = self.root / "bad"
+        return sorted(p.name for p in bad_dir.glob("*")) if bad_dir.is_dir() else []
+
+    def _quarantine(self, path: Path) -> None:
+        # An unreadable file is kept, not deleted, and surfaced by list_bad() instead of hiding in claimed/.
+        bad_dir = self.root / "bad"
+        bad_dir.mkdir(exist_ok=True)
+        try:
+            os.rename(str(path), str(bad_dir / f"{path.stem}_{uuid.uuid4().hex}{path.suffix}"))
+        except OSError:
+            pass
 
     def claim(self, message_id: str, consumer_id: str) -> ClaimedMessage | None:
         inbox_file = self.inbox_dir / f"{message_id}.json"
@@ -131,12 +203,15 @@ class Mailbox:
         claimed_name = f"{message_id}_{consumer_id}_{os.getpid()}_{uuid.uuid4().hex}.json"
         claimed_file = self.claimed_dir / claimed_name
         try:
+            # The lease starts now. rename keeps the publish-time mtime, which made old messages look stale
+            # the moment they were claimed.
+            os.utime(str(inbox_file))
             os.rename(str(inbox_file), str(claimed_file))
-        except (FileNotFoundError, FileExistsError, OSError):
+        except OSError:
             return None
-        try:
-            data = json.loads(claimed_file.read_text(encoding="utf-8"))
-        except Exception:
+        data = _read_message(claimed_file)
+        if data is None:
+            self._quarantine(claimed_file)
             return None
         return ClaimedMessage(
             message_id=message_id,
@@ -146,39 +221,50 @@ class Mailbox:
             schema=data.get("schema", "u23-mailbox-v1"),
         )
 
+    def renew(self, claim: ClaimedMessage) -> bool:
+        """Extend the lease of a long-running claim. False means the claim was already recovered."""
+        try:
+            os.utime(str(claim.claimed_path))
+        except FileNotFoundError:
+            return False
+        return True
+
     def ack(self, claim: ClaimedMessage) -> Path:
         ack_file = self.ack_dir / f"{claim.message_id}.json"
-        if ack_file.is_file():
-            if claim.claimed_path.exists():
-                try:
-                    claim.claimed_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
-            return ack_file
-        if claim.claimed_path.exists():
-            try:
-                os.link(str(claim.claimed_path), str(ack_file))
-            except FileExistsError:
-                pass
-            finally:
-                try:
-                    claim.claimed_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+        if not claim.claimed_path.exists():
+            if ack_file.is_file():
+                return ack_file
+            raise MailboxRejected(f"claim lost before ack (lease expired or recovered): {claim.message_id}")
+        try:
+            os.link(str(claim.claimed_path), str(ack_file))
+        except FileExistsError:
+            pass
+        else:
+            _fsync_dir(self.ack_dir)
+        claim.claimed_path.unlink(missing_ok=True)
         return ack_file
+
+    def _return_to_inbox(self, path: Path, message_id: str) -> bool:
+        # link, not rename: rename silently replaces an inbox file on POSIX. The claimed copy is removed only
+        # after the inbox holds the same bytes; on any other failure it stays for the next lease expiry.
+        inbox_file = self.inbox_dir / f"{message_id}.json"
+        try:
+            os.link(str(path), str(inbox_file))
+        except FileExistsError:
+            if inbox_file.read_bytes() != path.read_bytes():
+                self._quarantine(path)
+                return False
+        except OSError:
+            return False
+        else:
+            _fsync_dir(self.inbox_dir)
+        path.unlink(missing_ok=True)
+        return True
 
     def nack(self, claim: ClaimedMessage) -> Path:
         inbox_file = self.inbox_dir / f"{claim.message_id}.json"
         if claim.claimed_path.exists():
-            try:
-                os.rename(str(claim.claimed_path), str(inbox_file))
-            except (FileExistsError, OSError):
-                pass
-            finally:
-                try:
-                    claim.claimed_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+            self._return_to_inbox(claim.claimed_path, claim.message_id)
         return inbox_file
 
     def recover_stale_claims(self, stale_timeout_s: float = 60.0) -> list[str]:
@@ -191,20 +277,16 @@ class Mailbox:
                 mtime = path.stat().st_mtime
             except OSError:
                 continue
-            if now - mtime >= stale_timeout_s:
-                try:
-                    data = json.loads(path.read_text(encoding="utf-8"))
-                    msg_id = data.get("message_id")
-                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-                    continue
-                if not isinstance(msg_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", msg_id):
-                    continue
-                if msg_id.upper() in WINDOWS_RESERVED_NAMES:
-                    continue
-                target_inbox = self.inbox_dir / f"{msg_id}.json"
-                try:
-                    os.rename(str(path), str(target_inbox))
-                    recovered.append(msg_id)
-                except (FileExistsError, OSError):
-                    pass
+            if now - mtime < stale_timeout_s:
+                continue
+            msg_id = (_read_message(path) or {}).get("message_id")
+            if (
+                not isinstance(msg_id, str)
+                or not MESSAGE_ID_RE.fullmatch(msg_id)
+                or msg_id.upper() in WINDOWS_RESERVED_NAMES
+            ):
+                self._quarantine(path)
+                continue
+            if self._return_to_inbox(path, msg_id):
+                recovered.append(msg_id)
         return recovered

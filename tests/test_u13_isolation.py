@@ -175,7 +175,8 @@ class U13IsolationTests(unittest.TestCase):
         original_stat = Path.stat
 
         def selective_stat(path: Path, *args, **kwargs):
-            if path.resolve() == target:
+            # realpath, not Path.resolve: on POSIX resolve() calls stat() and would recurse into this mock.
+            if Path(os.path.realpath(path)) == target:
                 raise PermissionError("locked")
             return original_stat(path, *args, **kwargs)
 
@@ -317,7 +318,11 @@ class U13IsolationTests(unittest.TestCase):
         link = home / ".tool"
         self._make_dir_link(link, first)
         before = snapshot_watch_roots([home])
-        os.rmdir(link)  # removes only the link, never the target directory
+        # removes only the link, never the target directory
+        if os.name == "nt":
+            os.rmdir(link)
+        else:
+            link.unlink()
         self._make_dir_link(link, second)
         with self.assertRaises(ExternalWriteDetectedError):
             before.assert_unchanged()

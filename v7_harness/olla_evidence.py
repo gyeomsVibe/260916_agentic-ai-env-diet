@@ -150,8 +150,16 @@ def main(argv: list[str] | None = None) -> int:
         f"Do not include markdown fences, comments, or extra text.\n"
     )
 
+    # U34: constrain the shape at generation time (U29 failed on a code fence around correct JSON). The substring
+    # check below still decides whether the values are true.
+    schema = {
+        "type": "object",
+        "properties": {key: {"type": "string"} for key in keys},
+        "required": keys,
+        "additionalProperties": False,
+    }
     try:
-        raw_response, usage = worker._generate(args.model, combined_prompt, args.timeout)
+        raw_response, usage = worker._generate(args.model, combined_prompt, args.timeout, fmt=schema)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         sys.stderr.write(f"Provider/network error calling Ollama worker: {exc}\n")
         return 1

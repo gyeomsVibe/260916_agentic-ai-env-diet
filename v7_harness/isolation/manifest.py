@@ -37,6 +37,7 @@ DEFAULT_EXCLUDES = {
     ".coord/stream",
     ".coord/mailbox",  # Runtime mailbox is transport evidence and must not trigger SOURCE_DIVERGED
     ".coord/usage",    # Runtime telemetry ledger and must not trigger SOURCE_DIVERGED
+    ".coord/presence",  # Heartbeats written by other tools' session hooks while a pilot runs
     ".coord/codex_brief.md",
 }
 
@@ -136,10 +137,14 @@ def build_manifest(root_dir: Path, excludes: Sequence[str] | None = None) -> Det
             if rel_str.startswith(".claude/codex-relay/") and rel_str.endswith(".log"):
                 continue
 
+            st = file_full.stat()
+            # Sockets, FIFOs and devices hold no source content; opening a socket raised ENXIO and a FIFO would block.
+            if not stat.S_ISREG(st.st_mode):
+                continue
+
             safe_rel = validate_safe_relative_path(rel_str)
             discovered_paths.append(safe_rel)
 
-            st = file_full.stat()
             size = st.st_size
             sha256 = _sha256_file(file_full)
             is_exec = bool(st.st_mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH))

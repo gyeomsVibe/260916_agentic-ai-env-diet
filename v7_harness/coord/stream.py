@@ -19,7 +19,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Iterable
 
 ACTORS = ("codex", "antigravity", "claude")
@@ -138,7 +138,8 @@ def _normalize_refs(refs: Iterable[str] | None) -> tuple[str, ...]:
         if not isinstance(ref, str) or not ref.strip():
             raise StreamRejected("INVALID_REF")
         candidate = ref.replace("\\", "/").strip()
-        if candidate.startswith("/") or ".." in Path(candidate).parts or Path(candidate).drive:
+        # PureWindowsPath: a drive ref (C:/...) escapes the project on the Windows readers even if written on POSIX.
+        if candidate.startswith("/") or ".." in Path(candidate).parts or PureWindowsPath(candidate).drive:
             raise StreamRejected("INVALID_REF")
         if candidate not in normalized:
             normalized.append(candidate)

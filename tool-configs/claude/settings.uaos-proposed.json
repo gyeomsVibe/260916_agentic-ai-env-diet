@@ -1,0 +1,46 @@
+{
+  "_status": "APPLIED 2026-09-25 after the user approved B77. Live copy: .claude/settings.json (this project). Every project on a PC: python install_uaos_everywhere.py --apply (docs/39).",
+  "permissions": {
+    "deny": [
+      "CronCreate",
+      "ScheduleWakeup",
+      "mcp__Claude_Code_Remote__create_trigger",
+      "mcp__Claude_Code_Remote__send_later"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && python -m v7_harness.cli coord presence --tool claude --state ACTIVE --ttl 3600 --from-hook --say brief",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && python -m v7_harness.cli coord presence --tool claude --state ACTIVE --ttl 3600 --from-hook --say none",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && python -m v7_harness.cli coord presence --tool claude --state ABSENT --ttl 86400 --from-hook --say none",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

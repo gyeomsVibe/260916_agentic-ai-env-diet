@@ -22,8 +22,9 @@ NAME_RE = re.compile(r"^(?P<kind>FAIL|ERROR):\s*(?P<name>\S+)")
 # 시험이 실제 사용자 상태를 더럽힌 일이 세 번 있었다(조율 스트림 8건, olla 사용 기록 21줄, 요약 작업 실제 기동).
 # 시험 전후로 이 경로들의 상태를 비교해 바뀌면 통과여도 실패로 본다.
 # ~/.cache/olla 는 동시에 돌아가는 다른 세션의 훅도 정상적으로 쓰므로 감시하면 오탐이 난다(실측: Biz항해 세션 기록 2줄).
-# 대신 시험 전체를 격리 공간(OLLA_USAGE·OLLA_CACHE)에서 돌리고, 이 프로젝트의 조율 스트림만 감시한다.
-GUARDED = (PROJECT / ".coord" / "stream",)
+# 대신 시험 전체를 격리 공간(OLLA_USAGE·OLLA_CACHE)에서 돌리고, 이 프로젝트의 조율 스트림과 사용 장부를 감시한다.
+# 사용 장부: source_dir 를 실제 프로젝트로 둔 pilot 시험이 U27 자동 기록으로 가짜 행을 남겼다(B24_TEST·B21_SHELL).
+GUARDED = (PROJECT / ".coord" / "stream", PROJECT / ".coord" / "usage")
 SANDBOX = PROJECT / ".work" / "test_sandbox"
 
 

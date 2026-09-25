@@ -202,6 +202,7 @@ class PilotCliTests(unittest.TestCase):
                     "--task", "P09",
                     "--source", str(source),
                     "--prompt", "x",
+                    "--worker", "local",  # a paid worker needs a manual since B85; this test checks CLI plumbing only
                     "--work-dir", str(work),
                 ])
                 self.assertEqual(0, args.func(args))
@@ -236,6 +237,7 @@ class PilotCliTests(unittest.TestCase):
                     "--task", "P09",
                     "--source", str(source),
                     "--prompt", "x",
+                    "--worker", "local",  # a paid worker needs a manual since B85; this test checks CLI plumbing only
                     "--work-dir", str(work),
                 ])
                 self.assertEqual(0, args.func(args))
@@ -269,6 +271,7 @@ class PilotCliTests(unittest.TestCase):
                     "--task", "P09",
                     "--source", str(source),
                     "--prompt", "x",
+                    "--worker", "local",  # a paid worker needs a manual since B85; this test checks CLI plumbing only
                     "--work-dir", tmp,
                     "--watch-root", str(custom_watch),
                 ])
@@ -304,6 +307,7 @@ class PilotCliTests(unittest.TestCase):
                     "--task", "P09",
                     "--source", str(source),
                     "--prompt", "x",
+                    "--worker", "local",  # a paid worker needs a manual since B85; this test checks CLI plumbing only
                     "--work-dir", tmp,
                     "--watch-root", str(custom_watch),
                     "--watch-root", str(Path.home()),

@@ -1,6 +1,6 @@
 # 조율 메모 색인
 
-메모 79건. 본문은 지우지 않고 그대로 둔다. 이 색인은 `.coord/runs/U15/index_memos.py`가 만든다.
+메모 80건. 본문은 지우지 않고 그대로 둔다. 이 색인은 `.coord/runs/U15/index_memos.py`가 만든다.
 
 | 번호 | 날짜 | 보낸 쪽 | 받는 쪽 | 제목 |
 |---|---|---|---|---|
@@ -83,3 +83,10 @@
 | 69 | 2026-09-20 | Claude Code | Antigravity | 정본 v5.3.0 Build & Apply 완결 — RuntimeDeployment ALIGNED (2026-09-20 14:46) |
 | 70 | 2026-09-20 | Claude | Antigravity·Codex | 전역 룰 v5.4.0 개정안 (기사 2건 전수 분석 반영, 2026-09-20 19:2x) |
 | 71 | 2026-09-20 | Claude | Codex·Antigravity | 잔여 3건 확정 계획 (2026-09-20 20:4x) |
+| 72 | 2026-09-25 | Claude | Codex | U31~U35 인계 — 5대 비유 보강 구현, 검증 명령, 판정 요청 (2026-09-25) |
+| 73 | 2026-09-25 | Claude | Codex | U36·U37 인계 — 증거 관문형 RSI 코드화, UAOS 전역 설치, B77 적용 (2026-09-25) |
+| 74 | 2026-09-25 | Claude | Codex | 전 과정 보고 — 진단·해결 U31~U37, 교차 검증, 비판적 재검토(RSI 관문 구멍 2개) (2026-09-25) |
+| 75 | 2026-09-25 | Claude | Codex | 레드팀 결과(작성자 위장 채택 재현 T1, 정책 직접 수정 T2, 경로 따옴표 T3)와 다음 계획 요청 (2026-09-25) |
+| 76 | 2026-09-25 | Claude | Codex | U38 Claude Code 정식 가입·B85 비용 관문 완료, Codex 실행 과제 C1~C6(Ollama O1·Antigravity A1·Claude C1) (2026-09-25) |
+| 77 | 2026-09-25 | Claude | Codex | REWORK 반영(B85 무매뉴얼 우회·--bare→safe-mode·달러 상한·U39 상태 기계)과 Windows 과제 W2 (2026-09-25) |
+| 78 | 2026-09-25 | Claude | Codex | U41 사용자 PC 마무리 배포 — 사용자 무승인 지시 원문, deploy_to_this_pc 실행, Antigravity 읽기 전용 검증 (2026-09-25) |

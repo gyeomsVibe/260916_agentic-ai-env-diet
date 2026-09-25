@@ -1,0 +1,130 @@
+"""Find the UAOS project a tool's session hook fired for, and say one line about it.
+
+Global hooks fire in every project, from wherever the tool chose to run them:
+- Claude Code passes `cwd` on stdin and sets CLAUDE_PROJECT_DIR.
+- Codex passes `cwd` on stdin (SessionStart, UserPromptSubmit).
+- Antigravity runs hooks inside ~/.gemini/config/ (antigravity-cli#1005) and passes `workspacePaths` on stdin (#893).
+So the project comes from the payload first, the environment second and the current folder last, and the search walks
+up to the folder that holds `.coord/PLAN.md` (a session may start in a subfolder). No such folder means no UAOS project,
+and the hook stays silent: other projects pay nothing, not even a line of context.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import threading
+from pathlib import Path
+from typing import Any, Iterable
+
+PLAN = Path(".coord") / "PLAN.md"
+_PAYLOAD_KEYS = ("cwd", "workspacePaths", "workspace_paths", "workspaceRoots", "workspace_roots", "project_dir")
+
+
+def read_stdin(timeout_s: float = 2.0) -> str:
+    """The hook payload, or "" for a terminal or a runner that never closes stdin."""
+    stream = sys.stdin
+    if stream is None or stream.closed:
+        return ""
+    try:
+        if stream.isatty():
+            return ""
+    except (ValueError, OSError):
+        return ""
+    box: list[str] = []
+
+    def _read() -> None:
+        try:
+            box.append(stream.read())
+        except (OSError, ValueError, UnicodeDecodeError):
+            box.append("")
+
+    reader = threading.Thread(target=_read, daemon=True)
+    reader.start()
+    reader.join(timeout_s)
+    return box[0] if box else ""
+
+
+def payload_candidates(stdin_text: str) -> list[str]:
+    try:
+        payload = json.loads(stdin_text) if stdin_text.strip() else {}
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, dict):
+        return []
+    found: list[str] = []
+    for key in _PAYLOAD_KEYS:
+        value = payload.get(key)
+        values = value if isinstance(value, list) else [value]
+        for item in values:
+            if isinstance(item, dict):
+                item = item.get("path") or item.get("uri")
+            if isinstance(item, str) and item.strip():
+                item = item.removeprefix("file://")
+                # file:///C:/work becomes /C:/work; the drive letter needs the leading slash removed on Windows.
+                if len(item) > 2 and item[0] == "/" and item[2] == ":" and item[1].isalpha():
+                    item = item[1:]
+                found.append(item)
+    return found
+
+
+def find_project(candidates: Iterable[str | Path], max_depth: int = 25) -> Path | None:
+    for candidate in candidates:
+        try:
+            current = Path(candidate).expanduser().resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        for _ in range(max_depth):
+            if (current / PLAN).is_file():
+                return current
+            if current.parent == current:
+                break
+            current = current.parent
+    return None
+
+
+def hook_project(stdin_text: str, fallback: str | Path | None, env: dict[str, str] | None = None) -> Path | None:
+    env = os.environ if env is None else env
+    candidates: list[str | Path] = payload_candidates(stdin_text)
+    if env.get("CLAUDE_PROJECT_DIR"):
+        candidates.append(env["CLAUDE_PROJECT_DIR"])
+    if fallback is not None:
+        candidates.append(fallback)
+    return find_project(candidates)
+
+
+def brief_line(project: Path, presence: dict[str, Any]) -> str:
+    """One line of session context (a SessionStart hook's stdout becomes context in Claude Code and Codex)."""
+    inbox: list[str] = []
+    box_dir = Path(project) / ".coord" / "mailbox" / "inbox"
+    if box_dir.is_dir():
+        inbox = sorted(path.stem for path in box_dir.glob("*.json"))
+    wakes = sum(1 for item in inbox if item.startswith("wake_"))
+    reviews = sum(1 for item in inbox if item.startswith("rsi_review_"))
+    desk = ", ".join(f"{tool}={info.get('state')}" for tool, info in presence.items())
+    return (f"UAOS project {Path(project).name}: inbox {len(inbox)} (P1 {wakes}, RSI reviews {reviews}); desk {desk}. "
+            "Read .coord/PLAN.md; `coord inbox` lists what waits.")[:400]
+
+
+def p1_line(project: Path, presence: dict[str, Any]) -> str:
+    """U38: the P1 hand-off to Claude while Codex is away. Empty unless a wake waits and Codex is not ACTIVE, so an
+    ordinary prompt carries nothing (a hook's stdout on UserPromptSubmit is added to the prompt)."""
+    if (presence.get("codex") or {}).get("state") == "ACTIVE":
+        return ""  # the sentinel rings Codex itself (codex queue)
+    box_dir = Path(project) / ".coord" / "mailbox" / "inbox"
+    wakes = sorted(box_dir.glob("wake_*.json")) if box_dir.is_dir() else []
+    if not wakes:
+        return ""
+    reason = ""
+    try:
+        data = json.loads(wakes[0].read_text(encoding="utf-8"))
+        payload = data.get("payload") if isinstance(data, dict) else None
+        if isinstance(payload, dict):
+            reason = str(payload.get("wake_reason") or "")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        pass
+    codex = (presence.get("codex") or {}).get("state", "UNKNOWN")
+    return (f"UAOS P1 waiting ({len(wakes)}), Codex {codex}: {reason or 'see mailbox'}. Claude acts as deputy: "
+            "`coord inbox`, handle it, then `coord ack --id <id>`.")[:400]
+

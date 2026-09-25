@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from .mailbox import Mailbox, ClaimedMessage
+from .mailbox import Mailbox, ClaimedMessage, MailboxRejected
 from .stream import Event, read_events
 
 ACTIONABLE_KINDS = frozenset({"RUN", "BLOCKED", "HANDOFF"})
@@ -106,8 +106,12 @@ def sync_stream_to_mailbox(
             box.publish(message_id, payload)
             published.append(message_id)
             synced_ids.add(event_id)
-        except Exception:
+        except MailboxRejected:
+            # Permanent (secret, size, id collision): retrying cannot help.
             synced_ids.add(event_id)
+        except OSError:
+            # Transient (locked file, full disk): leave it unsynced so the next cycle retries.
+            continue
 
     if cursor_file:
         cursor_file.parent.mkdir(parents=True, exist_ok=True)

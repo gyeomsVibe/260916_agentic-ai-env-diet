@@ -40,6 +40,7 @@ class B23ConcurrencySummaryTests(unittest.TestCase):
             task="B23_TEST",
             source=str(Path(".")),
             prompt="test prompt",
+            worker="local",  # a paid worker needs a manual since B85; this test checks CLI plumbing only
             prompt_file=None,
             work_dir=".coord/test_work",
             watch_root=None,

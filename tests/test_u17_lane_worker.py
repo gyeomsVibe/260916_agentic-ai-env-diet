@@ -75,11 +75,12 @@ class CascadeTest(unittest.TestCase):
                       "--work-dir", ".work/_cascade_test", *extra])
         return calls
 
-    def test_rework_on_local_goes_to_lane_once(self):
+    def test_rework_on_local_is_not_escalated_to_a_paid_worker_without_a_manual(self):
+        # B85 rework (2026-09-25): this test used to expect C1 -> C1-agy with no contract budget, which is the
+        # bypass Codex reproduced. A paid escalation now needs a manual (tests.test_u38 covers the budgeted route).
         calls = self._main(["REWORK", "PASS"])
-        self.assertEqual([c[0] for c in calls], ["C1", "C1-agy"])
+        self.assertEqual([c[0] for c in calls], ["C1"])
         self.assertTrue(calls[0][1].endswith("ollama_worker.py"))
-        self.assertEqual(calls[1], ("C1-agy", "agy"))
 
     def test_rework_on_local_with_escalate_to_lane(self):
         calls = self._main(["REWORK", "PASS"], ["--escalate-to", "lane"])

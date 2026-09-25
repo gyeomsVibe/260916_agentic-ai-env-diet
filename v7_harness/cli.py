@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -30,7 +31,6 @@ from .snapshot import take_snapshot
 from .stage_evaluator import AcceptanceCheck, StageEvaluator
 
 # 로컬 계산기가 멈추면(시간 초과·공급자 오류) 다음 계산기로 넘긴다 (실측 2026-09-23: qwen2.5-coder 7b 가 cli.py 과제에서 600초 PROVIDER_ERROR).
-LOCAL_FAILURE_CLASSES = ("PROVIDER_ERROR", "TIMEOUT", "EXECUTION_ERROR")
 
 
 def cmd_lease_check(args: argparse.Namespace) -> int:
@@ -174,7 +174,40 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         print(f"Error: source directory '{source_dir}' does not exist.", file=sys.stderr)
         return 1
 
-    if args.prompt_file:
+    # U34: a manual is a contract. It is linted before anything runs and its fields drive the run, so the
+    # worker receives exactly the checked text and cannot change files outside `allow`.
+    contract: Optional[dict] = None
+    manual_path = getattr(args, "manual", None)
+    if manual_path:
+        from .manual import lint
+
+        mfile = Path(manual_path)
+        if not mfile.is_file():
+            print(f"Error: manual '{mfile}' does not exist.", file=sys.stderr)
+            return 1
+        prompt = mfile.read_text(encoding="utf-8")
+        report = lint(prompt, source_dir)
+        if not report.ok:
+            print(json.dumps({"task_id": task_id, "state": "REFUSED", "error_class": "MANUAL_INVALID",
+                              "verdict_hint": "BLOCKED", "manual_errors": report.errors,
+                              "manual_warnings": report.warnings}, indent=2, ensure_ascii=False))
+            return 2
+        contract = report.contract
+        for warning in report.warnings:
+            print(f"[manual] {warning}", file=sys.stderr)
+        if contract.get("work_id") != task_id:
+            print(f"[manual] work_id {contract.get('work_id')} differs from --task {task_id}", file=sys.stderr)
+        if args.approve:
+            approver = getattr(args, "coord_actor", None) or detect_actor()
+            # An approver the harness cannot identify used to pass silently (B85 review). Name it with --coord-actor.
+            # This is a speed bump, not authentication: on one OS account every name can be forged (B83).
+            if approver is None or approver != contract["judge"].lower():
+                print(json.dumps({"task_id": task_id, "state": "REFUSED",
+                                  "error_class": "APPROVER_UNKNOWN" if approver is None else "APPROVER_NOT_JUDGE",
+                                  "verdict_hint": "BLOCKED", "judge": contract["judge"], "approver": approver},
+                                 indent=2, ensure_ascii=False))
+                return 2
+    elif args.prompt_file:
         pfile = Path(args.prompt_file)
         if not pfile.is_file():
             print(f"Error: prompt file '{pfile}' does not exist.", file=sys.stderr)
@@ -183,27 +216,55 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
     elif args.prompt:
         prompt = args.prompt
     else:
-        print("Error: either --prompt-file or --prompt must be provided.", file=sys.stderr)
+        print("Error: one of --manual, --prompt-file or --prompt must be provided.", file=sys.stderr)
         return 2
 
     # 실행 전에 지시문의 구체성을 알려 준다. 막지는 않는다. 벤치에서 로컬 모델이 실패한
     # 유일한 축이 모호함이었으므로, 고르기 전에 한 줄이라도 보이는 편이 낫다.
+    from .adapters.ollama_worker import dictated_paths
     from .adapters.worker_advice import advise
 
     advice = advise(prompt)
-    chosen = getattr(args, "worker", "agy")
-    # auto 는 지시가 구체적이면 로컬 먼저(cascade), 모호하면 agy 로 보낸다 — 계산기 원칙.
+    chosen = contract["worker"] if contract else getattr(args, "worker", "agy")
+    # auto: 지휘자가 코드를 이미 적었으면(받아쓰기) 모델 없이 그대로 적용하고, 아니면 구체성으로 고른다.
     if chosen == "auto":
-        chosen = "cascade" if advice.worker == "local" else "agy"
+        if dictated_paths(prompt):
+            chosen = "apply"
+        else:
+            chosen = "cascade" if advice.worker == "local" else "agy"
         routed = {"worker": chosen, "specificity": advice.specificity}
     else:
         routed = None
-    if advice.worker != chosen:
+    if advice.worker != chosen and chosen != "apply":
         print(
             f"[조언] 지시문 구체성 {advice.specificity}/100 → --worker {advice.worker} 권장"
             f" (현재 {chosen}): {'; '.join(advice.reasons[:2])}",
             file=sys.stderr,
         )
+
+    # U38: a Claude worker spends the same subscription as the Claude commander. When Claude reports LIMITED, the
+    # commander keeps the remaining quota (docs/40 §2-1).
+    uses_claude = chosen == "claude" or (chosen == "cascade" and getattr(args, "escalate_to", "agy") == "claude")
+    if uses_claude and not args.approve:
+        from .coord.presence import read as read_presence
+
+        if read_presence(source_dir, "claude")["state"] == "LIMITED":
+            print(json.dumps({"task_id": task_id, "state": "REFUSED", "error_class": "CLAUDE_LIMITED",
+                              "verdict_hint": "BLOCKED",
+                              "message": "Claude presence is LIMITED; its quota is kept for the commander"},
+                             indent=2, ensure_ascii=False))
+            return 2
+
+    # B85 rework (Codex): a paid worker runs only under a contract. Without a manual there is no budget and no dollar
+    # cap, and an approval could promote a run nothing ever measured.
+    from .manual import REMOTE_WORKERS
+
+    if chosen in REMOTE_WORKERS and contract is None:
+        print(json.dumps({"task_id": task_id, "state": "REFUSED", "error_class": "REMOTE_WITHOUT_MANUAL",
+                          "verdict_hint": "BLOCKED", "worker": chosen,
+                          "message": "paid workers (agy, claude) need --manual with remote_budget_tokens"},
+                         indent=2, ensure_ascii=False))
+        return 2
 
     work_dir = Path(args.work_dir) if args.work_dir else Path(".coord")
     mandatory_roots = [
@@ -216,9 +277,20 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
     explicit_roots = [Path(w).resolve() for w in args.watch_root] if args.watch_root else []
     watch_roots = list(dict.fromkeys(mandatory_roots + explicit_roots))
     agy_cmd = resolve_worker_command(chosen, args.agy_command)
+    # Pre-spend hard cap for a Claude worker (Codex): the contract's dollar cap goes to `claude --max-budget-usd`.
+    # The token gate after the run stays; dollars are never inferred from tokens (model and cache prices differ).
+    usd_cap = str(contract.get("remote_budget_usd") or "") if contract else ""
+
+    def _with_cap(command: list[str], worker: str) -> list[str]:
+        return [*command, "--max-budget-usd", usd_cap] if worker == "claude" and usd_cap else command
+
+    agy_cmd = _with_cap(agy_cmd, chosen)
 
     from .pilot import PilotConfig, run_pilot
 
+    allowed = list(contract["allow"]) if contract else []
+    allowed += list(getattr(args, "allow", None) or [])
+    remote_budget = int(contract.get("remote_budget_tokens") or 0) if contract else None
     config = PilotConfig(
         task_id=task_id,
         title=args.title or f"Pilot task {task_id}",
@@ -227,11 +299,15 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         work_dir=work_dir,
         agy_command=agy_cmd,
         watch_roots=watch_roots,
-        print_timeout_s=args.print_timeout,
+        print_timeout_s=int(contract["timeout_s"]) if contract else args.print_timeout,
         approve_bundle_id=args.approve,
-        accept_cmd=args.accept_cmd,
-        model=getattr(args, "model", None),
+        accept_cmd=args.accept_cmd or (contract["acceptance"] if contract else None),
+        # U38: a contract may name its model (e.g. a Claude worker's Haiku or Sonnet); --model on the command line wins.
+        model=getattr(args, "model", None) or ((contract.get("model") or None) if contract else None),
         allow_no_changes=getattr(args, "allow_no_changes", False),
+        allowed_scopes=allowed or None,
+        # B85: every paid run is checked against the contract budget, not only a cascade escalation.
+        remote_budget_tokens=(remote_budget or None) if chosen in REMOTE_WORKERS else None,
     )
 
     from .broker.core import BrokerAlreadyRunning
@@ -267,35 +343,70 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
             "message": f"Database error or corruption: {exc}. Recovery hint: run 'python -m v7_harness.cli pilot reconcile --task {task_id}' or backup coord.sqlite3.",
         }
 
-    # cascade: 싼 local 을 먼저 쓰고 인수에서 REWORK 가 나온 경우에만 2단계 작업자(기본 agy)로 한 번 더 간다.
-    # A/B(2026-09-23, 10과제): local 6/10·51.8초, lane 9/10·218초(4.2배), 계산상 cascade 10/10·2.7배.
-    # BLOCKED 는 작업자 탓이 아닐 수 있어(격리·DB) 넘기지 않는다. 승인 실행은 원래 task 로만 한다.
-    # 승격 작업자는 별도 task id(<ID>-<escalate_to>)로 돌린다. 같은 id 재실행은 원장이 막는다.
-    should_escalate = (
-        summary.get("verdict_hint") == "REWORK"
-        or (
-            summary.get("verdict_hint") == "BLOCKED"
-            and summary.get("error_class") in LOCAL_FAILURE_CLASSES
-        )
-    )
-    if (chosen == "cascade" and not args.approve and should_escalate):
-        first = summary
-        # lane의 BLOCKED/VALIDATION 빈발(5건 중 4건)로 기본 승격 대상을 agy로 전환하고 지정 가능하게 함
-        escalate_to = getattr(args, "escalate_to", "agy")
-        config.task_id = f"{task_id}-{escalate_to}"
-        config.agy_command = resolve_worker_command(escalate_to, None)
+    # cascade: 싼 local 을 먼저 쓰고 실패 종류에 따라 한 번만 넘긴다. A/B(2026-09-23, 10과제): local 6/10·51.8초,
+    # lane 9/10·218초(4.2배), 계산상 cascade 10/10·2.7배. 같은 id 재실행은 원장이 막으므로 단계마다 id가 다르다.
+    # U39 (docs/41 §5): deterministic → Ollama once → Antigravity once. Only a format-only failure gets one more local
+    # try, inside the same local budget; a semantic failure never loops locally; a remote failure goes to splitting.
+    # The approval run stays on the original task. Every stage runs under its own task id.
+    def _run(cfg: Any) -> dict[str, Any]:
         try:
-            summary = run_pilot(config)
+            return run_pilot(cfg)
         except (BrokerAlreadyRunning, SourceDivergenceError, sqlite3.DatabaseError) as exc:
-            summary = {"task_id": config.task_id, "state": "FAILED", "error_class": type(exc).__name__,
-                       "effect_state": "UNKNOWN", "verdict_hint": "BLOCKED", "message": str(exc)}
-        summary["cascade_from"] = {"task_id": task_id, "verdict_hint": first.get("verdict_hint"),
-                                   "error_class": first.get("error_class"), "escalated_to": escalate_to}
+            return {"task_id": cfg.task_id, "state": "FAILED", "error_class": type(exc).__name__,
+                    "effect_state": "UNKNOWN", "verdict_hint": "BLOCKED", "message": str(exc)}
 
-    # 기록은 명시적으로 켠 실행에서만 남긴다. 기본을 "남김"으로 두었더니 임시 폴더에서
-    # CLI 를 호출하는 테스트가 이 프로젝트의 스트림에 사건 8건을 흘렸다(실측).
-    if getattr(args, "coord_log", False):
-        record_pilot_in_stream(Path(getattr(args, "coord_project", ".")), summary)
+    if chosen == "cascade" and not args.approve:
+        from .routing import classify_failure, local_tokens, next_route
+
+        failure = classify_failure(summary)
+        used_local = local_tokens(summary)
+        trace = [f"local:{failure or 'PASS'}"]
+        route = next_route("local", failure, local_attempts=1, local_tokens=used_local)
+        if route == "local_retry":
+            config.task_id = f"{task_id}-retry"
+            summary = _run(config)
+            failure = classify_failure(summary)
+            used_local += local_tokens(summary)
+            trace.append(f"local_retry:{failure or 'PASS'}")
+            route = next_route("local_retry", failure, local_attempts=2, local_tokens=used_local)
+        if route == "remote":
+            first = summary
+            escalate_to = getattr(args, "escalate_to", "agy")
+            if escalate_to in REMOTE_WORKERS and not remote_budget:
+                # B85 rework: no contract budget, no paid escalation (lane runs the local model and stays allowed).
+                summary["escalation"] = "REFUSED:REMOTE_WITHOUT_MANUAL"
+                trace.append("refused")
+            else:
+                config.task_id = f"{task_id}-{escalate_to}"
+                config.agy_command = _with_cap(resolve_worker_command(escalate_to, None), escalate_to)
+                config.remote_budget_tokens = (remote_budget or None) if escalate_to in REMOTE_WORKERS else None
+                summary = _run(config)
+                summary["cascade_from"] = {"task_id": task_id, "verdict_hint": first.get("verdict_hint"),
+                                           "error_class": first.get("error_class"), "escalated_to": escalate_to}
+                remote_failure = classify_failure(summary)
+                trace.append(f"remote:{remote_failure or 'PASS'}")
+                if next_route("remote", remote_failure, local_attempts=2, local_tokens=used_local) == "split":
+                    trace.append("split")
+        elif route == "stop":
+            trace.append("stop")
+        summary["route"] = trace
+    # The pilot gates the budget itself (B85). This covers a summary that came back without the gate.
+    if remote_budget and "cost_gate" not in summary and (chosen in REMOTE_WORKERS or "cascade_from" in summary):
+        from .pilot import evaluate_cost_gate
+
+        summary["cost_gate"] = evaluate_cost_gate(summary.get("agy_usage"), remote_budget)
+        if summary["cost_gate"] != "WITHIN":
+            summary["verdict_hint"] = "BLOCKED"
+            summary["error_class"] = "COST_UNKNOWN" if summary["cost_gate"] == "UNKNOWN" else "COST_EXCEEDED"
+
+    # U33: 보고는 기억이 아니라 실행 끝에서 저절로 남는다(비둘기 퇴출). 기록 대상은 --source 프로젝트이고,
+    # .coord/PLAN.md 가 있는 UAOS 프로젝트일 때만 쓴다. 예전에 기본을 켰을 때 CLI 를 부르는 테스트가 실제
+    # 스트림에 사건 8건을 흘렸다. 테스트 패키지는 UAOS_STREAM_AUTOLOG=0 으로 끈다(tests/__init__.py).
+    if getattr(args, "coord_log", False) and os.environ.get("UAOS_STREAM_AUTOLOG", "1") != "0":
+        coord_project = Path(getattr(args, "coord_project", None) or source_dir)
+        actor = getattr(args, "coord_actor", None) or detect_actor()
+        if (coord_project / ".coord" / "PLAN.md").is_file() and actor:
+            record_pilot_in_stream(coord_project, summary, actor=actor, task=summary.get("task_id") or task_id)
 
     if routed is not None:
         summary["routed_by"] = routed
@@ -304,6 +415,40 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
     if summary.get("verdict_hint") == "BLOCKED":
         return 1
     return 0 if summary.get("state") == "SUCCEEDED" else 1
+
+
+def cmd_pilot_manual_lint(args: argparse.Namespace) -> int:
+    from .manual import lint
+
+    report = lint(Path(args.manual).read_text(encoding="utf-8"), Path(args.source))
+    print(json.dumps(report.as_dict(), indent=2, ensure_ascii=False))
+    return 0 if report.ok else 1
+
+
+def cmd_pilot_manual_new(args: argparse.Namespace) -> int:
+    from .manual import lint, new_manual
+
+    source = Path(args.source)
+    instructions = Path(args.instructions_file).read_text(encoding="utf-8") if args.instructions_file else ""
+    text = new_manual(
+        source,
+        work_id=args.work_id,
+        worker=args.worker,
+        goal=args.goal,
+        inputs=args.input,
+        allow=args.allow,
+        acceptance=args.accept,
+        judge=args.judge,
+        timeout_s=args.timeout,
+        remote_budget_tokens=args.remote_budget,
+        instructions=instructions,
+    )
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text, encoding="utf-8")
+    report = lint(text, source)
+    print(json.dumps({"written": str(out), **report.as_dict()}, indent=2, ensure_ascii=False))
+    return 0 if report.ok else 1
 
 
 def cmd_pilot_reconcile(args: argparse.Namespace) -> int:
@@ -404,17 +549,62 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_run.add_argument("--watch-root", action="append", default=[], help="Watch roots for external write detection")
     p_pilot_run.add_argument("--print-timeout", type=int, default=600, help="Print timeout in seconds")
     p_pilot_run.add_argument("--agy-command", nargs="*", default=None, help="Custom worker command prefix (overrides --worker)")
-    p_pilot_run.add_argument("--worker", choices=["agy", "local", "lane", "cascade", "auto"], default="agy", help="agy = remote worker (uses account quota); local = this machine's Ollama model, one-shot; lane = Claude Code tool loop on the local model")
+    p_pilot_run.add_argument("--worker", choices=["agy", "local", "lane", "cascade", "auto", "apply", "claude"], default="agy", help="claude = Claude Code on the paid account (needs a manual with remote_budget_tokens; judge codex or user); agy = remote worker (uses account quota); local = this machine's Ollama model, one-shot; lane = Claude Code tool loop on the local model; apply = apply the ===FILE/===EDIT blocks written in the prompt, no model (0 tokens)")
+    p_pilot_run.add_argument("--manual", default=None,
+                             help="Work manual with a ```contract block: linted first, then its worker, acceptance, allow list and timeout drive the run")
+    p_pilot_run.add_argument("--allow", action="append", default=[],
+                             help="Path or glob the worker may change (repeatable); anything else is rejected as SCOPE_VIOLATION")
     # cascade 승격 대상 작업자(lane의 e2e 실패 빈발로 기본값은 agy)
-    p_pilot_run.add_argument("--escalate-to", choices=["agy", "lane"], default="agy", help="Worker for cascade second stage when local gets REWORK (default: agy)")
-    p_pilot_run.add_argument("--coord-log", action="store_true", default=False, help="Record this run in the coordination stream (.coord/stream)")
-    p_pilot_run.add_argument("--coord-project", default=".", help="Project whose coordination stream records this run (default: .)")
+    p_pilot_run.add_argument("--escalate-to", choices=["agy", "lane", "claude"], default="agy", help="Worker for cascade second stage when local gets REWORK (default: agy)")
+    p_pilot_run.add_argument("--coord-log", dest="coord_log", action="store_true", default=True,
+                             help="Record this run in the coordination stream (.coord/stream); on by default")
+    p_pilot_run.add_argument("--no-coord-log", dest="coord_log", action="store_false",
+                             help="Do not record this run in the coordination stream")
+    p_pilot_run.add_argument("--coord-project", default=None,
+                             help="Project whose coordination stream records this run (default: the --source project)")
+    p_pilot_run.add_argument("--coord-actor", choices=["codex", "claude", "antigravity"], default=None,
+                             help="Who ran this pilot (default: detected from the calling tool's environment)")
     p_pilot_run.add_argument("--model", default=None, help="Model name to pass to agy (e.g. gemini-3.7-flash)")
     p_pilot_run.add_argument("--accept-cmd", default=None, help="Acceptance test command to run in staging")
     p_pilot_run.add_argument("--allow-no-changes", action="store_true", default=False, help="Allow PASS verdict even when no files were changed (for read-only tasks)")
     p_pilot_run.set_defaults(func=cmd_pilot_run)
 
+    # pilot manual: U34 work-manual contracts
+    p_pilot_manual = p_pilot_subs.add_parser("manual")
+    p_manual_subs = p_pilot_manual.add_subparsers(dest="manual_subcommand", required=True)
+    p_manual_lint = p_manual_subs.add_parser("lint")
+    p_manual_lint.add_argument("--manual", required=True)
+    p_manual_lint.add_argument("--source", default=".", help="Project the manual's paths are relative to")
+    p_manual_lint.set_defaults(func=cmd_pilot_manual_lint)
+    p_manual_new = p_manual_subs.add_parser("new")
+    p_manual_new.add_argument("--out", required=True, help="Manual file to write")
+    p_manual_new.add_argument("--source", default=".")
+    p_manual_new.add_argument("--work-id", required=True)
+    p_manual_new.add_argument("--worker", required=True, choices=["local", "apply", "agy", "lane", "cascade", "claude"])
+    p_manual_new.add_argument("--goal", required=True)
+    p_manual_new.add_argument("--input", action="append", default=[], help="Input file to pin by SHA-256 (repeatable)")
+    p_manual_new.add_argument("--allow", action="append", default=[], required=True)
+    p_manual_new.add_argument("--accept", required=True, help="Acceptance command")
+    p_manual_new.add_argument("--judge", required=True, choices=["codex", "claude", "antigravity"])
+    p_manual_new.add_argument("--timeout", type=int, default=180)
+    p_manual_new.add_argument("--remote-budget", type=int, default=0)
+    p_manual_new.add_argument("--instructions-file", default=None, help="Prose instructions to append")
+    p_manual_new.set_defaults(func=cmd_pilot_manual_new)
+
     # pilot reconcile
+    p_pilot_review = p_pilot_subs.add_parser("review", help="U38: read-only advisory review of a bundle by Claude Code")
+    p_pilot_review.add_argument("--task", required=True)
+    p_pilot_review.add_argument("--work-dir", required=True)
+    p_pilot_review.add_argument("--source", default=".")
+    p_pilot_review.add_argument("--manual", required=True, help="The contract manual the bundle was built from")
+    p_pilot_review.add_argument("--reviewer", default="claude", choices=["claude"])
+    p_pilot_review.add_argument("--budget", type=int, required=True, help="Token budget for the review call")
+    p_pilot_review.add_argument("--budget-usd", type=float, required=True,
+                                help="Dollar cap passed to claude --max-budget-usd (checked before spending)")
+    p_pilot_review.add_argument("--model", default=None)
+    p_pilot_review.add_argument("--timeout", type=int, default=600)
+    p_pilot_review.set_defaults(func=cmd_pilot_review)
+
     p_pilot_rec = p_pilot_subs.add_parser("reconcile")
     p_pilot_rec.add_argument("--task", "--task-id", dest="task", required=True, help="Pilot task ID to reconcile")
     p_pilot_rec.add_argument("--work-dir", default=".coord", help="Work directory (default: .coord)")
@@ -475,7 +665,40 @@ def build_parser() -> argparse.ArgumentParser:
     p_coord_sentinel.add_argument("--interval", type=int, default=30, help="Loop interval in seconds (default: 30)")
     p_coord_sentinel.add_argument("--write-brief", action="store_true", default=False, help="Write .coord/codex_brief.md")
     p_coord_sentinel.add_argument("--recipient", default="codex", help="P1 alert recipient (default: codex)")
+    p_coord_sentinel.add_argument("--log", default=None,
+                                  help="Append each cycle's JSON line to this file (a resident loop has no console)")
+    p_coord_sentinel.add_argument("--ring", action="store_true", default=False,
+                                  help="Ring Codex (codex queue) for waiting P1 wakes while Codex has a fresh ACTIVE heartbeat")
     p_coord_sentinel.set_defaults(func=cmd_coord_sentinel)
+
+    p_coord_presence = p_coord_subs.add_parser("presence")
+    p_coord_presence.add_argument("--project", default=".", help="Project root (default: .)")
+    p_coord_presence.add_argument("--tool", choices=["codex", "claude", "antigravity"], default=None)
+    p_coord_presence.add_argument("--state", choices=["ACTIVE", "LIMITED", "ABSENT"], default=None)
+    p_coord_presence.add_argument("--ttl", type=int, default=3600, help="Seconds until the heartbeat reads UNKNOWN")
+    p_coord_presence.add_argument("--if-uaos", action="store_true", default=False,
+                                  help="Do nothing unless the project has .coord/PLAN.md (for global session hooks)")
+    p_coord_presence.add_argument("--from-hook", action="store_true", default=False,
+                                  help="Find the project from the hook payload on stdin (cwd, workspacePaths), "
+                                       "CLAUDE_PROJECT_DIR or --project, walking up to .coord/PLAN.md; never fails the hook")
+    p_coord_presence.add_argument("--say", choices=["json", "brief", "none", "empty-json", "p1"], default="json",
+                                  help="What to print: presence JSON (default), one context line, nothing, {}, or "
+                                       "p1 = one line only when a P1 wake waits and Codex is not ACTIVE (U38)")
+    p_coord_presence.set_defaults(func=cmd_coord_presence)
+
+    p_coord_init = p_coord_subs.add_parser("init")
+    p_coord_init.add_argument("--project", default=".", help="Project to prepare for UAOS (default: .)")
+    p_coord_init.set_defaults(func=cmd_coord_init)
+
+    p_coord_inbox = p_coord_subs.add_parser("inbox")
+    p_coord_inbox.add_argument("--project", default=".", help="Project root (default: .)")
+    p_coord_inbox.set_defaults(func=cmd_coord_inbox)
+
+    p_coord_ack = p_coord_subs.add_parser("ack")
+    p_coord_ack.add_argument("--project", default=".", help="Project root (default: .)")
+    p_coord_ack.add_argument("--id", dest="message_id", required=True, help="Mailbox message id to mark handled")
+    p_coord_ack.add_argument("--consumer", default="commander", help="Who handled it (default: commander)")
+    p_coord_ack.set_defaults(func=cmd_coord_ack)
 
     p_coord_pub = p_coord_subs.add_parser("publish-thread")
     p_coord_pub.add_argument("--actor", required=True, choices=["agy", "claude", "antigravity"])
@@ -488,10 +711,46 @@ def build_parser() -> argparse.ArgumentParser:
     p_coord_pub.add_argument("--project", default=".", help="Project root (default: .)")
     p_coord_pub.set_defaults(func=cmd_coord_publish_thread)
 
+    # rsi: evidence-gated self-improvement (docs/38). observe → propose → try → gate → judge → rollback.
+    p_rsi = subparsers.add_parser("rsi", help="Evidence-gated self-improvement: report, propose, gate, adopt, rollback")
+    p_rsi_subs = p_rsi.add_subparsers(dest="rsi_subcommand", required=True)
+    p_rsi_report = p_rsi_subs.add_parser("report", help="Per-worker pass/rework/blocked rates and recurring causes")
+    p_rsi_report.add_argument("--project", default=".")
+    p_rsi_report.set_defaults(func=cmd_rsi_report)
+    p_rsi_propose = p_rsi_subs.add_parser("propose", help="Deterministic remedies for the causes in the ledger")
+    p_rsi_propose.add_argument("--project", default=".")
+    p_rsi_propose.add_argument("--candidate-for", default=None, metavar="PROPOSAL_ID",
+                               help="Print a candidate file to fill after the trial runs")
+    p_rsi_propose.add_argument("--author", default=None, help="Author of the candidate (default: detected tool)")
+    p_rsi_propose.set_defaults(func=cmd_rsi_propose)
+    p_rsi_gate = p_rsi_subs.add_parser("gate", help="Judge a tried candidate on ledger evidence (read only)")
+    p_rsi_gate.add_argument("--project", default=".")
+    p_rsi_gate.add_argument("--candidate", required=True, help="Candidate JSON file")
+    p_rsi_gate.set_defaults(func=cmd_rsi_gate)
+    p_rsi_adopt = p_rsi_subs.add_parser("adopt", help="The judge adopts a candidate that passed the gate")
+    p_rsi_adopt.add_argument("--project", default=".")
+    p_rsi_adopt.add_argument("--candidate", required=True)
+    p_rsi_adopt.add_argument("--judge", required=True, choices=["codex", "claude", "user"],
+                             help="Codex, Claude while Codex is absent, or the user (docs/31 §3)")
+    p_rsi_adopt.set_defaults(func=cmd_rsi_adopt)
+    p_rsi_rollback = p_rsi_subs.add_parser("rollback", help="Restore the policy from before the last adoption")
+    p_rsi_rollback.add_argument("--project", default=".")
+    p_rsi_rollback.add_argument("--judge", required=True, choices=["codex", "claude", "user"])
+    p_rsi_rollback.add_argument("--reason", required=True)
+    p_rsi_rollback.set_defaults(func=cmd_rsi_rollback)
+
     return parser
 
 
-def record_pilot_in_stream(project: Path, summary: dict) -> Optional[str]:
+def detect_actor() -> Optional[str]:
+    """Which of the three tools is running this command, from its shell environment. None for a plain terminal."""
+    from .olla import _caller
+
+    caller = _caller()
+    return caller if caller in ("codex", "claude", "antigravity") else None
+
+
+def record_pilot_in_stream(project: Path, summary: dict, *, actor: str = "claude", task: Optional[str] = None) -> Optional[str]:
     """파일럿 결과를 조율 스트림에 한 줄로 남긴다.
 
     사람이 기억해서 적으면 빠뜨린다. 실행이 끝나는 자리에서 바로 남겨야 지휘자가
@@ -501,7 +760,8 @@ def record_pilot_in_stream(project: Path, summary: dict) -> Optional[str]:
 
     verdict = str(summary.get("verdict_hint") or "UNKNOWN")
     state = str(summary.get("state") or "UNKNOWN")
-    task = str(summary.get("task_id") or "pilot")
+    # run_pilot's summary has no task_id on a normal run, so every event used to read "pilot".
+    task = str(task or summary.get("task_id") or "pilot")
     changed = summary.get("changed_files") or []
     bundle = summary.get("bundle_id") or ""
     promotion = summary.get("promotion") or ""
@@ -516,11 +776,21 @@ def record_pilot_in_stream(project: Path, summary: dict) -> Optional[str]:
     evidence = {"cmd": f"pilot run --task {task}", "exit": 0 if state == "SUCCEEDED" else 1}
     if bundle:
         evidence["bundle"] = bundle
-    refs = [str(summary["summary_path"]).replace("\\", "/")] if summary.get("summary_path") else []
+    refs = []
+    if summary.get("summary_path"):
+        # The stream refuses absolute refs, which silently dropped the whole event when --work-dir was absolute.
+        ref = Path(str(summary["summary_path"]).replace("\\", "/"))
+        if ref.is_absolute():
+            try:
+                ref = ref.resolve().relative_to(Path(project).resolve())
+            except ValueError:
+                ref = None
+        if ref is not None:
+            refs = [ref.as_posix()]
     try:
         event = append_event(
             project,
-            actor="claude",
+            actor=actor,
             kind=kind,
             step=task,
             summary=summary_line[:200],
@@ -531,6 +801,22 @@ def record_pilot_in_stream(project: Path, summary: dict) -> Optional[str]:
     except (StreamRejected, OSError, RuntimeError):
         # 기록 실패가 실행 보고를 덮지 않게 한다. 다음 브리핑에서 빈자리로 드러난다.
         return None
+
+
+def cmd_pilot_review(args: argparse.Namespace) -> int:
+    from .review import ReviewRefused, run_review
+
+    try:
+        manual_text = Path(args.manual).read_text(encoding="utf-8")
+        record = run_review(task_id=args.task, work_dir=Path(args.work_dir), source=Path(args.source),
+                            manual_text=manual_text, reviewer=args.reviewer, budget=args.budget,
+                            budget_usd=args.budget_usd, model=args.model,
+                            timeout_s=args.timeout)
+    except (ReviewRefused, OSError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)[:400]}, ensure_ascii=False))
+        return 2
+    print(json.dumps({"ok": True, **record}, ensure_ascii=False, indent=2))
+    return 0
 
 
 def resolve_worker_command(worker: str, explicit: Optional[Sequence[str]]) -> list[str]:
@@ -546,6 +832,10 @@ def resolve_worker_command(worker: str, explicit: Optional[Sequence[str]]) -> li
         return [sys.executable, str(Path(__file__).resolve().parent / "adapters" / "ollama_worker.py")]
     if worker == "lane":  # Claude Code's tool loop on the local model; kept beside "local" for the A/B
         return [sys.executable, str(Path(__file__).resolve().parent / "adapters" / "lane_worker.py")]
+    if worker == "apply":  # U34: the commander already wrote the code; apply it without a model
+        return [sys.executable, str(Path(__file__).resolve().parent / "adapters" / "apply_worker.py")]
+    if worker == "claude":  # U38: Claude Code on the paid account, budget-gated (docs/40)
+        return [sys.executable, str(Path(__file__).resolve().parent / "adapters" / "claude_worker.py")]
     return ["agy"]
 
 
@@ -586,8 +876,13 @@ def cmd_coord_status(args: argparse.Namespace) -> int:
     mailbox_dir = project / ".coord" / "mailbox" / "inbox"
     mailbox_count = len(list(mailbox_dir.glob("*.json"))) if mailbox_dir.is_dir() else 0
 
-    stream_file = project / ".coord" / "stream" / "events.jsonl"
-    stream_count = len(stream_file.read_text(encoding="utf-8").splitlines()) if stream_file.is_file() else 0
+    from .coord.stream import StreamRejected, read_events
+
+    try:
+        stream_count = len(read_events(project))
+    except StreamRejected as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        return 1
 
     usage_file = project / ".coord" / "usage" / "runs.jsonl"
     usage_count = len(usage_file.read_text(encoding="utf-8").splitlines()) if usage_file.is_file() else 0
@@ -703,17 +998,18 @@ def cmd_coord_publish_thread(args: argparse.Namespace) -> int:
 
 
 def cmd_coord_sentinel(args: argparse.Namespace) -> int:
-    """U23 S4: 0원 비용 로컬 올라마 상주 감시관(Sentinel) 사이클 및 루프 실행."""
+    """U23 S4 / U32b: 0-token sentinel (deterministic rules, no model call) — one cycle or a resident loop."""
     import time
     from .coord.mailbox import Mailbox
     from .coord.sentinel import generate_briefing, run_sentinel_cycle
 
     project = Path(args.project)
     mailbox_dir = project / ".coord" / "mailbox"
+    mailbox_dir.mkdir(parents=True, exist_ok=True)
     box = Mailbox(mailbox_dir)
 
     def _execute_once() -> dict[str, Any]:
-        cycle_res = run_sentinel_cycle(project, box, recipient=args.recipient)
+        cycle_res = run_sentinel_cycle(project, box, recipient=args.recipient, ring=getattr(args, "ring", False))
         if args.write_brief:
             brief_text = generate_briefing(project, box=box)
             brief_file = project / ".coord" / "codex_brief.md"
@@ -721,15 +1017,272 @@ def cmd_coord_sentinel(args: argparse.Namespace) -> int:
             brief_file.write_text(brief_text, encoding="utf-8")
         return cycle_res
 
+    log_path = Path(args.log) if getattr(args, "log", None) else None
+
+    def _report(res: dict[str, Any]) -> None:
+        line = json.dumps(res, ensure_ascii=False)
+        print(line, flush=True)  # a no-op under pythonw, where stdout is None
+        if log_path is not None:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            # One line a minute is ~0.4 MB a day; keep one previous file instead of growing forever.
+            if log_path.is_file() and log_path.stat().st_size > SENTINEL_LOG_MAX_BYTES:
+                os.replace(log_path, log_path.with_name(log_path.name + ".1"))
+            with log_path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
+
     if args.loop:
+        # A logon task and a manual start must not run two operators on one project.
+        from .coord.sentinel import _is_pid_alive
+
+        pid_file = project / ".work" / "sentinel" / "loop.pid"
+        try:
+            running = int(pid_file.read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            running = 0
+        if running and running != os.getpid() and _is_pid_alive(running):
+            _report({"ok": True, "skipped": "ALREADY_RUNNING", "pid": running})
+            return 0
+        pid_file.parent.mkdir(parents=True, exist_ok=True)
+        pid_file.write_text(str(os.getpid()), encoding="utf-8")
         while True:
-            res = _execute_once()
-            print(json.dumps(res, ensure_ascii=False), flush=True)
+            # A resident operator must outlive one bad cycle (locked file, corrupt line); it reports and goes on.
+            try:
+                res = _execute_once()
+            except Exception as exc:  # noqa: BLE001
+                res = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+            _report(res)
             time.sleep(args.interval)
         return 0
 
-    res = _execute_once()
-    print(json.dumps(res, ensure_ascii=False))
+    _report(_execute_once())
+    return 0
+
+
+def cmd_coord_presence(args: argparse.Namespace) -> int:
+    """U32b: record one tool's heartbeat, or show all three. Called from each tool's session hooks."""
+    from .coord.presence import mark, read_all
+
+    say = getattr(args, "say", "json")
+
+    def _emit(data: dict[str, Any], line: str = "") -> None:
+        if say == "json":
+            print(json.dumps(data, ensure_ascii=False))
+        elif say in ("brief", "p1") and line:
+            print(line)
+        elif say == "empty-json":
+            print("{}")
+
+    if getattr(args, "from_hook", False):
+        from .coord.hook_context import brief_line, hook_project, p1_line, read_stdin
+
+        # A pilot worker (U38) runs inside a staged copy that holds .coord/PLAN.md; a hook there must write nothing.
+        if os.environ.get("UAOS_WORKER"):
+            _emit({"ok": True, "skipped": "UAOS_WORKER"})
+            return 0
+        # A session hook must never break the session: every failure is reported and the exit code stays 0.
+        try:
+            project = hook_project(read_stdin(), args.project)
+            if project is None:
+                _emit({"ok": True, "skipped": "NOT_A_UAOS_PROJECT"})
+                return 0
+            if args.tool and args.state:
+                mark(project, args.tool, args.state, ttl_s=args.ttl)
+            presence = read_all(project)
+            line = p1_line(project, presence) if say == "p1" else brief_line(project, presence)
+            _emit({"ok": True, "project": str(project), "presence": presence}, line)
+        except Exception as exc:  # noqa: BLE001
+            _emit({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]})
+        return 0
+
+    project = Path(args.project)
+    if getattr(args, "if_uaos", False) and not (project / ".coord" / "PLAN.md").is_file():
+        # Global hooks fire in every project; only UAOS projects get a presence file.
+        _emit({"ok": True, "skipped": "NOT_A_UAOS_PROJECT"})
+        return 0
+    if args.tool or args.state:
+        if not (args.tool and args.state):
+            print(json.dumps({"ok": False, "error": "--tool and --state go together"}, ensure_ascii=False))
+            return 2
+        mark(project, args.tool, args.state, ttl_s=args.ttl)
+    _emit({"ok": True, "presence": read_all(project)})
+    return 0
+
+
+SENTINEL_LOG_MAX_BYTES = 5 * 1024 * 1024
+
+UAOS_GITIGNORE_LINES = (
+    ".work/",
+    ".coord/pilot/",
+    ".coord/stream/",
+    ".coord/codex_brief.md",
+    ".coord/mailbox/",
+    ".coord/presence/",
+    ".coord/usage/runs.jsonl",
+)
+
+PLAN_TEMPLATE = """# 통합 실행 계획 (UAOS)
+
+상태 기준: `READY → ACTIVE → REVIEW → DONE`. 한 번에 활성 단계 하나, 단계마다 소유자 한 명.
+
+| ID | 상태 | 소유자 | 산출물/판정 |
+|---|---|---|---|
+| S01 | READY | (지휘자) | 첫 단계: 인수 명령을 먼저 정한다 |
+
+도구 상태(시각이 지나면 UNKNOWN): `python -m v7_harness.cli coord presence`로 확인한다.
+"""
+
+
+def cmd_coord_init(args: argparse.Namespace) -> int:
+    """Prepare any project for UAOS. Idempotent: existing files are never overwritten, only missing lines are added."""
+    project = Path(args.project)
+    if not project.is_dir():
+        print(json.dumps({"ok": False, "error": f"not a directory: {project}"}, ensure_ascii=False))
+        return 1
+    created: list[str] = []
+    plan = project / ".coord" / "PLAN.md"
+    if not plan.is_file():
+        plan.parent.mkdir(parents=True, exist_ok=True)
+        plan.write_text(PLAN_TEMPLATE, encoding="utf-8")
+        created.append(".coord/PLAN.md")
+    for folder in (".coord/tasks", ".coord/mailbox", ".work"):
+        if not (project / folder).is_dir():
+            (project / folder).mkdir(parents=True)
+            created.append(folder + "/")
+    gitignore = project / ".gitignore"
+    existing = gitignore.read_text(encoding="utf-8").splitlines() if gitignore.is_file() else []
+    missing = [line for line in UAOS_GITIGNORE_LINES if line not in existing]
+    if missing:
+        prefix = "" if not existing or existing[-1] == "" else "\n"
+        with gitignore.open("a", encoding="utf-8") as handle:
+            handle.write(prefix + "# UAOS runtime state (coord init)\n" + "\n".join(missing) + "\n")
+    print(json.dumps({"ok": True, "created": created, "gitignore_added": missing,
+                      "next": ["coord presence --tool <codex|claude|antigravity> --state ACTIVE",
+                               "pilot manual new ... then pilot manual lint ... then pilot run --manual ..."]},
+                     ensure_ascii=False))
+    return 0
+
+
+def cmd_coord_inbox(args: argparse.Namespace) -> int:
+    """U32b: list what waits in the voicemail without claiming it."""
+    from .coord.mailbox import Mailbox
+
+    mailbox_dir = Path(args.project) / ".coord" / "mailbox"
+    if not mailbox_dir.is_dir():
+        print(json.dumps({"ok": True, "messages": [], "bad": []}, ensure_ascii=False))
+        return 0
+    box = Mailbox(mailbox_dir)
+    messages = []
+    for message_id, payload in box.peek():
+        data = payload if isinstance(payload, dict) else {}
+        messages.append({
+            "id": message_id,
+            "kind": data.get("kind") or ("P1" if data.get("p1_alert") else None),
+            "step": data.get("step"),
+            "summary": data.get("summary") or data.get("wake_reason"),
+        })
+    print(json.dumps({"ok": True, "messages": messages, "bad": box.list_bad()}, ensure_ascii=False))
+    return 0
+
+
+def cmd_coord_ack(args: argparse.Namespace) -> int:
+    """U32b: mark one voicemail message as handled so it stops showing up in briefs and bells."""
+    from .coord.mailbox import Mailbox, MailboxRejected
+
+    box = Mailbox(Path(args.project) / ".coord" / "mailbox")
+    claim = box.claim(args.message_id, consumer_id=args.consumer)
+    if claim is None:
+        already = (box.ack_dir / f"{args.message_id}.json").is_file()
+        print(json.dumps({"ok": already, "id": args.message_id,
+                          "error": None if already else "NOT_IN_INBOX"}, ensure_ascii=False))
+        return 0 if already else 1
+    try:
+        box.ack(claim)
+    except (MailboxRejected, OSError) as exc:
+        box.nack(claim)
+        print(json.dumps({"ok": False, "id": args.message_id, "error": str(exc)}, ensure_ascii=False))
+        return 1
+    print(json.dumps({"ok": True, "id": args.message_id}, ensure_ascii=False))
+    return 0
+
+
+def _print_json(data: Any) -> None:
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def cmd_rsi_report(args: argparse.Namespace) -> int:
+    from .rsi import analyze, load_policy, load_rows, open_trials, read_decisions
+
+    project = Path(args.project)
+    policy = load_policy(project)
+    rows = load_rows(project)
+    report = analyze(rows, policy)
+    report["policy"] = policy
+    report["decisions"] = len(read_decisions(project))
+    # An adopted change whose window is complete is due for its re-check: keep it or `rsi rollback`.
+    report["trials"] = open_trials(project, rows)
+    _print_json(report)
+    return 0
+
+
+def cmd_rsi_propose(args: argparse.Namespace) -> int:
+    from .rsi import analyze, candidate_template, load_policy, load_rows, propose
+
+    project = Path(args.project)
+    policy = load_policy(project)
+    proposals = propose(analyze(load_rows(project), policy), policy)
+    if args.candidate_for:
+        match = [proposal for proposal in proposals if proposal["id"] == args.candidate_for]
+        if not match:
+            _print_json({"ok": False, "error": f"unknown proposal id: {args.candidate_for}"})
+            return 1
+        _print_json(candidate_template(match[0], args.author or detect_actor() or "unknown"))
+        return 0
+    _print_json({"proposals": proposals,
+                 "next": "try one proposal on a trial manual, then `rsi gate --candidate FILE` and hand it to the judge"})
+    return 0
+
+
+def _read_candidate(path: str) -> dict[str, Any]:
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("the candidate file must hold a JSON object")
+    return data
+
+
+def cmd_rsi_gate(args: argparse.Namespace) -> int:
+    from .rsi import gate_from_ledger
+
+    try:
+        candidate = _read_candidate(args.candidate)
+    except (OSError, ValueError) as exc:
+        _print_json({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]})
+        return 1
+    verdict = gate_from_ledger(Path(args.project), candidate)
+    _print_json(verdict)
+    return 0 if verdict["decision"] == "ADOPT_CANDIDATE" else 2
+
+
+def cmd_rsi_adopt(args: argparse.Namespace) -> int:
+    from .rsi import RsiRefused, adopt
+
+    try:
+        result = adopt(Path(args.project), _read_candidate(args.candidate), args.judge)
+    except (OSError, ValueError, RsiRefused) as exc:
+        _print_json({"ok": False, "error": str(exc)[:500]})
+        return 2
+    _print_json({"ok": True, **result})
+    return 0
+
+
+def cmd_rsi_rollback(args: argparse.Namespace) -> int:
+    from .rsi import RsiRefused, rollback
+
+    try:
+        result = rollback(Path(args.project), args.judge, args.reason)
+    except RsiRefused as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        return 2
+    _print_json({"ok": True, **result})
     return 0
 
 

@@ -23,6 +23,7 @@ from v7_harness.execution.errors import WorkerExecutionError
 from v7_harness.isolation.errors import (
     ExternalWriteDetectedError,
     IsolationError,
+    ScopeExpansionError,
     SourceDivergenceError,
     WatchScanUnavailableError,
 )
@@ -65,6 +66,48 @@ class PilotConfig:
     accept_cmd: str | None = None
     model: str | None = None
     allow_no_changes: bool = False
+    # Paths/globs the work manual allows the worker to change. None keeps the old unrestricted behavior.
+    allowed_scopes: list[str] | None = None
+    # B85: the contract's remote_budget_tokens for a paid worker. The gate runs before summary.json and the ledger
+    # row are written, so an over-budget bundle is BLOCKED everywhere, including the --approve replay.
+    remote_budget_tokens: int | None = None
+
+
+def worker_label(command: list[str] | tuple[str, ...]) -> str:
+    """Which worker ran, for the ledger. lane used to be recorded as agy, which mixed a free local run into the
+    paid worker's RSI window."""
+    text = " ".join(str(part) for part in command)
+    for marker, label in (("apply_worker", "apply"), ("claude_worker", "claude"), ("lane_worker", "lane"),
+                          ("ollama", "ollama")):
+        if marker in text:
+            return label
+    # Only the real agy binary is the paid Antigravity worker; any other command (a test stand-in, a custom script)
+    # is recorded as what it is instead of being counted as paid work.
+    first = Path(str(command[0])).name.lower() if command else ""
+    return "agy" if first in ("agy", "agy.exe", "agy.cmd") else "custom"
+
+
+PAID_WORKERS = ("agy", "claude")
+
+
+# Every kind the worker reports is spent: cached input is still billed and still counts against the quota.
+COST_TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+
+
+def evaluate_cost_gate(usage: dict[str, Any] | None, budget: int) -> str:
+    """WITHIN, EXCEEDED:<used>><budget>, or UNKNOWN when input or output is not reported (never read as zero)."""
+    if not isinstance(usage, dict):
+        return "UNKNOWN"
+    values = {}
+    for key in COST_TOKEN_KEYS:
+        value = usage.get(key)
+        if value is None and key.startswith("cache_"):
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return "UNKNOWN"
+        values[key] = value
+    used = sum(values.values())
+    return "WITHIN" if used <= budget else f"EXCEEDED:{used}>{budget}"
 
 
 _PYTHON_NAMES = frozenset({"python", "python.exe", "python3", "py"})
@@ -415,6 +458,17 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                     if saved.get("state") != "SUCCEEDED" or saved.get("verdict_hint") in ("REWORK", "BLOCKED"):
                         replayed_summary["promotion"] = "BLOCKED"
                         return replayed_summary
+                    # B85 rework (Codex): a paid run is promotable only with a recorded WITHIN gate, whatever
+                    # worker or flags the approval call itself names.
+                    try:
+                        built_by = (runs_dir / "worker").read_text(encoding="utf-8").strip()
+                    except OSError:
+                        built_by = ""
+                    paid = built_by in PAID_WORKERS or worker_label(config.agy_command) in PAID_WORKERS
+                    if (paid or config.remote_budget_tokens) and saved.get("cost_gate") != "WITHIN":
+                        replayed_summary["promotion"] = "BLOCKED"
+                        replayed_summary["error_detail"] = f"COST_GATE_NOT_WITHIN:{saved.get('cost_gate')}"
+                        return replayed_summary
                     saved_bundle_id = saved.get("bundle_id")
                     if saved.get("promotion") == "APPLIED" and config.approve_bundle_id == saved_bundle_id:
                         return replayed_summary
@@ -558,11 +612,13 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
         acceptance_exit: int | None = None
         accept_log_path: Path | None = None
         _accept_not_run: str | None = None
+        _scope_detail: str | None = None
         rework_class: str | None = None
         _rework_sig = ""
         verdict_hint: str = "BLOCKED"
         _checkpoint_refused: str | None = None
 
+        cost_gate = None
         if is_success:
             state = "SUCCEEDED"
             error_class = "NONE"
@@ -587,7 +643,9 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
 
             dry_run_passed = False
             try:
-                dry = dry_run_promotion(source_dir=config.source_dir, patch_bundle=bundle)
+                dry = dry_run_promotion(
+                    source_dir=config.source_dir, patch_bundle=bundle, allowed_scopes=config.allowed_scopes
+                )
                 promotion = "DRY_RUN_PASSED" if dry.success else dry.status
                 dry_run_passed = dry.success
             except SourceDivergenceError:
@@ -595,6 +653,13 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                 error_class = "SOURCE_DIVERGED"
                 promotion = "REJECTED"
                 verdict_hint = "BLOCKED"
+            except ScopeExpansionError as exc:
+                # The worker changed a file the manual does not allow: its output is wrong, the environment is fine.
+                # REWORK (not BLOCKED) so the sentinel does not page the commander for a worker mistake.
+                error_class = "SCOPE_VIOLATION"
+                promotion = "REJECTED"
+                verdict_hint = "REWORK"
+                _scope_detail = str(exc)[:300]
             except IsolationError as exc:
                 state = "FAILED"
                 error_class = getattr(exc, "error_class", "ISOLATION_ERROR")
@@ -675,9 +740,19 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                 if not config.allow_no_changes:
                     verdict_hint = "REWORK"
 
+            # B85: a paid worker that went over its budget (or did not say what it spent) is not promotable.
+            if config.remote_budget_tokens:
+                cost_gate = evaluate_cost_gate(outcome.usage if outcome else None, int(config.remote_budget_tokens))
+                if cost_gate != "WITHIN":
+                    verdict_hint = "BLOCKED"
+                    error_class = "COST_UNKNOWN" if cost_gate == "UNKNOWN" else "COST_EXCEEDED"
+
             # 11. Approval promotion handling
             if config.approve_bundle_id is not None:
                 if verdict_hint in ("REWORK", "BLOCKED"):
+                    promotion = "BLOCKED"
+                elif worker_label(config.agy_command) in PAID_WORKERS and cost_gate != "WITHIN":
+                    # B85 rework: a paid run approved in the same call still needs its budget measured as WITHIN.
                     promotion = "BLOCKED"
                 elif config.approve_bundle_id == bundle.bundle_id:
                     try:
@@ -747,6 +822,19 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
             "verdict_hint": verdict_hint,
         }
 
+        # Which worker built this bundle, beside the summary (the summary stays within its key budget). `pilot review`
+        # reads it so a reviewer never reviews its own worker's bundle (U38).
+        try:
+            (runs_dir / "worker").write_text(worker_label(config.agy_command), encoding="utf-8")
+        except OSError:
+            pass
+        if config.remote_budget_tokens and cost_gate is None:
+            # A failed run spent tokens too; record the gate even though there is nothing to promote.
+            cost_gate = evaluate_cost_gate(outcome.usage if outcome else None, int(config.remote_budget_tokens))
+        if cost_gate is not None:
+            summary["cost_gate"] = cost_gate
+            summary["remote_budget_tokens"] = int(config.remote_budget_tokens)
+
         # B30: no-change reason
         if not changed_files and verdict_hint == "REWORK" and state == "SUCCEEDED":
             summary["reason"] = "NO_CHANGES"
@@ -759,6 +847,8 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
         if execute_error is not None and state == "FAILED":
             detail = f"{type(execute_error).__name__}: {execute_error}"
             summary["error_detail"] = detail[:300]
+        if _scope_detail is not None:
+            summary["error_detail"] = _scope_detail
 
         # U18: 인수 실패 원인. 14키 밖 선택 키라 PASS·미실행 요약에는 넣지 않는다.
         if rework_class is not None:
@@ -787,7 +877,8 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
             from v7_harness.coord.usage_ledger import record_usage
             proj_root = config.source_dir.resolve()
             if (proj_root / ".git").is_dir() or (proj_root / ".coord" / "PLAN.md").is_file():
-                worker_type = "ollama" if any("ollama" in str(c) for c in config.agy_command) else "agy"
+                command_text = " ".join(str(c) for c in config.agy_command)
+                worker_type = worker_label(config.agy_command)
                 usage_dict = outcome.usage if outcome else {}
                 in_tok = usage_dict.get("input_tokens")
                 out_tok = usage_dict.get("output_tokens")
@@ -797,7 +888,7 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                     "schema": "uaos-usage-v2",
                     "work_id": config.task_id,
                     "actor": "coordinator",
-                    "model": config.model or ("qwen2.5-coder:7b" if worker_type == "ollama" else None),
+                    "model": config.model or {"ollama": "qwen2.5-coder:7b", "apply": "deterministic"}.get(worker_type),
                     "kind": "pilot",
                     "collection_mode": "automatic",
                     "input_tokens": input_tokens,
@@ -812,8 +903,17 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                     "exit_code": acceptance_exit if acceptance_exit is not None else (0 if state == "SUCCEEDED" else 1),
                     "bundle_id": bundle_id,
                     "rework_class": rework_class,
+                    # RSI groups failures by cause; verdict_hint alone cannot tell SCOPE_VIOLATION from a failed test.
+                    "error_class": error_class,
                     "error_detail": summary.get("error_detail"),
                 }
+                # U38: cached tokens and the dollar cost, when the worker reports them (Claude does).
+                for extra in ("cache_creation_input_tokens", "cache_read_input_tokens", "cost_microusd"):
+                    value = usage_dict.get(extra) if isinstance(usage_dict, dict) else None
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        ledger_entry[extra] = value
+                if summary.get("cost_gate"):
+                    ledger_entry["cost_gate"] = summary["cost_gate"]
                 record_usage(proj_root, ledger_entry)
         except Exception as ledger_exc:
             summary["usage_ledger_error"] = f"{type(ledger_exc).__name__}: {ledger_exc}"[:300]

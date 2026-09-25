@@ -162,6 +162,7 @@ class B41BundleTests(unittest.TestCase):
             task="B36_CLI_TEST",
             source=str(self.source),
             prompt="test prompt",
+            worker="local",  # a paid worker needs a manual since B85; this test checks CLI plumbing only
             prompt_file=None,
             work_dir=str(self.work),
             watch_root=None,

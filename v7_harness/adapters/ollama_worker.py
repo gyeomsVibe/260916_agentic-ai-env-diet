@@ -34,6 +34,9 @@ NUM_CTX = int(os.environ.get("OLLAMA_WORKER_NUM_CTX", "16384"))
 # 출력 상한. 무한 생성이 600초 시간 초과(PROVIDER_ERROR)로 끝나는 것을 막는다. EDIT 블록은 짧고 150줄 미만 파일 전체 재작성도 약 2k 토큰이라 4096이면 충분하다.
 NUM_PREDICT = int(os.environ.get("OLLAMA_WORKER_NUM_PREDICT", "4096"))
 KEEP_ALIVE = os.environ.get("OLLAMA_WORKER_KEEP_ALIVE", "30m")
+# Fixed seed: the same prompt gives the same output, so a failure can be reproduced and a manual change can be
+# compared against the same sample (Ollama API: `seed` makes generation reproducible).
+SEED = int(os.environ.get("OLLAMA_WORKER_SEED", "42"))
 BLOCK_RE = re.compile(r"^===FILE:\s*(?P<path>[^\n=]+?)\s*===\n(?P<body>.*?)(?=^===(?:FILE|EDIT):|\Z)", re.M | re.S)
 EDIT_RE = re.compile(
     r"^===EDIT:\s*(?P<path>[^\n=]+?)\s*===\n<<<<<<< SEARCH\n(?P<search>.*?)\n=======\n(?P<replace>.*?)\n>>>>>>> REPLACE",
@@ -79,17 +82,19 @@ Rules:
 """
 
 
-def _generate(model: str, prompt: str, timeout_s: int) -> tuple[str, dict[str, int]]:
-    payload = json.dumps(
-        {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "keep_alive": KEEP_ALIVE,
-            # 낮은 온도. 이 작업자는 창작이 아니라 지시받은 줄을 그대로 옮기는 손이다.
-            "options": {"temperature": 0.1, "num_ctx": NUM_CTX, "num_predict": NUM_PREDICT},
-        }
-    ).encode("utf-8")
+def _generate(model: str, prompt: str, timeout_s: int, *, fmt: dict | None = None) -> tuple[str, dict[str, int]]:
+    """`fmt` is an Ollama structured-output JSON schema: the model can only emit JSON of that shape."""
+    request_body: dict = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "keep_alive": KEEP_ALIVE,
+        # 낮은 온도. 이 작업자는 창작이 아니라 지시받은 줄을 그대로 옮기는 손이다.
+        "options": {"temperature": 0.1, "num_ctx": NUM_CTX, "num_predict": NUM_PREDICT, "seed": SEED},
+    }
+    if fmt is not None:
+        request_body["format"] = fmt
+    payload = json.dumps(request_body).encode("utf-8")
     request = urllib.request.Request(API, data=payload, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(request, timeout=timeout_s) as response:
         body = json.loads(response.read().decode("utf-8"))
@@ -110,14 +115,56 @@ def _target(workspace: Path, raw: str) -> tuple[str, Path]:
     return rel, target
 
 
-def _apply(text: str, workspace: Path) -> list[str]:
+DEFINITION_RE = re.compile(r"^[ \t]*(?:async[ \t]+def|def|class)[ \t]+([A-Za-z_]\w*)", re.M)
+DELETION_WORDS = re.compile(r"(?i)\b(?:remove|delete|drop|rename|replace)\b|삭제|제거|이름을")
+NEGATION_WORDS = re.compile(r"(?i)\b(?:do not|don't|never|must not)\b|금지|하지 마|말 것|않는다")
+
+
+def _deletion_requested(name: str, task: str) -> bool:
+    # A name alone is not a request: "forbidden: do not delete cmd_coord_log" mentions it too.
+    named = re.compile(rf"\b{re.escape(name)}\b")
+    return any(
+        named.search(line) and DELETION_WORDS.search(line) and not NEGATION_WORDS.search(line)
+        for line in task.splitlines()
+    )
+
+
+def dictated_paths(text: str) -> list[str]:
+    """Paths of the ===FILE/===EDIT blocks written in *text* (placeholder paths excluded)."""
+    found = [m.group("path").strip() for m in (*BLOCK_RE.finditer(text), *EDIT_RE.finditer(text))]
+    return sorted({path for path in found if path != TEMPLATE_PATH})
+
+
+def _guard(rel: str, target: Path, content: str, task: str) -> None:
+    """Deterministic checks on a worker's new file before anything is written.
+
+    A small model can drop whole functions while "rewriting" a file (P08 lost `cmd_coord_log` and passed its
+    one-test acceptance), or return prose instead of code. A definition may only disappear when the task names it.
+    """
+    if target.suffix.lower() != ".py":
+        return
+    try:
+        compile(content, rel, "exec")
+    except SyntaxError as exc:
+        raise ValueError(f"SYNTAX_ERROR:{rel}:{exc.lineno}") from exc
+    if not target.is_file():
+        return
+    removed = set(DEFINITION_RE.findall(target.read_text(encoding="utf-8"))) - set(DEFINITION_RE.findall(content))
+    unrequested = sorted(name for name in removed if not _deletion_requested(name, task))
+    if unrequested:
+        raise ValueError(f"UNREQUESTED_DELETION:{rel}:{','.join(unrequested[:5])}")
+
+
+def _apply(text: str, workspace: Path, task: str = "") -> list[str]:
     """모델이 돌려준 블록을 작업공간에 쓴다. 작업공간 밖 경로는 거부한다.
 
     두 형식을 받는다. `===FILE:`는 파일 전체, `===EDIT:`는 찾아서 바꾸기다.
     찾아서 바꾸기는 SEARCH가 정확히 한 번 나올 때만 적용한다. 0번이면 모델이 원문을
     잘못 옮긴 것이고, 2번 이상이면 어디를 바꿀지 모호하다. 둘 다 추측하지 않고 실패로 끝낸다.
+    `task` 에 이름이 없는 함수·클래스를 지우거나 문법이 깨진 .py 는 거부한다(_guard).
     """
     written: list[str] = []
+    pending: dict[Path, tuple[str, str]] = {}
     for match in BLOCK_RE.finditer(text):
         if match.group("path").strip() == TEMPLATE_PATH:
             continue
@@ -128,26 +175,32 @@ def _apply(text: str, workspace: Path) -> list[str]:
         lines = body.splitlines()
         if target.suffix.lower() != ".md" and len(lines) >= 2 and lines[0].strip().startswith("```") and lines[-1].strip() == "```":
             body = "\n".join(lines[1:-1])
-        target.write_text(body + "\n", encoding="utf-8")
-        written.append(rel)
+        pending[target] = (rel, body + "\n")
+        if rel not in written:
+            written.append(rel)
 
-    pending: dict[Path, str] = {}
     for match in EDIT_RE.finditer(text):
         if match.group("path").strip() == TEMPLATE_PATH:
             continue
         rel, target = _target(workspace, match.group("path"))
-        if not target.is_file():
+        if target in pending:
+            current = pending[target][1]
+        elif target.is_file():
+            current = target.read_text(encoding="utf-8")
+        else:
             raise ValueError(f"EDIT_TARGET_MISSING:{rel}")
-        current = pending.get(target) or target.read_text(encoding="utf-8")
         search = match.group("search")
         hits = current.count(search)
         if hits != 1:
             raise ValueError(f"EDIT_SEARCH_{'NOT_FOUND' if hits == 0 else 'AMBIGUOUS'}:{rel}")
-        pending[target] = current.replace(search, match.group("replace"), 1)
+        pending[target] = (rel, current.replace(search, match.group("replace"), 1))
         if rel not in written:
             written.append(rel)
+
+    for target, (rel, content) in pending.items():
+        _guard(rel, target, content, task)
     # 모든 블록이 검증된 뒤에만 쓴다. 중간에 하나라도 실패하면 아무 파일도 바뀌지 않는다.
-    for target, content in pending.items():
+    for target, (_rel, content) in pending.items():
         target.write_text(content, encoding="utf-8")
     return written
 
@@ -227,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
     if "===FILE:" not in text and "===EDIT:" not in text:
         return envelope("ERROR", "", usage, "model returned no file block")
     try:
-        written = _apply(text, workspace)
+        written = _apply(text, workspace, task=args.prompt)
     except ValueError as exc:
         return envelope("ERROR", "", usage, str(exc))
     if not written:
