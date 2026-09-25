@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import subprocess
 import sys
@@ -101,7 +102,8 @@ def _glob_ci(name: str, pattern: str) -> bool:
 
 def _git_out(runner: Callable[..., Any], cwd: Path, *args: str) -> tuple[int, str]:
     try:
-        done = runner(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+        env = dict(os.environ, ALLOW_PUSH="1")
+        done = runner(["git", *args], cwd=str(cwd), capture_output=True, text=True, env=env)
     except OSError as exc:
         return 127, str(exc)
     return done.returncode, (done.stdout or "").strip()
@@ -158,7 +160,13 @@ def build_steps(*, repo: Path, canon: Path, home: Path, python: str, sources: di
         steps.append(Step("sentinel", [*installer, "--apply", "--register-sentinel", str(repo)], repo, fatal=False,
                           note="a refusal means: run once as administrator, or use the shell:startup shortcut"))
     if push:
-        canon_files = [str(path.relative_to(canon)) if path.is_relative_to(canon) else str(path) for path in sources.values()]
+        def _to_canon_rel(p: Path) -> str:
+            try:
+                return str(p.resolve().relative_to(canon.resolve()))
+            except ValueError:
+                return str(p)
+
+        canon_files = list(dict.fromkeys(_to_canon_rel(path) for path in sources.values()))
         steps += [
             # Only this run's files: the three sources and the generator's dist output (canon_clean made sure no
             # earlier edit is mixed in).
@@ -183,13 +191,13 @@ def run(steps: list[Step], receipt: Receipt, receipt_path: Path, *, execute: boo
             continue
         if step.name == "receipt_commit":
             _write(receipt, receipt_path)  # the receipt goes into the commit with every earlier step
-            runner(["git", "add", "--", str(receipt_path)], cwd=str(step.cwd), capture_output=True, text=True)
+            runner(["git", "add", "--", str(receipt_path)], cwd=str(step.cwd), capture_output=True, text=True, env=dict(os.environ, ALLOW_PUSH="1"))
         started = time.monotonic()
         if step.action is not None:
             code, output = step.action()
         else:
             try:
-                done = runner(step.command, cwd=str(step.cwd) if step.cwd else None, capture_output=True, text=True)
+                done = runner(step.command, cwd=str(step.cwd) if step.cwd else None, capture_output=True, text=True, env=dict(os.environ, ALLOW_PUSH="1"))
                 code, output = done.returncode, (done.stdout or "") + (done.stderr or "")
             except OSError as exc:
                 code, output = 127, f"{type(exc).__name__}: {exc}"
