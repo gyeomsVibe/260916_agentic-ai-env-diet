@@ -1,79 +1,29 @@
-# 내일 기상 후 즉시 진행할 작업 가이드 (NEXT MORNING RESUME)
+# 2026-09-26 02:57 Codex 기상 및 즉시 수신 가이드 (CODEX RESUME)
 
-> 생성 일시: 2026-09-25T03:52:00+09:00 (Antigravity 작성)
-> 현재 상태: 전체 회귀 테스트 592/592 무결점 통과 (exit 0), 최신 커밋 `2e0453f` origin/main 푸시 완료
-
----
-
-## 1. 사전 확인 (Wake-up Check)
-
-기상 후 아래 명령 2개로 시스템 무결성을 5초 만에 확인합니다:
-```powershell
-# 1. 깃 상태 확인 (origin/main 동기화 확인)
-git status
-
-# 2. 하네스 상태 확인 (LOCKED: CLEAN 확인)
-python -m v7_harness.cli coord status
-```
+> **기상 예정 시각**: 2026-09-26T02:57:00+09:00 (Codex 쿼터 리셋 및 세션 복귀)  
+> **상태**: Antigravity 권한대행 완결 (U31~U42 DONE, 전체 710 회귀 통과, PC 전역 배포 완료)
 
 ---
 
-## 2. 4단계 UNMEASURED 실측 실행 순서
+## 1. 구동과 동시 자동 수신 프로세스 (Startup Flow)
 
-### [1단계] M2: Codex 순수 토큰 절감률 정밀 집계 (소요 시간: 10초)
-R3(P05), R4(P06, P07)의 measurement JSON 3건으로부터 이미 `MEASURED_AND_VERIFIED` 판정된 Codex 토큰 절감 수치를 단일 테이블로 집계합니다.
-- 실행 명령:
-```powershell
-python -c "import json; p06=json.load(open('.coord/runs/R4/measurement_P06.json', encoding='utf-8')); p07=json.load(open('.coord/runs/R4/measurement_P07.json', encoding='utf-8')); print('P06:', p06['comparison']['savings']); print('P07:', p07['comparison']['savings'])"
-```
-- 결과 반영: `docs/` 또는 `PLAN.md`에 "계정 쿼터와 분리된 Codex 순수 토큰 절감 지표(-77.0%)"로 공표.
+Codex가 구동되면 UAOS 런타임에 의해 아래 순서로 즉시 수신 및 연동됩니다:
 
----
-
-### [2단계] M3: 올라마 MCP 사용률 실측 (소요 시간: 30초)
-B73(MCP 등록) 이후 세션 동안 `olla` MCP(`local_read_map`, `local_draft`, `local_search`)의 실제 호출 통계를 조회합니다.
-- 실행 명령:
-```powershell
-python -m v7_harness.olla stats --session
-```
-- 결과 반영: `via=mcp` 호출 횟수 및 토큰 절감량 추출.
-
----
-
-### [3단계] M1: 로컬 올라마 7B 실과제 성공률 실측 갱신 (소요 시간: 약 10분)
-P08(coord status), P09(CSV sort)가 연속 성공한 방식을 적용하여, 명확한 단일 파일 단위 작업 10건(P10~P19)을 `pilot run --worker local`로 일괄 실행하고 최신 성공률을 산출합니다.
-- 실행 대상:
-  - 문자열/수학/포맷 변환/유효성 검사 등 구체성 80점 이상의 기계적 유틸리티 10건
-  - 유료 API 토큰: 0개 소모
-- 실행 명령:
-  - 개별 실행: `python -m v7_harness.cli pilot run --task <ID> --source . --prompt-file <prompt> --accept-cmd "<cmd>" --worker local --work-dir .work/pilot_<ID>`
-
----
-
-### [4단계] 구조적 측정 불가 항목 영구 UNMEASURED 선언
-- 대상:
-  1. **실제 계정 쿼터 절감률**: API 제공사(Anthropic, OpenAI)의 쿼터 환산 공식(비공개) 부재로 측정 불가.
-  2. **하루 운영 지연**: 동일 시기 동일 개발자의 완벽한 대조군 부재로 측정 불가.
-  3. **자율 사용률**: Codex/Claude가 활성 세션을 수십 회 수행하기 전까지 세션 누적 대기.
-- 결과 반영: `.coord/PLAN.md`에 사유와 함께 정식 판정 종결 기록.
-
----
-
-## 3. Codex 가동 시 보고 및 승인 절차
-
-Codex가 복귀(한도 해제 또는 재기동)하면 즉시 아래 절차를 통해 인계 및 승인을 받습니다.
-
-1. **디스크 우편함 확인 유도**:
-   - `.coord/mailbox/inbox/`에 Antigravity의 정식 인계 공문(`20260925_antigravity_to_codex_brief.json`)이 보관되어 있음.
-2. **복귀 점검표 확인**:
-   - `.coord/codex_return_checklist.md`의 **23번 ~ 27번 항목** 검토 요청:
-     - 23: B65 Antigravity 훅 및 턴 분석 완료
-     - 24: P08 `coord status` CLI 구현 (로컬 파일럿, 번들 `9f4da7542ebe`)
-     - 25: P09 CSV 정렬 유틸리티 구현 (로컬 파일럿, 번들 `2e3927305284`)
-     - 26: P08 회귀 수리 (`cmd_coord_log` 복구, 592/592 전체 통과, 커밋 `2e0453f` 푸시 완료)
-     - 27: UNMEASURED 전수 인벤토리 및 실측 세팅
-3. **최신 브리핑 갱신**:
-   - `python -m v7_harness.cli coord brief --write`로 `.coord/codex_brief.md` 동기화 완료됨.
-4. **Codex 대화창에서의 발화**:
-   - Codex에게 다음 한 줄을 입력하여 보고를 승인받으시면 됩니다:
-     > "Codex, 부재 중 Antigravity가 대행 수행한 업무(B65 훅, P08·P09 로컬 파일럿 0원 구현, cli 회귀 복구 592건 전수 통과, 커밋 2e0453f 푸시, UNMEASURED 인벤토리)를 `.coord/codex_return_checklist.md`(23~27번)와 우편함에서 확인하고 승인하라."
+1. **세션 훅 자동 감지**: Codex 시작 훅(`hooks.json`)이 출석부(`coord presence --tool codex --state ACTIVE`)를 갱신합니다.
+2. **사서함 즉시 조회**:
+   ```bash
+   python -m v7_harness.cli coord inbox
+   ```
+   수신함에 적재된 `codex_resume_report_20260925.json` 통지를 확인하고 아래 명령으로 수신 확인(ACK)합니다:
+   ```bash
+   python -m v7_harness.cli coord ack --id codex_resume_report_20260925
+   ```
+3. **권한대행 보고서 열람**:
+   `.coord/tasks/CODEX_PROXY_CLOSEOUT_REPORT_20260925.md`를 열람하여 부재 중 종결된 U31~U42 내역을 확인합니다.
+4. **복귀 점검표(Checklist) 28~33번 항목 1분 검증**:
+   `.coord/codex_return_checklist.md`의 신규 검증 항목을 확인합니다.
+5. **독립 회귀 검증 (1회 실행)**:
+   ```bash
+   python .coord/runs/run_regression.py
+   ```
+   710개 단위/통합 테스트 전건 Green(exit 0)을 확인하면 인계가 100% 완료됩니다.

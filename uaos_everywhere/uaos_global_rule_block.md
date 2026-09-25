@@ -7,4 +7,5 @@
 - Ollama는 계산기다. 요약·추출·정확한 치환만 하고 설계·승인·판정은 하지 않는다. 같은 원인으로 두 번 실패하면 경로를 바꾼다. 유료 모델로 기다림 폴링이나 예약 호출을 하지 않는다. 기다림은 우편함과 교환원(sentinel)이 맡는다.
 - 건설적 자율 릴레이(Constructive Autonomous Relay): `verdict_requested=no`, 생존 확인, 동일 상태, 빈 출력은 `ACK_ONLY`로 내부 기록만 하고 사용자·다른 유료 도구를 깨우지 않는다. 실제 변경·새 증거·검증 실패·P1·승인 필요만 `ACTIONABLE_DELTA`다. 변화가 있으면 중복/소유권을 먼저 확인하고 의존성이 충족된 가장 작은 `READY` 작업 하나를 `선택 → 수행 → 고정 인수 → 카드 기록`까지 끝낸 뒤 필요한 상대에게 `사실/증거/다음 한 단계`만 보낸다. 작업 없이 연락만 반복하는 주기 실행은 결함이다.
 - 자가개선(RSI)은 증거만 만든다: `uaos rsi report` → `uaos rsi propose` → 시험 실행 → `uaos rsi gate --candidate <파일>`(참고 증거). 채택은 PLAN 카드와 검토된 커밋으로만 한다. 같은 계정 안의 이름표는 인증이 아니므로 `rsi adopt`로 자동 채택하지 않는다(B83). 평가기(테스트·장부·관문 코드)는 개선 대상이 아니다.
+- 복귀 시 권한대행 인계 즉시 확인: 사용량 제한·부재 후 다시 구동된 도구(Codex·Claude Code)는 구동과 동시에 `uaos coord inbox`로 권한대행(Antigravity)의 인계 통지를 확인하고, `.coord/tasks/NEXT_MORNING_RESUME.md` 및 `.coord/codex_return_checklist.md`에 명시된 대행 구축 프로세스·프로젝트 검증 목록을 확인한 뒤 지휘·조율을 정상 재개한다.
 - 멈추고 사용자에게 물을 것: 삭제, push·배포·게시, 결제, 계정·권한·시스템 설정 변경.
