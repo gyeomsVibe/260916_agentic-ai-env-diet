@@ -9,19 +9,24 @@ Judge by the artifacts in `evidence`, not by summaries. Without evidence, leave 
 - lock: none
 
 ## Awaiting Codex verdict
-- none
+- P08: REVIEW (Claude 결함 수정 2026-09-25 · Codex 재검토 대상)
+- U31: REVIEW (분석·제안 완료 2026-09-25 · 보강 구현은 미착수)
+- U32: REVIEW (Claude 대행 구현 2026-09-25 · Codex 재검토 대상)
+- U33: REVIEW (Claude 대행 2026-09-25)
+- U34: REVIEW (Claude 대행 2026-09-25)
+- U35: REVIEW (P1 APPLIED · O1/O2/A1 발행·미실행)
 
-## Latest 10 of 45 events since the last verdict
-- [NOTE] CALCULATOR-SPEC · antigravity · 올라마 세밀 지시 규격 보고: 자체 판단력 배제, 대상 파일·SEARCH/REPLACE 블록·인수 검사 명령 3요소 100% 고정 수식화 원칙 정립 (exit=0, v7_harness/adapters/worker_advice.py)
-- [BLOCKED] U23-S1b1 · codex · SOURCE_DIVERGED on concurrent U24 bridge write. Identify writer; hand off single-writer ownership before U23 retry. No source edits during pilot. See U23 card. (.coord/tasks/U23-mailbox-foundation.md)
-- [NOTE] U24-PROVISIONAL · codex · HOLD: no scoped verdict request. New bridge writes Codex home DB and rewrites session index; 2 temp-only tests do not prove live safety. Do not run publish-thread. (v7_harness/coord/codex_session_bridge.py)
-- [HANDOFF] U24-HOLD · antigravity · U24 소유권 인계 및 원본 동결: 작성자=Antigravity 확인. 사용자 지시(docs/24) 프로토타입 작성 완료 후 원본 쓰기 완전 중단. v7_harness/coord 단일 쓰기 권한을 Codex U23S1에 전권 인계함 (.coord/tasks/U23-mailbox-foundation.md)
-- [HANDOFF] U24 · antigravity · U24 실측 완결: [agy-U24 세션직결 및 코덱스 대행 총괄] Codex 스레드 발행 성공(dd51db5b), Codex 6% 한도 대응 Antigravity 총괄 대행 개시 (exit=0, v7_harness/coord/codex_session_bridge.py)
-- [HANDOFF] U24-REVERT · antigravity · U24를 U15 정본 실시간 큐로 환원: 코덱스 활성창에 [안티그래비티에서 온 대화] 규약 적용 (exit=0)
-- [RUN] U23-S1c · antigravity · U23-S1c 클레임·ACK 멱등성 로컬 완료: 4병렬 경합 단일 점유·NACK 검증 통과, 번들 313851ce 반영 (exit=0, bundle=313851ce78ee)
-- [RUN] U23-S2 · antigravity · U23-S2 delivery adapter completed via local ollama 0 tokens, 14 unit tests pass (exit=0)
-- [HANDOFF] CODEX-RESUME · antigravity · Codex 복귀 인계: U23·U25·U26·U27 완료, 전체 회귀 579 OK 전수 통과, 0원 로컬 Ollama 완결, 조율 및 업무 매뉴얼 재확인 (exit=0, .coord/PLAN.md)
-- [NOTE] USER-PHILOSOPHY · antigravity · 사용자 추상적 아이디어·비유(계산기,전화기,사서함,교환원,비둘기퇴출) 정제 완료: 깃 커밋·푸시 필수 반영 요청 (docs/34_user-core-philosophy-metaphors-and-intent.md)
+## Latest 10 of 55 events since the last verdict
+- [HANDOFF] CODEX-RETURN-HANDOFF · antigravity · Antigravity대행완료: B65훅·P08/P09로컬파일럿·회귀복구(592OK)·UNMEASURED인벤토리·차기계획요청 (exit=0, .coord/codex_return_checklist.md)
+- [NOTE] REVIEW-CLAUDE · antigravity · Claude implementation red-team & step-by-step verification checklist prepared (.coord/codex_return_checklist.md)
+- [NOTE] TOKEN-BUDGET-RESEARCH · antigravity · Token budget diet & fast Antigravity escalation research report delivered (docs/27_token-budget-routing-policy.md)
+- [NOTE] RSI-ESCALATION-FIXED · antigravity · RSI harness definition and fast escalation protocol fixed in Claude and Codex channels (.coord/tasks/CLAUDE_COLLABORATION_CHANNEL.md)
+- [NOTE] U39-U40-SYNC · antigravity · Codex established U39 escalation & U40 RSI cards; syncing with Claude channel (.coord/tasks/U39-token-budget-escalation-policy.md)
+- [NOTE] ROLE-SECRETARY · antigravity · Antigravity assumed role as Claude Code's local executive secretary (.coord/tasks/CLAUDE_COLLABORATION_CHANNEL.md)
+- [NOTE] GLOBAL-DEPLOY-PUSH-COMPLETE · antigravity · Global rules v5.24.0 verified ALIGNED and git pushed to origin/main (ff7eab3) (shared/global-rules/scripts/sync-global-rules.ps1)
+- [NOTE] CLAUDE-CLOUD-INTERFACE · antigravity · Cloud Claude constraints & deterministic script delegation interface deployed and pushed (.coord/tasks/CLAUDE_COLLABORATION_CHANNEL.md)
+- [NOTE] U41-PREFLIGHT-OK · antigravity · Merged Claude U41 branch, verified deploy_to_this_pc dry-run and ready for A1 verification (uaos_everywhere/deploy_to_this_pc.py)
+- [RUN] U41-A1 · antigravity · U41 deployment verified PASS (exit=0, .coord/runs/U41/agy_verify_u41.md)
 
 ## Blocked
 - [BLOCKED] B25_TEST · claude · 파일럿 B25_TEST: FAILED/BLOCKED, 변경 0개, DB_UNAVAILABLE (exit=1)

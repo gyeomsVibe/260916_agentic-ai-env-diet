@@ -11,6 +11,8 @@
   - 사용자에게 넘길 일은 없다.
 - 선택권은 Codex에게 있다. Codex의 전역 규칙이 행동마다 사용자 승인을 요구하고 이 인용을 승인으로 인정하지 않는다면, **그 판단을 PR에 한 줄로 남기고 멈춘다.** 사용자에게 직접 묻지는 않는다. 그 경우 Claude가 사용자에게 보고한다.
 
+> 갱신(PR #1 병합 뒤): 배포는 `main`에서 한다. Codex 로컬 B83 커밋(91d0d05)은 Claude의 후속 PR이 같은 수정을 담고 있으므로, 그 PR이 병합되면 버리거나 그 PR에 merge한다.
+
 ## 1. 실행자
 
 - **Codex**(사용자 PC). Codex가 한도·부재면 **Antigravity**가 같은 명령을 실행한다.
@@ -26,7 +28,7 @@
 ### U41-D1 배포
 
 ```powershell
-git switch claude/cool-hamilton-yj6wwo      # B83 로컬 커밋(91d0d05)은 먼저 이 브랜치에 merge
+git switch main; git pull --ff-only        # PR #1 병합 뒤: main에서 실행(B83은 후속 PR에 들어 있음)
 python uaos_everywhere/deploy_to_this_pc.py                  # 계획. 정본 원본 3개가 맞게 잡혔는지 확인
 python uaos_everywhere/deploy_to_this_pc.py --apply --push   # 실행·커밋·푸시
 ```

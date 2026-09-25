@@ -727,13 +727,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_rsi_gate.add_argument("--project", default=".")
     p_rsi_gate.add_argument("--candidate", required=True, help="Candidate JSON file")
     p_rsi_gate.set_defaults(func=cmd_rsi_gate)
-    p_rsi_adopt = p_rsi_subs.add_parser("adopt", help="The judge adopts a candidate that passed the gate")
+    p_rsi_adopt = p_rsi_subs.add_parser("adopt", help="Refused by design (B83): prints the gate evidence and the proposed file for a PLAN card")
     p_rsi_adopt.add_argument("--project", default=".")
     p_rsi_adopt.add_argument("--candidate", required=True)
     p_rsi_adopt.add_argument("--judge", required=True, choices=["codex", "claude", "user"],
                              help="Codex, Claude while Codex is absent, or the user (docs/31 §3)")
     p_rsi_adopt.set_defaults(func=cmd_rsi_adopt)
-    p_rsi_rollback = p_rsi_subs.add_parser("rollback", help="Restore the policy from before the last adoption")
+    p_rsi_rollback = p_rsi_subs.add_parser("rollback", help="Refused by design (B83): prints the previous policy as a proposed file")
     p_rsi_rollback.add_argument("--project", default=".")
     p_rsi_rollback.add_argument("--judge", required=True, choices=["codex", "claude", "user"])
     p_rsi_rollback.add_argument("--reason", required=True)
@@ -1267,7 +1267,12 @@ def cmd_rsi_adopt(args: argparse.Namespace) -> int:
 
     try:
         result = adopt(Path(args.project), _read_candidate(args.candidate), args.judge)
-    except (OSError, ValueError, RsiRefused) as exc:
+    except RsiRefused as exc:
+        # B83: always refused; the evidence and the proposed file go into a PLAN card instead.
+        _print_json({"ok": False, "error": str(exc)[:500], "evidence": exc.evidence,
+                     "proposed_policy_json": exc.proposed_policy})
+        return 2
+    except (OSError, ValueError) as exc:
         _print_json({"ok": False, "error": str(exc)[:500]})
         return 2
     _print_json({"ok": True, **result})
@@ -1280,7 +1285,7 @@ def cmd_rsi_rollback(args: argparse.Namespace) -> int:
     try:
         result = rollback(Path(args.project), args.judge, args.reason)
     except RsiRefused as exc:
-        _print_json({"ok": False, "error": str(exc)})
+        _print_json({"ok": False, "error": str(exc), "proposed_policy_json": exc.proposed_policy})
         return 2
     _print_json({"ok": True, **result})
     return 0

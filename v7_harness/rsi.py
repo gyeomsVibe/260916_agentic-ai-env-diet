@@ -90,7 +90,20 @@ REMEDIES: dict[str, tuple[str, str]] = {
 
 
 class RsiRefused(Exception):
-    """An adoption or rollback that the rules do not allow."""
+    """An adoption or rollback that the rules do not allow. Carries the read-only gate evidence when there is some."""
+
+    def __init__(self, message: str, *, evidence: dict[str, Any] | None = None, proposed_policy: str | None = None):
+        super().__init__(message)
+        self.evidence = evidence
+        self.proposed_policy = proposed_policy
+
+
+# B83 (Codex red team, 2026-09-25): author, verifier and judge are strings any tool on this OS account can write, and
+# so are git authors and stream actors. No in-process check can make them an authentication boundary, so the loop
+# never writes the policy or the decision log. The boundary is a reviewed commit (a human GitHub review and merge).
+UNAUTHENTICATED_ACTOR = ("UNAUTHENTICATED_ACTOR: author, verifier and judge are unauthenticated names on this OS "
+                         "account (B83), so nothing is written. Put the gate evidence and the proposed file in a PLAN "
+                         "card; the change lands as a reviewed commit.")
 
 
 # ---------------------------------------------------------------- policy
@@ -358,7 +371,7 @@ def gate(candidate: dict[str, Any], policy: dict[str, Any] | None = None) -> dic
         "reasons": reasons,
         "before": before,
         "after": after,
-        "next": ("a judge who is neither the author nor the verifier runs `rsi adopt`; adoption is never automatic"
+        "next": ("advisory evidence only: put it in a PLAN card; the change lands as a reviewed commit (B83)"
                  if not reasons else "keep the current policy"),
     }
 
@@ -428,56 +441,18 @@ def record_decision(project: Path, decision: dict[str, Any]) -> Path:
     return path
 
 
-def _write_policy(project: Path, values: dict[str, Any]) -> None:
-    path = Path(project) / POLICY_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(values, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
 def adopt(project: Path, candidate: dict[str, Any], judge: str) -> dict[str, Any]:
-    """The judge's call. Re-runs the ledger gate, applies a policy change (keeping the previous value) and records it.
+    """Fail closed (B83). Computes the read-only ledger gate as evidence, then refuses before writing anything.
 
-    Manual-template and docs changes are recorded here but land through a normal reviewed commit.
+    The refusal carries the gate verdict and, for a policy candidate, the exact proposed policy.json text, so the
+    change can go through the normal PLAN card → reviewed commit path.
     """
-    judge = judge.lower()
-    author = str(candidate.get("author") or "").lower()
-    verifier = str(candidate.get("verifier") or "").lower()
-    if judge not in JUDGES:
-        raise RsiRefused(f"JUDGE_NOT_ALLOWED:{judge}")
-    if judge != "user" and judge in (author, verifier):
-        raise RsiRefused(f"JUDGE_NOT_INDEPENDENT:{judge} is the author or the verifier")
     verdict = gate_from_ledger(project, candidate)
-    if verdict["decision"] != "ADOPT_CANDIDATE":
-        record_decision(project, {"action": "REJECTED", "id": candidate.get("id"), "judge": judge,
-                                  "author": author, "verifier": verifier, "reasons": verdict["reasons"]})
-        raise RsiRefused("GATE_REJECTED:" + "; ".join(verdict["reasons"][:3]))
-    # docs/31 §4: one change at a time, re-checked over the next window, so an effect can be attributed to it.
-    rows = load_rows(project)
-    for pending in open_trials(project, rows):
-        if not pending["due"]:
-            raise RsiRefused(f"ONE_CHANGE_PER_WINDOW:{pending['id']} is on trial until {pending['recheck_at_rows']} rows of "
-                             f"{','.join(pending['workers']) or 'any worker'} (now {pending['rows_now']})")
-    workers = verdict.get("workers") or []
-    previous = load_policy(project)
-    proposed = candidate.get("policy") or {}
-    if proposed:
-        _write_policy(project, {**previous, **proposed})
-    record_decision(project, {
-        "action": "ADOPTED", "id": candidate.get("id"), "judge": judge, "author": author, "verifier": verifier,
-        "changed_paths": candidate.get("changed_paths"), "policy": proposed, "previous_policy": previous,
-        "before": verdict["before"], "after": verdict["after"],
-        "hypothesis": str(candidate.get("hypothesis") or "")[:300],
-        # The re-check counts runs of the workers the change is about; runs of other workers say nothing about it.
-        "workers": workers,
-        "rows_at_adoption": _worker_rows(rows, workers),
-        "recheck_at_rows": _worker_rows(rows, workers) + int(previous["window"]),
-    })
-    return {"adopted": candidate.get("id"), "policy_written": bool(proposed), "policy": load_policy(project),
-            "next": "commit .coord/rsi/ with the change; re-measure after the next window and roll back if it regresses"}
-
-
-def _worker_rows(rows: list[dict[str, Any]], workers: list[str]) -> int:
-    return sum(1 for row in rows if not workers or str(row.get("worker")) in workers)
+    proposed = None
+    if isinstance(candidate.get("policy"), dict) and candidate["policy"]:
+        proposed = json.dumps({**load_policy(project), **candidate["policy"]}, ensure_ascii=False, indent=2,
+                              sort_keys=True) + "\n"
+    raise RsiRefused(UNAUTHENTICATED_ACTOR, evidence=verdict, proposed_policy=proposed)
 
 
 def open_trials(project: Path, rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
@@ -501,20 +476,13 @@ def open_trials(project: Path, rows: list[dict[str, Any]] | None = None) -> list
 
 
 def rollback(project: Path, judge: str, reason: str) -> dict[str, Any]:
-    """Restore the policy from before the most recent adoption that is not yet rolled back."""
-    judge = judge.lower()
-    if judge not in JUDGES:
-        raise RsiRefused(f"JUDGE_NOT_ALLOWED:{judge}")
-    decisions = read_decisions(project)
-    rolled = {item.get("id") for item in decisions if item.get("action") == "ROLLED_BACK"}
-    for item in reversed(decisions):
-        if item.get("action") == "ADOPTED" and item.get("id") not in rolled:
-            if item.get("policy"):
-                _write_policy(project, item.get("previous_policy") or dict(DEFAULT_POLICY))
-            record_decision(project, {"action": "ROLLED_BACK", "id": item.get("id"), "judge": judge,
-                                      "reason": reason[:300]})
-            return {"rolled_back": item.get("id"), "policy": load_policy(project)}
-    raise RsiRefused("NOTHING_TO_ROLL_BACK")
+    """Fail closed (B83): a rollback writes the policy too. It proposes the previous policy and writes nothing."""
+    previous = None
+    for item in reversed(read_decisions(project)):
+        if item.get("action") == "ADOPTED" and item.get("previous_policy"):
+            previous = json.dumps(item["previous_policy"], ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+            break
+    raise RsiRefused(UNAUTHENTICATED_ACTOR, proposed_policy=previous)
 
 
 # ---------------------------------------------------------------- sentinel hook

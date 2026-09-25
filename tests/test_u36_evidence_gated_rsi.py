@@ -171,7 +171,7 @@ class GateTests(unittest.TestCase):
     def test_a_real_improvement_becomes_a_candidate_not_an_adoption(self) -> None:
         verdict = self._gate()
         self.assertEqual("ADOPT_CANDIDATE", verdict["decision"], verdict["reasons"])
-        self.assertIn("never automatic", verdict["next"])
+        self.assertIn("reviewed commit", verdict["next"])
 
     def test_evaluators_and_evidence_cannot_be_touched(self) -> None:
         for path in ("tests/test_u36_evidence_gated_rsi.py", ".coord/usage/runs.jsonl", "v7_harness/rsi.py",
@@ -250,57 +250,58 @@ class LedgerGateAndJudgeTests(unittest.TestCase):
         verdict = rsi.gate_from_ledger(self.root, _candidate(before, after))
         self.assertTrue(any(r.startswith("NOT_COMPARABLE") for r in verdict["reasons"]), verdict["reasons"])
 
-    def test_adoption_needs_an_independent_judge(self) -> None:
+    def _rsi_bytes(self) -> dict[str, bytes]:
+        folder = self.root / ".coord" / "rsi"
+        return {p.name: p.read_bytes() for p in folder.iterdir()} if folder.is_dir() else {}
+
+    def test_adopt_refuses_before_any_write_whatever_the_names(self) -> None:
+        # B83 (Codex red team, 2026-09-25): on one OS account author, verifier and judge are unauthenticated strings.
+        # These three reproductions were ADOPTED before; none may write anything now.
         before, after = _before_after(self.root, before_pass=1, after_pass=3)
-        candidate = _candidate(before, after)
-        for judge in ("claude", "antigravity", "ollama"):
-            with self.assertRaises(rsi.RsiRefused):
+        cases = (
+            (_candidate(before, after, author="antigravity", verifier="claude"), "codex"),
+            (_candidate(before, after, changed_paths=[".coord/rsi/policy.json"], policy={"local_min_specificity": 85}), "codex"),
+            (_candidate(before, after), "user"),
+        )
+        snapshot = self._rsi_bytes()
+        for candidate, judge in cases:
+            with self.assertRaises(rsi.RsiRefused) as caught:
                 rsi.adopt(self.root, candidate, judge)
-        self.assertEqual([], rsi.read_decisions(self.root))
-        result = rsi.adopt(self.root, candidate, "codex")
-        self.assertEqual("rsi_test", result["adopted"])
-        self.assertFalse(result["policy_written"])
-
-    def test_a_rejected_adoption_is_recorded(self) -> None:
-        before, after = _before_after(self.root, before_pass=3, after_pass=1)
-        with self.assertRaises(rsi.RsiRefused) as caught:
-            rsi.adopt(self.root, _candidate(before, after), "codex")
-        self.assertIn("GATE_REJECTED", str(caught.exception))
-        decision = rsi.read_decisions(self.root)[-1]
-        self.assertEqual("REJECTED", decision["action"])
-        self.assertTrue(any(r.startswith("REGRESSION:pass_rate") for r in decision["reasons"]))
-
-    def test_policy_adoption_keeps_the_old_value_and_rolls_back(self) -> None:
-        before, after = _before_after(self.root, before_pass=1, after_pass=3)
-        candidate = _candidate(before, after, changed_paths=[".coord/rsi/policy.json"],
-                               policy={"local_min_specificity": 85})
-        rsi.adopt(self.root, candidate, "codex")
-        self.assertEqual(85, rsi.load_policy(self.root)["local_min_specificity"])
-        adopted = rsi.read_decisions(self.root)[-1]
-        self.assertEqual(80, adopted["previous_policy"]["local_min_specificity"])
-        self.assertEqual(len(rsi.load_rows(self.root)) + 10, adopted["recheck_at_rows"])
-        result = rsi.rollback(self.root, "codex", "rework did not fall in the next window")
-        self.assertEqual("rsi_test", result["rolled_back"])
+            self.assertIn("UNAUTHENTICATED_ACTOR", str(caught.exception))
+        self.assertEqual(snapshot, self._rsi_bytes())
         self.assertEqual(80, rsi.load_policy(self.root)["local_min_specificity"])
-        with self.assertRaises(rsi.RsiRefused):
-            rsi.rollback(self.root, "codex", "again")
 
-    def test_one_change_per_window(self) -> None:
+    def test_the_refusal_carries_the_evidence_and_the_proposed_file(self) -> None:
         before, after = _before_after(self.root, before_pass=1, after_pass=3)
-        rsi.adopt(self.root, _candidate(before, after), "codex")
-        second = _candidate(before, after, id="rsi_second", changed_paths=["docs/other.md"])
+        candidate = _candidate(before, after, changed_paths=[".coord/rsi/policy.json"], policy={"local_min_specificity": 85})
         with self.assertRaises(rsi.RsiRefused) as caught:
-            rsi.adopt(self.root, second, "codex")
-        self.assertIn("ONE_CHANGE_PER_WINDOW:rsi_test", str(caught.exception))
+            rsi.adopt(self.root, candidate, "codex")
+        self.assertEqual("ADOPT_CANDIDATE", caught.exception.evidence["decision"])
+        self.assertEqual(85, json.loads(caught.exception.proposed_policy)["local_min_specificity"])
+
+    def test_rollback_writes_nothing_either(self) -> None:
+        rsi.record_decision(self.root, {"action": "ADOPTED", "id": "forged", "policy": {"local_min_specificity": 85},
+                                        "previous_policy": {"local_min_specificity": 80}})
+        snapshot = self._rsi_bytes()
+        with self.assertRaises(rsi.RsiRefused) as caught:
+            rsi.rollback(self.root, "codex", "forged decision file")
+        self.assertIn("UNAUTHENTICATED_ACTOR", str(caught.exception))
+        self.assertEqual(snapshot, self._rsi_bytes())
+
+    def test_a_recorded_trial_is_rechecked_per_worker(self) -> None:
+        # The R2 re-check logic stays for decisions that land through a reviewed commit (decisions.jsonl is an
+        # evaluator path, so only a reviewed change writes it).
+        before, after = _before_after(self.root, before_pass=1, after_pass=3)
+        rows = rsi.load_rows(self.root)
+        rsi.record_decision(self.root, {"action": "ADOPTED", "id": "rsi_test", "workers": ["ollama"],
+                                        "rows_at_adoption": len(rows), "recheck_at_rows": len(rows) + 10})
         self.assertFalse(rsi.open_trials(self.root)[0]["due"])
-        # Runs of another worker say nothing about an ollama change (critical review 2026-09-25).
         _ledger(self.root, [_row(f"P{i}", "PASS", ts=150 + i, worker="apply") for i in range(10)])
         self.assertFalse(rsi.open_trials(self.root)[0]["due"])
         _ledger(self.root, [_row(f"N{i}", "PASS" if i < 9 else "REWORK", ts=200 + i) for i in range(10)])
         trial = rsi.open_trials(self.root)[0]
         self.assertEqual((True, ["ollama"]), (trial["due"], trial["workers"]))
         self.assertEqual((10, 0.9), (trial["since"]["n"], trial["since"]["pass_rate"]))
-        self.assertEqual("rsi_second", rsi.adopt(self.root, second, "user")["adopted"])
 
 
 class SentinelAndCliTests(unittest.TestCase):
@@ -344,6 +345,12 @@ class SentinelAndCliTests(unittest.TestCase):
                 self.assertEqual(0, main(["rsi", "gate", "--project", d, "--candidate", str(good)]))
                 self.assertEqual(2, main(["rsi", "gate", "--project", d, "--candidate", str(bad)]))
                 self.assertEqual(2, main(["rsi", "adopt", "--project", d, "--candidate", str(good), "--judge", "claude"]))
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(2, main(["rsi", "adopt", "--project", d, "--candidate", str(good), "--judge", "codex"]))
+                self.assertEqual(2, main(["rsi", "rollback", "--project", d, "--judge", "codex", "--reason", "x"]))
+            self.assertEqual(2, out.getvalue().count("UNAUTHENTICATED_ACTOR"))
+            self.assertFalse((root / ".coord" / "rsi").exists())
             out = io.StringIO()
             with redirect_stdout(out):
                 self.assertEqual(0, main(["rsi", "report", "--project", d]))
