@@ -81,7 +81,13 @@ def worker_label(command: list[str] | tuple[str, ...]) -> str:
                           ("ollama", "ollama")):
         if marker in text:
             return label
-    return "agy"
+    # Only the real agy binary is the paid Antigravity worker; any other command (a test stand-in, a custom script)
+    # is recorded as what it is instead of being counted as paid work.
+    first = Path(str(command[0])).name.lower() if command else ""
+    return "agy" if first in ("agy", "agy.exe", "agy.cmd") else "custom"
+
+
+PAID_WORKERS = ("agy", "claude")
 
 
 # Every kind the worker reports is spent: cached input is still billed and still counts against the quota.
@@ -452,6 +458,17 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                     if saved.get("state") != "SUCCEEDED" or saved.get("verdict_hint") in ("REWORK", "BLOCKED"):
                         replayed_summary["promotion"] = "BLOCKED"
                         return replayed_summary
+                    # B85 rework (Codex): a paid run is promotable only with a recorded WITHIN gate, whatever
+                    # worker or flags the approval call itself names.
+                    try:
+                        built_by = (runs_dir / "worker").read_text(encoding="utf-8").strip()
+                    except OSError:
+                        built_by = ""
+                    paid = built_by in PAID_WORKERS or worker_label(config.agy_command) in PAID_WORKERS
+                    if (paid or config.remote_budget_tokens) and saved.get("cost_gate") != "WITHIN":
+                        replayed_summary["promotion"] = "BLOCKED"
+                        replayed_summary["error_detail"] = f"COST_GATE_NOT_WITHIN:{saved.get('cost_gate')}"
+                        return replayed_summary
                     saved_bundle_id = saved.get("bundle_id")
                     if saved.get("promotion") == "APPLIED" and config.approve_bundle_id == saved_bundle_id:
                         return replayed_summary
@@ -733,6 +750,9 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
             # 11. Approval promotion handling
             if config.approve_bundle_id is not None:
                 if verdict_hint in ("REWORK", "BLOCKED"):
+                    promotion = "BLOCKED"
+                elif worker_label(config.agy_command) in PAID_WORKERS and cost_gate != "WITHIN":
+                    # B85 rework: a paid run approved in the same call still needs its budget measured as WITHIN.
                     promotion = "BLOCKED"
                 elif config.approve_bundle_id == bundle.bundle_id:
                     try:

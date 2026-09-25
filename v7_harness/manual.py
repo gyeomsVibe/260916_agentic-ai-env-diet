@@ -194,6 +194,15 @@ def lint(text: str, project: Path) -> ManualReport:
     if worker in REMOTE_WORKERS and budget <= 0:
         # B85: an agy run with no budget spent 655,207 tokens and nothing compared it with anything.
         report.errors.append(f"REMOTE_WITHOUT_BUDGET: worker {worker} needs remote_budget_tokens > 0")
+    if worker == "claude":
+        # Codex audit: a pre-spend cap (`claude --max-budget-usd`). The token gate only acts after the money is spent.
+        usd_raw = str(contract.get("remote_budget_usd") or "")
+        try:
+            usd = float(usd_raw) if usd_raw else 0.0
+        except ValueError:
+            usd = -1.0
+        if usd <= 0 or usd != usd:
+            report.errors.append("REMOTE_WITHOUT_USD_CAP: worker claude needs remote_budget_usd > 0")
 
     blocks = dictated_paths(text)
     if worker == "apply" and not blocks:

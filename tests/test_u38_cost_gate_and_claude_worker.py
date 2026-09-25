@@ -197,7 +197,8 @@ class ClaudeWorkerTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {**self.env, "FAKE_CLAUDE_USAGE": json.dumps(usage)}):
             return run_pilot(PilotConfig(
                 task_id=task, title="claude", prompt="Make add return a + b in calc.py", source_dir=self.source,
-                work_dir=self.root / "work", agy_command=resolve_worker_command("claude", None), watch_roots=[],
+                work_dir=self.root / "work", agy_command=[*resolve_worker_command("claude", None), "--max-budget-usd", "0.50"],
+                watch_roots=[],
                 print_timeout_s=60, accept_cmd=f'"{sys.executable}" -c "import calc; assert calc.add(1, 2) == 3"',
                 allowed_scopes=["calc.py"], remote_budget_tokens=budget, model="claude-haiku-4-5-20251001",
             ))
@@ -215,7 +216,10 @@ class ClaudeWorkerTests(unittest.TestCase):
         self._pilot({"input_tokens": 1, "output_tokens": 1}, 60000)
         call = json.loads(self.log.read_text(encoding="utf-8"))
         argv = call["argv"]
-        self.assertIn("--bare", argv)
+        self.assertNotIn("--bare", argv)  # Codex: --bare cannot use the OAuth (Pro) login on the user's PC
+        self.assertEqual(["--safe-mode", "--restricted", "--permission-prompts", "none"],
+                         argv[argv.index("--safe-mode"):argv.index("--safe-mode") + 4])
+        self.assertEqual("0.50", argv[argv.index("--max-budget-usd") + 1])
         self.assertEqual("Read,Edit,Write,Glob,Grep", argv[argv.index("--tools") + 1])
         for fence in ("Write(tests/**)", "Edit(.coord/**)", "Write(.claude/**)"):
             self.assertIn(fence, argv)
@@ -246,28 +250,29 @@ class ClaudeWorkerTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {**self.env, "FAKE_CLAUDE_USAGE": json.dumps({"input_tokens": 800, "output_tokens": 90})}):
             with self.assertRaises(ReviewRefused):
                 run_review(task_id="U38_R", work_dir=self.root / "work", source=self.source, manual_text=manual,
-                           reviewer="claude", budget=0)
+                           reviewer="claude", budget=0, budget_usd=0.25)
             record = run_review(task_id="U38_R", work_dir=self.root / "work", source=self.source, manual_text=manual,
-                                reviewer="claude", budget=5000)
-        self.assertEqual((True, "REWORK", "agy", "WITHIN"),
+                                reviewer="claude", budget=5000, budget_usd=0.25)
+        self.assertEqual((True, "REWORK", "custom", "WITHIN"),
                          (record["advisory"], record["verdict"], record["author_worker"], record["cost_gate"]))
         argv = json.loads(self.log.read_text(encoding="utf-8"))["argv"]
         self.assertEqual("Read,Glob,Grep", argv[argv.index("--tools") + 1])
         for denied in ("Edit", "Write", "Bash"):
             self.assertIn(denied, argv[argv.index("--disallowedTools") + 1:])
         self.assertIn("```diff", argv[argv.index("-p") + 1])
+        self.assertEqual("0.25", argv[argv.index("--max-budget-usd") + 1])
         rows = [json.loads(line) for line in (self.source / ".coord" / "usage" / "runs.jsonl").read_text(encoding="utf-8").splitlines()]
         self.assertEqual(("review", "U38_R-review-claude"), (rows[-1]["kind"], rows[-1]["work_id"]))
         # A claude-built bundle is not reviewed by claude.
         self._pilot({"input_tokens": 1, "output_tokens": 1}, 60000, task="U38_SELF")
         with mock.patch.dict(os.environ, self.env), self.assertRaises(ReviewRefused) as caught:
             run_review(task_id="U38_SELF", work_dir=self.root / "work", source=self.source, manual_text=manual,
-                       reviewer="claude", budget=5000)
+                       reviewer="claude", budget=5000, budget_usd=0.25)
         self.assertIn("REVIEWER_IS_AUTHOR", str(caught.exception))
         (self.root / "work" / "runs" / "U38_R" / "worker").unlink()
         with mock.patch.dict(os.environ, self.env), self.assertRaises(ReviewRefused) as caught:
             run_review(task_id="U38_R", work_dir=self.root / "work", source=self.source, manual_text=manual,
-                       reviewer="claude", budget=5000)
+                       reviewer="claude", budget=5000, budget_usd=0.25)
         self.assertIn("AUTHOR_UNKNOWN", str(caught.exception))
 
 
@@ -276,19 +281,20 @@ class ClaudeMembershipTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             helper = RemoteBudgetContractTests()
+            capped = lambda text: text.replace("judge: ", "remote_budget_usd: 0.50\njudge: ", 1)  # noqa: E731
             self.assertIn("SELF_JUDGE:claude cannot accept work done by --worker claude",
-                          lint(helper._manual(root, worker="claude", judge="claude", remote_budget_tokens=60000), root).errors)
+                          lint(capped(helper._manual(root, worker="claude", judge="claude", remote_budget_tokens=60000)), root).errors)
             self.assertIn("REMOTE_WITHOUT_BUDGET: worker claude needs remote_budget_tokens > 0",
-                          lint(helper._manual(root, worker="claude"), root).errors)
-            self.assertTrue(lint(helper._manual(root, worker="claude", remote_budget_tokens=60000), root).ok)
+                          lint(capped(helper._manual(root, worker="claude")), root).errors)
+            self.assertTrue(lint(capped(helper._manual(root, worker="claude", remote_budget_tokens=60000)), root).ok)
 
     def test_a_limited_claude_is_not_sent_to_work(self) -> None:
         from v7_harness.coord.presence import mark
 
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            (root / "m.md").write_text(RemoteBudgetContractTests()._manual(root, worker="claude", remote_budget_tokens=60000),
-                                       encoding="utf-8")
+            (root / "m.md").write_text(RemoteBudgetContractTests()._manual(root, worker="claude", remote_budget_tokens=60000)
+                                       .replace("judge: ", "remote_budget_usd: 0.50\njudge: ", 1), encoding="utf-8")
             mark(root, "claude", "LIMITED")
             out = io.StringIO()
             with mock.patch("v7_harness.pilot.run_pilot") as run, redirect_stdout(out), redirect_stderr(io.StringIO()):
@@ -299,9 +305,11 @@ class ClaudeMembershipTests(unittest.TestCase):
     def test_worker_labels(self) -> None:
         from v7_harness.pilot import worker_label
 
-        self.assertEqual(["claude", "lane", "apply", "ollama", "agy"],
+        self.assertEqual(["claude", "lane", "apply", "ollama", "custom"],
                          [worker_label(["py", f"x/{name}"]) for name in
-                          ("claude_worker.py", "lane_worker.py", "apply_worker.py", "ollama_worker.py", "agy")])
+                          ("claude_worker.py", "lane_worker.py", "apply_worker.py", "ollama_worker.py", "fake_worker.py")])
+        # Only the real agy binary counts as the paid Antigravity worker (a stand-in is "custom").
+        self.assertEqual(["agy", "agy", "custom"], [worker_label([c]) for c in ("agy", "C:/bin/agy.cmd", "x/py")])
 
     def test_p1_reaches_claude_only_while_codex_is_away(self) -> None:
         from v7_harness.coord.hook_context import p1_line
@@ -332,6 +340,180 @@ class ClaudeMembershipTests(unittest.TestCase):
                 self.assertEqual(0, main(["coord", "presence", "--tool", "claude", "--state", "ACTIVE", "--from-hook",
                                           "--project", d]))
             self.assertFalse((Path(d) / ".coord" / "presence").exists())
+
+
+class CodexReworkTests(unittest.TestCase):
+    """Codex audit of 1d9bcc0/dc474aa (2026-09-25): the no-manual bypass, --bare on a subscription host, no dollar
+    cap, and the U39 route. Each test here failed before the rework."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def _cli(self, argv: list[str]) -> tuple[int, dict, mock.MagicMock]:
+        out = io.StringIO()
+        with mock.patch("v7_harness.pilot.run_pilot", return_value={"state": "SUCCEEDED", "verdict_hint": "PASS"}) as run, \
+                redirect_stdout(out), redirect_stderr(io.StringIO()):
+            code = main(argv)
+        text = out.getvalue().strip()
+        return code, (json.loads(text) if text.startswith("{") else {}), run
+
+    def test_a_paid_worker_without_a_manual_is_refused(self) -> None:
+        prompt = self.root / "p.txt"
+        prompt.write_text("fix x", encoding="utf-8")
+        for worker in ("agy", "claude"):
+            for source in (["--prompt", "fix x"], ["--prompt-file", str(prompt)]):
+                for extra in ([], ["--approve", "b" * 64]):
+                    code, out, run = self._cli(["pilot", "run", "--task", "T", "--source", str(self.root), "--worker", worker,
+                                                *source, *extra])
+                    self.assertEqual((2, "REMOTE_WITHOUT_MANUAL"), (code, out.get("error_class")), (worker, source, extra))
+                    run.assert_not_called()
+
+    def test_cascade_without_a_manual_does_not_escalate_to_a_paid_worker(self) -> None:
+        calls = []
+
+        def fake_run(config):
+            calls.append(config.task_id)
+            return {"task_id": config.task_id, "state": "SUCCEEDED", "verdict_hint": "REWORK"}
+
+        out = io.StringIO()
+        with mock.patch("v7_harness.pilot.run_pilot", fake_run), redirect_stdout(out), redirect_stderr(io.StringIO()):
+            main(["pilot", "run", "--task", "C1", "--source", str(self.root), "--prompt", "fix x", "--worker", "cascade"])
+        self.assertEqual(["C1"], calls)
+        self.assertEqual("REFUSED:REMOTE_WITHOUT_MANUAL", json.loads(out.getvalue())["escalation"])
+
+    def test_approval_needs_a_persisted_within_gate_whatever_the_flags(self) -> None:
+        # A paid run recorded without a budget, then approved while claiming another worker, must not promote.
+        source, command = _project(self.root)
+        agy = self.root / "agy"
+        agy.write_text("", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"FAKE_USAGE": json.dumps({"input_tokens": 10, "output_tokens": 5})}):
+            first = run_pilot(PilotConfig(task_id="AP", title="t", prompt="Make add return a + b in calc.py",
+                                          source_dir=source, work_dir=self.root / "work", agy_command=command,
+                                          watch_roots=[], print_timeout_s=60, allowed_scopes=["calc.py"],
+                                          accept_cmd=f'"{sys.executable}" -c "import calc; assert calc.add(1, 2) == 3"'))
+        (self.root / "work" / "runs" / "AP" / "worker").write_text("agy", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"FAKE_USAGE": json.dumps({"input_tokens": 10, "output_tokens": 5})}):
+            second = run_pilot(PilotConfig(task_id="AP", title="t", prompt="Make add return a + b in calc.py",
+                                           source_dir=source, work_dir=self.root / "work", agy_command=command,
+                                           watch_roots=[], print_timeout_s=60, allowed_scopes=["calc.py"],
+                                           approve_bundle_id=first["bundle_id"],
+                                           accept_cmd=f'"{sys.executable}" -c "import calc; assert calc.add(1, 2) == 3"'))
+        self.assertEqual("BLOCKED", second["promotion"])
+        self.assertEqual("def add(a, b):\n    return 0\n", (source / "calc.py").read_text(encoding="utf-8"))
+
+    def test_the_claude_worker_runs_in_safe_restricted_mode_with_a_dollar_cap(self) -> None:
+        from v7_harness.adapters.claude_worker import review_command, worker_command
+
+        for argv in (worker_command("p", "haiku", 0.5), review_command("p", "haiku", 0.25)):
+            self.assertNotIn("--bare", argv)  # --bare never reads OAuth; a Pro/claude.ai login cannot authenticate
+            for flag in ("--safe-mode", "--restricted"):
+                self.assertIn(flag, argv)
+            self.assertEqual("none", argv[argv.index("--permission-prompts") + 1])
+            self.assertGreater(float(argv[argv.index("--max-budget-usd") + 1]), 0)
+
+    def test_the_claude_worker_refuses_to_start_without_a_dollar_cap(self) -> None:
+        from v7_harness.adapters import claude_worker
+
+        out = io.StringIO()
+        with mock.patch("subprocess.run") as run, redirect_stdout(out):
+            code = claude_worker.main(["-p", "x", "--add-dir", str(self.root)])
+        self.assertEqual(1, code)
+        run.assert_not_called()
+        self.assertIn("NO_USD_CAP", json.loads(out.getvalue())["error"])
+
+    def test_a_claude_contract_needs_a_dollar_cap_and_passes_it_to_the_worker(self) -> None:
+        helper = RemoteBudgetContractTests()
+        text = helper._manual(self.root, worker="claude", remote_budget_tokens=60000)
+        self.assertIn("REMOTE_WITHOUT_USD_CAP: worker claude needs remote_budget_usd > 0", lint(text, self.root).errors)
+        capped = text.replace("judge: codex", "judge: codex\nremote_budget_usd: 0.50")
+        self.assertTrue(lint(capped, self.root).ok, lint(capped, self.root).errors)
+        (self.root / "m.md").write_text(capped, encoding="utf-8")
+        _code, _out, run = self._cli(["pilot", "run", "--task", "U38_T", "--source", str(self.root),
+                                      "--manual", str(self.root / "m.md")])
+        command = run.call_args.args[0].agy_command
+        self.assertEqual("0.50", command[command.index("--max-budget-usd") + 1])
+
+    def test_a_paid_review_needs_a_dollar_cap(self) -> None:
+        from v7_harness.review import ReviewRefused, run_review
+
+        with self.assertRaises(ReviewRefused) as caught:
+            run_review(task_id="X", work_dir=self.root, source=self.root, manual_text="", reviewer="claude",
+                       budget=5000, budget_usd=0)
+        self.assertIn("REVIEW_WITHOUT_USD_CAP", str(caught.exception))
+
+
+class U39RouteTests(unittest.TestCase):
+    """docs/41 §5: deterministic → Ollama once → Antigravity once → verdict; an Ollama semantic failure never loops."""
+
+    def test_state_machine(self) -> None:
+        from v7_harness.routing import next_route
+
+        self.assertEqual("done", next_route("local", None, local_attempts=1, local_tokens=3000))
+        self.assertEqual("local_retry", next_route("local", "FORMAT_ONLY", local_attempts=1, local_tokens=3000))
+        self.assertEqual("remote", next_route("local", "FORMAT_ONLY", local_attempts=1, local_tokens=12000))
+        for failure in ("SEMANTIC", "UNSUPPORTED", "SCOPE", "TOOL_LIMIT", "JUDGMENT_REQUIRED"):
+            self.assertEqual("remote", next_route("local", failure, local_attempts=1, local_tokens=100), failure)
+        self.assertEqual("remote", next_route("local_retry", "FORMAT_ONLY", local_attempts=2, local_tokens=5000))
+        self.assertEqual("split", next_route("remote", "SEMANTIC", local_attempts=2, local_tokens=5000))
+        self.assertEqual("stop", next_route("local", "ENVIRONMENT", local_attempts=1, local_tokens=0))
+
+    def test_failure_classes(self) -> None:
+        from v7_harness.routing import classify_failure
+
+        self.assertIsNone(classify_failure({"verdict_hint": "PASS"}))
+        self.assertEqual("SEMANTIC", classify_failure({"verdict_hint": "REWORK"}))
+        self.assertEqual("SCOPE", classify_failure({"verdict_hint": "REWORK", "error_class": "SCOPE_VIOLATION"}))
+        self.assertEqual("FORMAT_ONLY", classify_failure({"verdict_hint": "BLOCKED", "error_class": "PROVIDER_ERROR",
+                                                         "error_detail": "model returned no file block"}))
+        self.assertEqual("TOOL_LIMIT", classify_failure({"verdict_hint": "BLOCKED", "error_class": "PROVIDER_ERROR",
+                                                        "error_detail": "PROMPT_TOO_LARGE: ~9000 tokens > 8000"}))
+        self.assertEqual("ENVIRONMENT", classify_failure({"verdict_hint": "BLOCKED", "error_class": "ACCEPT_INFRA"}))
+
+    def test_a_semantic_local_failure_never_gets_a_second_local_attempt(self) -> None:
+        calls = []
+
+        def fake_run(config):
+            calls.append(config.agy_command[-1])
+            return {"task_id": config.task_id, "state": "SUCCEEDED", "verdict_hint": "REWORK",
+                    "agy_usage": {"input_tokens": 100, "output_tokens": 50}}
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            helper = RemoteBudgetContractTests()
+            (root / "m.md").write_text(helper._manual(root, worker="cascade", remote_budget_tokens=120000), encoding="utf-8")
+            out = io.StringIO()
+            with mock.patch("v7_harness.pilot.run_pilot", fake_run), redirect_stdout(out), redirect_stderr(io.StringIO()):
+                main(["pilot", "run", "--task", "R1", "--source", d, "--manual", str(root / "m.md")])
+        self.assertEqual(2, len(calls))
+        self.assertTrue(calls[0].endswith("ollama_worker.py"))
+        self.assertEqual("agy", calls[1])
+        self.assertEqual(["local:SEMANTIC", "remote:SEMANTIC", "split"], json.loads(out.getvalue())["route"])
+
+    def test_a_format_failure_gets_exactly_one_local_retry(self) -> None:
+        calls = []
+        results = iter([
+            {"state": "FAILED", "verdict_hint": "BLOCKED", "error_class": "PROVIDER_ERROR",
+             "error_detail": "model returned no file block", "agy_usage": {"input_tokens": 3000, "output_tokens": 200}},
+            {"state": "SUCCEEDED", "verdict_hint": "PASS", "agy_usage": {"input_tokens": 3000, "output_tokens": 300}},
+        ])
+
+        def fake_run(config):
+            calls.append(config.task_id)
+            return {"task_id": config.task_id, **next(results)}
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "m.md").write_text(RemoteBudgetContractTests()._manual(root, worker="cascade", remote_budget_tokens=120000),
+                                       encoding="utf-8")
+            out = io.StringIO()
+            with mock.patch("v7_harness.pilot.run_pilot", fake_run), redirect_stdout(out), redirect_stderr(io.StringIO()):
+                main(["pilot", "run", "--task", "R2", "--source", d, "--manual", str(root / "m.md")])
+        self.assertEqual(["R2", "R2-retry"], calls)
+        self.assertEqual(["local:FORMAT_ONLY", "local_retry:PASS"], json.loads(out.getvalue())["route"])
 
 if __name__ == "__main__":
     unittest.main()

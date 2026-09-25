@@ -6,9 +6,14 @@ workers: `-p <prompt> --add-dir <workspace> --print-timeout Ns [--model M]` in, 
 What keeps it inside its lane:
 - no Bash, and tests are write-protected: the pilot runs the acceptance itself (lane bench: test tampering was the
   main failure);
-- `.coord/**` is write-protected too, and `--bare` keeps project hooks and CLAUDE.md out. The staged copy holds
-  `.coord/PLAN.md`, so a presence hook firing there would write into the copy and turn a good run into a
-  SCOPE_VIOLATION;
+- `.coord/**` is write-protected too. The staged copy holds `.coord/PLAN.md`, so a presence hook firing there would
+  write into the copy and turn a good run into a SCOPE_VIOLATION; UAOS_WORKER makes the UAOS hooks write nothing;
+- `--safe-mode --restricted --permission-prompts none`, not `--bare`: Codex checked Claude Code 2.1.281 on the user's
+  PC, where `--bare` never reads the OAuth login (a claude.ai / Pro subscription) and needs an API key, which UAOS will
+  not read or inject. The safe/restricted pair is a hypothesis for hook suppression and root confinement until one
+  approved real call proves it (docs/40);
+- `--max-budget-usd` from the contract's `remote_budget_usd` is a hard cap before spending; without it the worker
+  refuses to start (NO_USD_CAP). Dollars are never inferred from tokens;
 - the parent session's markers are removed and UAOS_WORKER=claude is set, so hooks and logs never take the worker
   for the commander;
 - every token kind and the dollar cost are reported, so the pilot's cost gate (B85) sees the whole spend.
@@ -66,11 +71,18 @@ def claude_executable() -> list[str]:
     return [shutil.which("claude") or "claude"]
 
 
-def worker_command(prompt: str, model: str) -> list[str]:
-    return [*claude_executable(), "-p", prompt, "--bare", "--tools", TOOLS, "--strict-mcp-config",
+ISOLATION = ["--safe-mode", "--restricted", "--permission-prompts", "none"]
+
+
+def _usd(value: float) -> str:
+    return f"{float(value):.2f}"
+
+
+def worker_command(prompt: str, model: str, max_budget_usd: float) -> list[str]:
+    return [*claude_executable(), "-p", prompt, *ISOLATION, "--tools", TOOLS, "--strict-mcp-config",
             "--disable-slash-commands", "--system-prompt", SYSTEM, "--model", model, "--max-turns", MAX_TURNS,
-            "--permission-mode", "acceptEdits", "--allowedTools", TOOLS, "--disallowedTools", *PROTECTED,
-            "--output-format", "json"]
+            "--max-budget-usd", _usd(max_budget_usd), "--permission-mode", "acceptEdits", "--allowedTools", TOOLS,
+            "--disallowedTools", *PROTECTED, "--output-format", "json"]
 
 
 REVIEW_TOOLS = "Read,Glob,Grep"
@@ -79,11 +91,12 @@ REVIEW_SYSTEM = ("You are an independent UAOS reviewer. You may only read. Look 
                  "Answer with one JSON object and nothing else.")
 
 
-def review_command(prompt: str, model: str) -> list[str]:
-    """Read-only: no Edit, Write or Bash, so the reviewer cannot change what it judges."""
-    return [*claude_executable(), "-p", prompt, "--bare", "--tools", REVIEW_TOOLS, "--strict-mcp-config",
+def review_command(prompt: str, model: str, max_budget_usd: float) -> list[str]:
+    """Read-only: no Edit, Write or Bash, so the reviewer cannot change what it judges. Same dollar cap as a worker."""
+    return [*claude_executable(), "-p", prompt, *ISOLATION, "--tools", REVIEW_TOOLS, "--strict-mcp-config",
             "--disable-slash-commands", "--system-prompt", REVIEW_SYSTEM, "--model", model, "--max-turns", MAX_TURNS,
-            "--allowedTools", REVIEW_TOOLS, "--disallowedTools", "Edit", "Write", "Bash", "--output-format", "json"]
+            "--max-budget-usd", _usd(max_budget_usd), "--allowedTools", REVIEW_TOOLS,
+            "--disallowedTools", "Edit", "Write", "Bash", "--output-format", "json"]
 
 
 def usage_from(result: dict) -> dict[str, int]:
@@ -104,6 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--print-timeout", default="600s")
     parser.add_argument("--add-dir", dest="workspace", required=True)
     parser.add_argument("--model", default=None)
+    parser.add_argument("--max-budget-usd", dest="max_budget_usd", default=None)
     args, _unknown = parser.parse_known_args(argv)
     timeout_s = int(str(args.print_timeout).rstrip("s") or 600)
     model = args.model or DEFAULT_MODEL
@@ -113,10 +127,18 @@ def main(argv: list[str] | None = None) -> int:
                           "error": error}, ensure_ascii=False))
         return 0 if status == "SUCCESS" else 1
 
+    try:
+        cap = float(args.max_budget_usd) if args.max_budget_usd is not None else 0.0
+    except ValueError:
+        cap = 0.0
+    if not cap > 0:
+        return envelope("ERROR", "", {}, "NO_USD_CAP: a paid Claude call needs --max-budget-usd > 0 "
+                                         "(the contract's remote_budget_usd)")
+
     # Nothing reported means UNKNOWN to the cost gate, which blocks the run: a failed start is not a free run.
     started = time.monotonic()
     try:
-        done = subprocess.run(worker_command(args.prompt, model), cwd=args.workspace, env=worker_env(),
+        done = subprocess.run(worker_command(args.prompt, model, cap), cwd=args.workspace, env=worker_env(),
                               capture_output=True, timeout=timeout_s)
     except subprocess.TimeoutExpired:
         return envelope("ERROR", "", {}, f"claude worker timed out after {timeout_s}s")

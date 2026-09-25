@@ -48,6 +48,7 @@ class B20ModelFlagTests(unittest.TestCase):
             "--source", ".",
             "--prompt", "hello",
             "--model", "claude-3-7-sonnet",
+            "--worker", "local",  # a paid worker needs a manual since B85; this test checks CLI plumbing only
         ])
 
         captured_config: list[PilotConfig] = []

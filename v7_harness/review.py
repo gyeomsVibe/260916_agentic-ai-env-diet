@@ -56,7 +56,8 @@ def parse_verdict(text: str) -> dict[str, Any] | None:
 
 
 def run_review(*, task_id: str, work_dir: Path, source: Path, manual_text: str, reviewer: str, budget: int,
-               model: str | None = None, timeout_s: int = 600, runner: Any = subprocess.run) -> dict[str, Any]:
+               budget_usd: float = 0.0, model: str | None = None, timeout_s: int = 600,
+               runner: Any = subprocess.run) -> dict[str, Any]:
     from .adapters.claude_worker import DEFAULT_MODEL, review_command, usage_from, worker_env
     from .pilot import evaluate_cost_gate
 
@@ -64,6 +65,8 @@ def run_review(*, task_id: str, work_dir: Path, source: Path, manual_text: str, 
         raise ReviewRefused(f"UNKNOWN_REVIEWER:{reviewer}")
     if budget <= 0:
         raise ReviewRefused("REVIEW_WITHOUT_BUDGET: pass --budget > 0 (a review is a paid call)")
+    if not budget_usd > 0:
+        raise ReviewRefused("REVIEW_WITHOUT_USD_CAP: pass --budget-usd > 0 (claude --max-budget-usd, before spending)")
     runs = Path(work_dir) / "runs" / task_id
     try:
         summary = json.loads((runs / "summary.json").read_text(encoding="utf-8"))
@@ -89,7 +92,7 @@ def run_review(*, task_id: str, work_dir: Path, source: Path, manual_text: str, 
     error = ""
     verdict = None
     try:
-        done = runner(review_command(prompt, model or DEFAULT_MODEL), cwd=str(staging), env=worker_env(),
+        done = runner(review_command(prompt, model or DEFAULT_MODEL, budget_usd), cwd=str(staging), env=worker_env(),
                       capture_output=True, timeout=timeout_s)
         result = json.loads(done.stdout.decode("utf-8", errors="replace"))
         if isinstance(result, dict):

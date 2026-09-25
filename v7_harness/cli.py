@@ -31,7 +31,6 @@ from .snapshot import take_snapshot
 from .stage_evaluator import AcceptanceCheck, StageEvaluator
 
 # 로컬 계산기가 멈추면(시간 초과·공급자 오류) 다음 계산기로 넘긴다 (실측 2026-09-23: qwen2.5-coder 7b 가 cli.py 과제에서 600초 PROVIDER_ERROR).
-LOCAL_FAILURE_CLASSES = ("PROVIDER_ERROR", "TIMEOUT", "EXECUTION_ERROR")
 
 
 def cmd_lease_check(args: argparse.Namespace) -> int:
@@ -256,6 +255,17 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
                              indent=2, ensure_ascii=False))
             return 2
 
+    # B85 rework (Codex): a paid worker runs only under a contract. Without a manual there is no budget and no dollar
+    # cap, and an approval could promote a run nothing ever measured.
+    from .manual import REMOTE_WORKERS
+
+    if chosen in REMOTE_WORKERS and contract is None:
+        print(json.dumps({"task_id": task_id, "state": "REFUSED", "error_class": "REMOTE_WITHOUT_MANUAL",
+                          "verdict_hint": "BLOCKED", "worker": chosen,
+                          "message": "paid workers (agy, claude) need --manual with remote_budget_tokens"},
+                         indent=2, ensure_ascii=False))
+        return 2
+
     work_dir = Path(args.work_dir) if args.work_dir else Path(".coord")
     mandatory_roots = [
         Path.home().resolve(),
@@ -267,13 +277,20 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
     explicit_roots = [Path(w).resolve() for w in args.watch_root] if args.watch_root else []
     watch_roots = list(dict.fromkeys(mandatory_roots + explicit_roots))
     agy_cmd = resolve_worker_command(chosen, args.agy_command)
+    # Pre-spend hard cap for a Claude worker (Codex): the contract's dollar cap goes to `claude --max-budget-usd`.
+    # The token gate after the run stays; dollars are never inferred from tokens (model and cache prices differ).
+    usd_cap = str(contract.get("remote_budget_usd") or "") if contract else ""
+
+    def _with_cap(command: list[str], worker: str) -> list[str]:
+        return [*command, "--max-budget-usd", usd_cap] if worker == "claude" and usd_cap else command
+
+    agy_cmd = _with_cap(agy_cmd, chosen)
 
     from .pilot import PilotConfig, run_pilot
 
     allowed = list(contract["allow"]) if contract else []
     allowed += list(getattr(args, "allow", None) or [])
     remote_budget = int(contract.get("remote_budget_tokens") or 0) if contract else None
-    from .manual import REMOTE_WORKERS
     config = PilotConfig(
         task_id=task_id,
         title=args.title or f"Pilot task {task_id}",
@@ -326,33 +343,53 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
             "message": f"Database error or corruption: {exc}. Recovery hint: run 'python -m v7_harness.cli pilot reconcile --task {task_id}' or backup coord.sqlite3.",
         }
 
-    # cascade: 싼 local 을 먼저 쓰고 인수에서 REWORK 가 나온 경우에만 2단계 작업자(기본 agy)로 한 번 더 간다.
-    # A/B(2026-09-23, 10과제): local 6/10·51.8초, lane 9/10·218초(4.2배), 계산상 cascade 10/10·2.7배.
-    # BLOCKED 는 작업자 탓이 아닐 수 있어(격리·DB) 넘기지 않는다. 승인 실행은 원래 task 로만 한다.
-    # 승격 작업자는 별도 task id(<ID>-<escalate_to>)로 돌린다. 같은 id 재실행은 원장이 막는다.
-    should_escalate = (
-        summary.get("verdict_hint") == "REWORK"
-        or (
-            summary.get("verdict_hint") == "BLOCKED"
-            and summary.get("error_class") in LOCAL_FAILURE_CLASSES
-        )
-    )
-    # U34 / docs/27 §5: with a manual, cascade exists only when remote_budget_tokens > 0 (the lint refuses
-    # otherwise), and the escalated run is compared with that budget below.
-    if chosen == "cascade" and not args.approve and should_escalate:
-        first = summary
-        # lane의 BLOCKED/VALIDATION 빈발(5건 중 4건)로 기본 승격 대상을 agy로 전환하고 지정 가능하게 함
-        escalate_to = getattr(args, "escalate_to", "agy")
-        config.task_id = f"{task_id}-{escalate_to}"
-        config.agy_command = resolve_worker_command(escalate_to, None)
-        config.remote_budget_tokens = remote_budget or None
+    # cascade: 싼 local 을 먼저 쓰고 실패 종류에 따라 한 번만 넘긴다. A/B(2026-09-23, 10과제): local 6/10·51.8초,
+    # lane 9/10·218초(4.2배), 계산상 cascade 10/10·2.7배. 같은 id 재실행은 원장이 막으므로 단계마다 id가 다르다.
+    # U39 (docs/41 §5): deterministic → Ollama once → Antigravity once. Only a format-only failure gets one more local
+    # try, inside the same local budget; a semantic failure never loops locally; a remote failure goes to splitting.
+    # The approval run stays on the original task. Every stage runs under its own task id.
+    def _run(cfg: Any) -> dict[str, Any]:
         try:
-            summary = run_pilot(config)
+            return run_pilot(cfg)
         except (BrokerAlreadyRunning, SourceDivergenceError, sqlite3.DatabaseError) as exc:
-            summary = {"task_id": config.task_id, "state": "FAILED", "error_class": type(exc).__name__,
-                       "effect_state": "UNKNOWN", "verdict_hint": "BLOCKED", "message": str(exc)}
-        summary["cascade_from"] = {"task_id": task_id, "verdict_hint": first.get("verdict_hint"),
-                                   "error_class": first.get("error_class"), "escalated_to": escalate_to}
+            return {"task_id": cfg.task_id, "state": "FAILED", "error_class": type(exc).__name__,
+                    "effect_state": "UNKNOWN", "verdict_hint": "BLOCKED", "message": str(exc)}
+
+    if chosen == "cascade" and not args.approve:
+        from .routing import classify_failure, local_tokens, next_route
+
+        failure = classify_failure(summary)
+        used_local = local_tokens(summary)
+        trace = [f"local:{failure or 'PASS'}"]
+        route = next_route("local", failure, local_attempts=1, local_tokens=used_local)
+        if route == "local_retry":
+            config.task_id = f"{task_id}-retry"
+            summary = _run(config)
+            failure = classify_failure(summary)
+            used_local += local_tokens(summary)
+            trace.append(f"local_retry:{failure or 'PASS'}")
+            route = next_route("local_retry", failure, local_attempts=2, local_tokens=used_local)
+        if route == "remote":
+            first = summary
+            escalate_to = getattr(args, "escalate_to", "agy")
+            if escalate_to in REMOTE_WORKERS and not remote_budget:
+                # B85 rework: no contract budget, no paid escalation (lane runs the local model and stays allowed).
+                summary["escalation"] = "REFUSED:REMOTE_WITHOUT_MANUAL"
+                trace.append("refused")
+            else:
+                config.task_id = f"{task_id}-{escalate_to}"
+                config.agy_command = _with_cap(resolve_worker_command(escalate_to, None), escalate_to)
+                config.remote_budget_tokens = (remote_budget or None) if escalate_to in REMOTE_WORKERS else None
+                summary = _run(config)
+                summary["cascade_from"] = {"task_id": task_id, "verdict_hint": first.get("verdict_hint"),
+                                           "error_class": first.get("error_class"), "escalated_to": escalate_to}
+                remote_failure = classify_failure(summary)
+                trace.append(f"remote:{remote_failure or 'PASS'}")
+                if next_route("remote", remote_failure, local_attempts=2, local_tokens=used_local) == "split":
+                    trace.append("split")
+        elif route == "stop":
+            trace.append("stop")
+        summary["route"] = trace
     # The pilot gates the budget itself (B85). This covers a summary that came back without the gate.
     if remote_budget and "cost_gate" not in summary and (chosen in REMOTE_WORKERS or "cascade_from" in summary):
         from .pilot import evaluate_cost_gate
@@ -562,6 +599,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_review.add_argument("--manual", required=True, help="The contract manual the bundle was built from")
     p_pilot_review.add_argument("--reviewer", default="claude", choices=["claude"])
     p_pilot_review.add_argument("--budget", type=int, required=True, help="Token budget for the review call")
+    p_pilot_review.add_argument("--budget-usd", type=float, required=True,
+                                help="Dollar cap passed to claude --max-budget-usd (checked before spending)")
     p_pilot_review.add_argument("--model", default=None)
     p_pilot_review.add_argument("--timeout", type=int, default=600)
     p_pilot_review.set_defaults(func=cmd_pilot_review)
@@ -770,7 +809,8 @@ def cmd_pilot_review(args: argparse.Namespace) -> int:
     try:
         manual_text = Path(args.manual).read_text(encoding="utf-8")
         record = run_review(task_id=args.task, work_dir=Path(args.work_dir), source=Path(args.source),
-                            manual_text=manual_text, reviewer=args.reviewer, budget=args.budget, model=args.model,
+                            manual_text=manual_text, reviewer=args.reviewer, budget=args.budget,
+                            budget_usd=args.budget_usd, model=args.model,
                             timeout_s=args.timeout)
     except (ReviewRefused, OSError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)[:400]}, ensure_ascii=False))

@@ -40,13 +40,13 @@ def _run(root: Path, *extra: str, env: dict | None = None) -> None:
     with mock.patch.dict(os.environ, environment, clear=True), \
             mock.patch("v7_harness.pilot.run_pilot", return_value=dict(SUMMARY)), \
             redirect_stdout(io.StringIO()):
-        main(["pilot", "run", "--task", "T33", "--source", str(root), "--prompt", "x", *extra])
+        main(["pilot", "run", "--task", "T33", "--source", str(root), "--prompt", "x", "--worker", "local", *extra])
 
 
 class DefaultOnTests(unittest.TestCase):
     def test_flag_defaults(self) -> None:
         parser = build_parser()
-        base = ["pilot", "run", "--task", "T", "--source", ".", "--prompt", "x"]
+        base = ["pilot", "run", "--task", "T", "--source", ".", "--prompt", "x", "--worker", "local"]
         self.assertTrue(parser.parse_args(base).coord_log)
         self.assertFalse(parser.parse_args([*base, "--no-coord-log"]).coord_log)
 
