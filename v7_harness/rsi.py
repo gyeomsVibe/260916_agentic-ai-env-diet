@@ -371,6 +371,9 @@ def gate_from_ledger(project: Path, candidate: dict[str, Any], policy: dict[str,
         reasons.append("SELF_REPORTED_METRICS: name before_work_ids/after_work_ids; the gate reads the ledger itself")
     before_ids = [str(i) for i in candidate.get("before_work_ids") or []]
     after_ids = [str(i) for i in candidate.get("after_work_ids") or []]
+    repeated = sorted({i for i in before_ids if before_ids.count(i) > 1} | {i for i in after_ids if after_ids.count(i) > 1})
+    if repeated:
+        reasons.append("DUPLICATE_WORK_IDS:" + ",".join(repeated[:5]))
     overlap = sorted(set(before_ids) & set(after_ids))
     if overlap:
         reasons.append("OVERLAPPING_SAMPLES:" + ",".join(overlap[:5]))
@@ -379,8 +382,11 @@ def gate_from_ledger(project: Path, candidate: dict[str, Any], policy: dict[str,
     missing = [work_id for work_id in before_ids + after_ids if work_id not in known]
     if missing:
         reasons.append("EVIDENCE_NOT_IN_LEDGER:" + ",".join(missing[:5]))
-    before_rows = [row for row in rows if str(row.get("work_id")) in set(before_ids)]
-    after_rows = [row for row in rows if str(row.get("work_id")) in set(after_ids)]
+    # One sample per task: a retried work_id leaves several ledger rows, and counting them all let a single task
+    # meet min_samples on its own. The latest row (rows are sorted by ts) is that task's outcome.
+    latest = {str(row.get("work_id")): row for row in rows}
+    before_rows = [latest[i] for i in dict.fromkeys(before_ids) if i in latest]
+    after_rows = [latest[i] for i in dict.fromkeys(after_ids) if i in latest]
     before_workers = {str(row.get("worker")) for row in before_rows}
     after_workers = {str(row.get("worker")) for row in after_rows}
     if before_rows and after_rows and before_workers != after_workers:
@@ -388,6 +394,7 @@ def gate_from_ledger(project: Path, candidate: dict[str, Any], policy: dict[str,
     measured = {key: value for key, value in candidate.items() if key not in ("before", "after")}
     result = gate({**measured, "before": metrics(before_rows), "after": metrics(after_rows)}, policy)
     result["reasons"] = reasons + result["reasons"]
+    result["workers"] = sorted(after_workers or before_workers)
     result["decision"] = "REJECT" if result["reasons"] else "ADOPT_CANDIDATE"
     if result["reasons"]:
         result["next"] = "keep the current policy"
@@ -445,11 +452,12 @@ def adopt(project: Path, candidate: dict[str, Any], judge: str) -> dict[str, Any
                                   "author": author, "verifier": verifier, "reasons": verdict["reasons"]})
         raise RsiRefused("GATE_REJECTED:" + "; ".join(verdict["reasons"][:3]))
     # docs/31 §4: one change at a time, re-checked over the next window, so an effect can be attributed to it.
-    rows_now = len(load_rows(project))
-    for pending in open_trials(project, rows_now):
+    rows = load_rows(project)
+    for pending in open_trials(project, rows):
         if not pending["due"]:
-            raise RsiRefused(f"ONE_CHANGE_PER_WINDOW:{pending['id']} is on trial until ledger row {pending['recheck_at_rows']}"
-                             f" (now {rows_now})")
+            raise RsiRefused(f"ONE_CHANGE_PER_WINDOW:{pending['id']} is on trial until {pending['recheck_at_rows']} rows of "
+                             f"{','.join(pending['workers']) or 'any worker'} (now {pending['rows_now']})")
+    workers = verdict.get("workers") or []
     previous = load_policy(project)
     proposed = candidate.get("policy") or {}
     if proposed:
@@ -459,23 +467,36 @@ def adopt(project: Path, candidate: dict[str, Any], judge: str) -> dict[str, Any
         "changed_paths": candidate.get("changed_paths"), "policy": proposed, "previous_policy": previous,
         "before": verdict["before"], "after": verdict["after"],
         "hypothesis": str(candidate.get("hypothesis") or "")[:300],
-        "recheck_at_rows": rows_now + int(previous["window"]),
+        # The re-check counts runs of the workers the change is about; runs of other workers say nothing about it.
+        "workers": workers,
+        "rows_at_adoption": _worker_rows(rows, workers),
+        "recheck_at_rows": _worker_rows(rows, workers) + int(previous["window"]),
     })
     return {"adopted": candidate.get("id"), "policy_written": bool(proposed), "policy": load_policy(project),
             "next": "commit .coord/rsi/ with the change; re-measure after the next window and roll back if it regresses"}
 
 
-def open_trials(project: Path, rows_now: int | None = None) -> list[dict[str, Any]]:
-    """Adoptions not rolled back yet, with whether their re-check window is complete."""
-    rows_now = len(load_rows(project)) if rows_now is None else rows_now
+def _worker_rows(rows: list[dict[str, Any]], workers: list[str]) -> int:
+    return sum(1 for row in rows if not workers or str(row.get("worker")) in workers)
+
+
+def open_trials(project: Path, rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """Adoptions not rolled back yet: whether their re-check window is complete, and the window measured since."""
+    rows = load_rows(project) if rows is None else rows
     decisions = read_decisions(project)
     rolled = {item.get("id") for item in decisions if item.get("action") == "ROLLED_BACK"}
     trials = []
     for item in decisions:
         if item.get("action") == "ADOPTED" and item.get("id") not in rolled:
+            workers = [str(w) for w in item.get("workers") or []]
             recheck = int(item.get("recheck_at_rows") or 0)
-            trials.append({"id": item.get("id"), "recheck_at_rows": recheck, "due": rows_now >= recheck,
-                           "before": item.get("before")})
+            start = int(item.get("rows_at_adoption", max(0, recheck - int(DEFAULT_POLICY["window"]))))
+            relevant = [row for row in rows if not workers or str(row.get("worker")) in workers]
+            due = len(relevant) >= recheck
+            trials.append({"id": item.get("id"), "workers": workers, "recheck_at_rows": recheck,
+                           "rows_now": len(relevant), "due": due, "before": item.get("before"),
+                           # Runs since the adoption; compare with "before" and `rsi rollback` if it is worse.
+                           "since": metrics(relevant[start:]) if due else None})
     return trials
 
 

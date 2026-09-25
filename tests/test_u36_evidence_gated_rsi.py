@@ -234,6 +234,17 @@ class LedgerGateAndJudgeTests(unittest.TestCase):
         overlap = rsi.gate_from_ledger(self.root, _candidate(before, after + [before[0]]))
         self.assertIn(f"OVERLAPPING_SAMPLES:{before[0]}", overlap["reasons"])
 
+    def test_a_retried_task_counts_once(self) -> None:
+        # Critical review 2026-09-25: three retries of one work_id met min_samples=3 and passed the gate.
+        _ledger(self.root, [_row("B1", "REWORK", ts=i) for i in range(3)] + [_row("A1", "PASS", ts=10 + i) for i in range(3)])
+        verdict = rsi.gate_from_ledger(self.root, _candidate(["B1"], ["A1"]))
+        self.assertEqual((1, 1), (verdict["before"]["n"], verdict["after"]["n"]))
+        self.assertTrue(any(r.startswith("INSUFFICIENT_SAMPLES") for r in verdict["reasons"]), verdict["reasons"])
+        listed = rsi.gate_from_ledger(self.root, _candidate(["B1"], ["A1", "A1", "A1"]))
+        self.assertIn("DUPLICATE_WORK_IDS:A1", listed["reasons"])
+        _ledger(self.root, [_row("B1", "PASS", ts=50)])
+        self.assertEqual(1.0, rsi.gate_from_ledger(self.root, _candidate(["B1"], ["A1"]))["before"]["pass_rate"])
+
     def test_different_workers_are_not_comparable(self) -> None:
         before, after = _before_after(self.root, before_pass=1, after_pass=3, after_worker="apply")
         verdict = rsi.gate_from_ledger(self.root, _candidate(before, after))
@@ -282,8 +293,13 @@ class LedgerGateAndJudgeTests(unittest.TestCase):
             rsi.adopt(self.root, second, "codex")
         self.assertIn("ONE_CHANGE_PER_WINDOW:rsi_test", str(caught.exception))
         self.assertFalse(rsi.open_trials(self.root)[0]["due"])
-        _ledger(self.root, [_row(f"N{i}", "PASS", ts=200 + i) for i in range(10)])
-        self.assertTrue(rsi.open_trials(self.root)[0]["due"])
+        # Runs of another worker say nothing about an ollama change (critical review 2026-09-25).
+        _ledger(self.root, [_row(f"P{i}", "PASS", ts=150 + i, worker="apply") for i in range(10)])
+        self.assertFalse(rsi.open_trials(self.root)[0]["due"])
+        _ledger(self.root, [_row(f"N{i}", "PASS" if i < 9 else "REWORK", ts=200 + i) for i in range(10)])
+        trial = rsi.open_trials(self.root)[0]
+        self.assertEqual((True, ["ollama"]), (trial["due"], trial["workers"]))
+        self.assertEqual((10, 0.9), (trial["since"]["n"], trial["since"]["pass_rate"]))
         self.assertEqual("rsi_second", rsi.adopt(self.root, second, "user")["adopted"])
 
 

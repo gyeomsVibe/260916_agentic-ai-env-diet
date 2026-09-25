@@ -1122,7 +1122,7 @@ def cmd_rsi_report(args: argparse.Namespace) -> int:
     report["policy"] = policy
     report["decisions"] = len(read_decisions(project))
     # An adopted change whose window is complete is due for its re-check: keep it or `rsi rollback`.
-    report["trials"] = open_trials(project, len(rows))
+    report["trials"] = open_trials(project, rows)
     _print_json(report)
     return 0
 
