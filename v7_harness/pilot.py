@@ -68,6 +68,40 @@ class PilotConfig:
     allow_no_changes: bool = False
     # Paths/globs the work manual allows the worker to change. None keeps the old unrestricted behavior.
     allowed_scopes: list[str] | None = None
+    # B85: the contract's remote_budget_tokens for a paid worker. The gate runs before summary.json and the ledger
+    # row are written, so an over-budget bundle is BLOCKED everywhere, including the --approve replay.
+    remote_budget_tokens: int | None = None
+
+
+def worker_label(command: list[str] | tuple[str, ...]) -> str:
+    """Which worker ran, for the ledger. lane used to be recorded as agy, which mixed a free local run into the
+    paid worker's RSI window."""
+    text = " ".join(str(part) for part in command)
+    for marker, label in (("apply_worker", "apply"), ("claude_worker", "claude"), ("lane_worker", "lane"),
+                          ("ollama", "ollama")):
+        if marker in text:
+            return label
+    return "agy"
+
+
+# Every kind the worker reports is spent: cached input is still billed and still counts against the quota.
+COST_TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+
+
+def evaluate_cost_gate(usage: dict[str, Any] | None, budget: int) -> str:
+    """WITHIN, EXCEEDED:<used>><budget>, or UNKNOWN when input or output is not reported (never read as zero)."""
+    if not isinstance(usage, dict):
+        return "UNKNOWN"
+    values = {}
+    for key in COST_TOKEN_KEYS:
+        value = usage.get(key)
+        if value is None and key.startswith("cache_"):
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return "UNKNOWN"
+        values[key] = value
+    used = sum(values.values())
+    return "WITHIN" if used <= budget else f"EXCEEDED:{used}>{budget}"
 
 
 _PYTHON_NAMES = frozenset({"python", "python.exe", "python3", "py"})
@@ -567,6 +601,7 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
         verdict_hint: str = "BLOCKED"
         _checkpoint_refused: str | None = None
 
+        cost_gate = None
         if is_success:
             state = "SUCCEEDED"
             error_class = "NONE"
@@ -688,6 +723,13 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                 if not config.allow_no_changes:
                     verdict_hint = "REWORK"
 
+            # B85: a paid worker that went over its budget (or did not say what it spent) is not promotable.
+            if config.remote_budget_tokens:
+                cost_gate = evaluate_cost_gate(outcome.usage if outcome else None, int(config.remote_budget_tokens))
+                if cost_gate != "WITHIN":
+                    verdict_hint = "BLOCKED"
+                    error_class = "COST_UNKNOWN" if cost_gate == "UNKNOWN" else "COST_EXCEEDED"
+
             # 11. Approval promotion handling
             if config.approve_bundle_id is not None:
                 if verdict_hint in ("REWORK", "BLOCKED"):
@@ -760,6 +802,19 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
             "verdict_hint": verdict_hint,
         }
 
+        # Which worker built this bundle, beside the summary (the summary stays within its key budget). `pilot review`
+        # reads it so a reviewer never reviews its own worker's bundle (U38).
+        try:
+            (runs_dir / "worker").write_text(worker_label(config.agy_command), encoding="utf-8")
+        except OSError:
+            pass
+        if config.remote_budget_tokens and cost_gate is None:
+            # A failed run spent tokens too; record the gate even though there is nothing to promote.
+            cost_gate = evaluate_cost_gate(outcome.usage if outcome else None, int(config.remote_budget_tokens))
+        if cost_gate is not None:
+            summary["cost_gate"] = cost_gate
+            summary["remote_budget_tokens"] = int(config.remote_budget_tokens)
+
         # B30: no-change reason
         if not changed_files and verdict_hint == "REWORK" and state == "SUCCEEDED":
             summary["reason"] = "NO_CHANGES"
@@ -803,7 +858,7 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
             proj_root = config.source_dir.resolve()
             if (proj_root / ".git").is_dir() or (proj_root / ".coord" / "PLAN.md").is_file():
                 command_text = " ".join(str(c) for c in config.agy_command)
-                worker_type = "apply" if "apply_worker" in command_text else ("ollama" if "ollama" in command_text else "agy")
+                worker_type = worker_label(config.agy_command)
                 usage_dict = outcome.usage if outcome else {}
                 in_tok = usage_dict.get("input_tokens")
                 out_tok = usage_dict.get("output_tokens")
@@ -832,6 +887,13 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                     "error_class": error_class,
                     "error_detail": summary.get("error_detail"),
                 }
+                # U38: cached tokens and the dollar cost, when the worker reports them (Claude does).
+                for extra in ("cache_creation_input_tokens", "cache_read_input_tokens", "cost_microusd"):
+                    value = usage_dict.get(extra) if isinstance(usage_dict, dict) else None
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        ledger_entry[extra] = value
+                if summary.get("cost_gate"):
+                    ledger_entry["cost_gate"] = summary["cost_gate"]
                 record_usage(proj_root, ledger_entry)
         except Exception as ledger_exc:
             summary["usage_ledger_error"] = f"{type(ledger_exc).__name__}: {ledger_exc}"[:300]

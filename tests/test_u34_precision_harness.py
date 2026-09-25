@@ -338,13 +338,26 @@ class ManualCliTests(unittest.TestCase):
     def test_cascade_escalation_is_checked_against_the_remote_budget(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             root = _project(d)
-            for budget, expected in ((1000, "WITHIN"), (100, "EXCEEDED:500>100")):
+            # B85 (2026-09-25): input + output are counted (input alone undercounted a 655,207-token run), an
+            # unreported count is UNKNOWN, and anything but WITHIN blocks the escalated run.
+            cases = (({"input_tokens": 500, "output_tokens": 100}, 1000, "WITHIN", "PASS"),
+                     ({"input_tokens": 500, "output_tokens": 100}, 100, "EXCEEDED:600>100", "BLOCKED"),
+                     ({"input_tokens": 500}, 1000, "UNKNOWN", "BLOCKED"))
+            for usage, budget, expected, verdict in cases:
                 (root / "m.md").write_text(_manual(root, worker="cascade", remote_budget_tokens=budget), encoding="utf-8")
                 first = {"state": "SUCCEEDED", "verdict_hint": "REWORK"}
-                second = {"state": "SUCCEEDED", "verdict_hint": "PASS", "agy_usage": {"input_tokens": 500}}
-                with mock.patch("v7_harness.pilot.run_pilot", side_effect=[first, second]):
+                second = {"state": "SUCCEEDED", "verdict_hint": "PASS", "agy_usage": usage}
+                seen = []  # the CLI reuses one config object, so record the budget at each call
+
+                def fake_run(config, _results=iter([first, second])):
+                    seen.append(config.remote_budget_tokens)
+                    return next(_results)
+
+                with mock.patch("v7_harness.pilot.run_pilot", side_effect=fake_run):
                     _code, out = self._main(["pilot", "run", "--task", "U35_T", "--source", d, "--manual", str(root / "m.md")])
-                self.assertEqual(expected, json.loads(out)["cost_gate"])
+                result = json.loads(out)
+                self.assertEqual((expected, verdict), (result["cost_gate"], result["verdict_hint"]))
+                self.assertEqual([None, budget], seen)  # the local first stage is free; the paid escalation is gated
 
     def test_auto_routes_a_dictated_prompt_to_the_apply_worker(self) -> None:
         with tempfile.TemporaryDirectory() as d:

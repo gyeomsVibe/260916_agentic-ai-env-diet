@@ -38,10 +38,12 @@ from typing import Any
 CONTRACT_RE = re.compile(r"^```contract[ \t]*\r?\n(?P<body>.*?)^```", re.M | re.S)
 REQUIRED = ("work_id", "worker", "goal", "inputs", "allow", "acceptance", "forbidden", "stop", "judge", "timeout_s")
 LIST_KEYS = ("inputs", "allow")
-WORKERS = ("local", "apply", "agy", "lane", "cascade")
+WORKERS = ("local", "apply", "agy", "lane", "cascade", "claude")
+# Workers that spend a paid account (B85). lane runs Claude Code on the local model, so it is not one of them.
+REMOTE_WORKERS = ("agy", "claude")
 JUDGES = ("codex", "claude", "antigravity")
 # The tool that does the work cannot be the one that accepts it.
-WORKER_TOOL = {"agy": "antigravity", "lane": "claude"}
+WORKER_TOOL = {"agy": "antigravity", "lane": "claude", "claude": "claude"}
 MAX_TIMEOUT_S = 3600
 # docs/24·docs/30: a local model gets a manual that scores at least 80 for concreteness.
 LOCAL_MIN_SPECIFICITY = 80
@@ -189,6 +191,9 @@ def lint(text: str, project: Path) -> ManualReport:
         report.errors.append(f"BUDGET_INVALID:{budget_raw}")
     if worker == "cascade" and budget <= 0:
         report.errors.append("CASCADE_WITHOUT_BUDGET: set remote_budget_tokens or use worker: local")
+    if worker in REMOTE_WORKERS and budget <= 0:
+        # B85: an agy run with no budget spent 655,207 tokens and nothing compared it with anything.
+        report.errors.append(f"REMOTE_WITHOUT_BUDGET: worker {worker} needs remote_budget_tokens > 0")
 
     blocks = dictated_paths(text)
     if worker == "apply" and not blocks:

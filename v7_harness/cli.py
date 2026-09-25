@@ -200,8 +200,11 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
             print(f"[manual] work_id {contract.get('work_id')} differs from --task {task_id}", file=sys.stderr)
         if args.approve:
             approver = getattr(args, "coord_actor", None) or detect_actor()
-            if approver and approver != contract["judge"].lower():
-                print(json.dumps({"task_id": task_id, "state": "REFUSED", "error_class": "APPROVER_NOT_JUDGE",
+            # An approver the harness cannot identify used to pass silently (B85 review). Name it with --coord-actor.
+            # This is a speed bump, not authentication: on one OS account every name can be forged (B83).
+            if approver is None or approver != contract["judge"].lower():
+                print(json.dumps({"task_id": task_id, "state": "REFUSED",
+                                  "error_class": "APPROVER_UNKNOWN" if approver is None else "APPROVER_NOT_JUDGE",
                                   "verdict_hint": "BLOCKED", "judge": contract["judge"], "approver": approver},
                                  indent=2, ensure_ascii=False))
                 return 2
@@ -240,6 +243,19 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
+    # U38: a Claude worker spends the same subscription as the Claude commander. When Claude reports LIMITED, the
+    # commander keeps the remaining quota (docs/40 §2-1).
+    uses_claude = chosen == "claude" or (chosen == "cascade" and getattr(args, "escalate_to", "agy") == "claude")
+    if uses_claude and not args.approve:
+        from .coord.presence import read as read_presence
+
+        if read_presence(source_dir, "claude")["state"] == "LIMITED":
+            print(json.dumps({"task_id": task_id, "state": "REFUSED", "error_class": "CLAUDE_LIMITED",
+                              "verdict_hint": "BLOCKED",
+                              "message": "Claude presence is LIMITED; its quota is kept for the commander"},
+                             indent=2, ensure_ascii=False))
+            return 2
+
     work_dir = Path(args.work_dir) if args.work_dir else Path(".coord")
     mandatory_roots = [
         Path.home().resolve(),
@@ -257,6 +273,7 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
     allowed = list(contract["allow"]) if contract else []
     allowed += list(getattr(args, "allow", None) or [])
     remote_budget = int(contract.get("remote_budget_tokens") or 0) if contract else None
+    from .manual import REMOTE_WORKERS
     config = PilotConfig(
         task_id=task_id,
         title=args.title or f"Pilot task {task_id}",
@@ -271,6 +288,8 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         model=getattr(args, "model", None),
         allow_no_changes=getattr(args, "allow_no_changes", False),
         allowed_scopes=allowed or None,
+        # B85: every paid run is checked against the contract budget, not only a cascade escalation.
+        remote_budget_tokens=(remote_budget or None) if chosen in REMOTE_WORKERS else None,
     )
 
     from .broker.core import BrokerAlreadyRunning
@@ -325,6 +344,7 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         escalate_to = getattr(args, "escalate_to", "agy")
         config.task_id = f"{task_id}-{escalate_to}"
         config.agy_command = resolve_worker_command(escalate_to, None)
+        config.remote_budget_tokens = remote_budget or None
         try:
             summary = run_pilot(config)
         except (BrokerAlreadyRunning, SourceDivergenceError, sqlite3.DatabaseError) as exc:
@@ -332,12 +352,14 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
                        "effect_state": "UNKNOWN", "verdict_hint": "BLOCKED", "message": str(exc)}
         summary["cascade_from"] = {"task_id": task_id, "verdict_hint": first.get("verdict_hint"),
                                    "error_class": first.get("error_class"), "escalated_to": escalate_to}
-        if remote_budget:
-            used = (summary.get("agy_usage") or {}).get("input_tokens")
-            if not isinstance(used, int) or isinstance(used, bool):
-                summary["cost_gate"] = "UNKNOWN"
-            else:
-                summary["cost_gate"] = "WITHIN" if used <= remote_budget else f"EXCEEDED:{used}>{remote_budget}"
+    # The pilot gates the budget itself (B85). This covers a summary that came back without the gate.
+    if remote_budget and "cost_gate" not in summary and (chosen in REMOTE_WORKERS or "cascade_from" in summary):
+        from .pilot import evaluate_cost_gate
+
+        summary["cost_gate"] = evaluate_cost_gate(summary.get("agy_usage"), remote_budget)
+        if summary["cost_gate"] != "WITHIN":
+            summary["verdict_hint"] = "BLOCKED"
+            summary["error_class"] = "COST_UNKNOWN" if summary["cost_gate"] == "UNKNOWN" else "COST_EXCEEDED"
 
     # U33: 보고는 기억이 아니라 실행 끝에서 저절로 남는다(비둘기 퇴출). 기록 대상은 --source 프로젝트이고,
     # .coord/PLAN.md 가 있는 UAOS 프로젝트일 때만 쓴다. 예전에 기본을 켰을 때 CLI 를 부르는 테스트가 실제
@@ -489,13 +511,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_run.add_argument("--watch-root", action="append", default=[], help="Watch roots for external write detection")
     p_pilot_run.add_argument("--print-timeout", type=int, default=600, help="Print timeout in seconds")
     p_pilot_run.add_argument("--agy-command", nargs="*", default=None, help="Custom worker command prefix (overrides --worker)")
-    p_pilot_run.add_argument("--worker", choices=["agy", "local", "lane", "cascade", "auto", "apply"], default="agy", help="agy = remote worker (uses account quota); local = this machine's Ollama model, one-shot; lane = Claude Code tool loop on the local model; apply = apply the ===FILE/===EDIT blocks written in the prompt, no model (0 tokens)")
+    p_pilot_run.add_argument("--worker", choices=["agy", "local", "lane", "cascade", "auto", "apply", "claude"], default="agy", help="claude = Claude Code on the paid account (needs a manual with remote_budget_tokens; judge codex or user); agy = remote worker (uses account quota); local = this machine's Ollama model, one-shot; lane = Claude Code tool loop on the local model; apply = apply the ===FILE/===EDIT blocks written in the prompt, no model (0 tokens)")
     p_pilot_run.add_argument("--manual", default=None,
                              help="Work manual with a ```contract block: linted first, then its worker, acceptance, allow list and timeout drive the run")
     p_pilot_run.add_argument("--allow", action="append", default=[],
                              help="Path or glob the worker may change (repeatable); anything else is rejected as SCOPE_VIOLATION")
     # cascade 승격 대상 작업자(lane의 e2e 실패 빈발로 기본값은 agy)
-    p_pilot_run.add_argument("--escalate-to", choices=["agy", "lane"], default="agy", help="Worker for cascade second stage when local gets REWORK (default: agy)")
+    p_pilot_run.add_argument("--escalate-to", choices=["agy", "lane", "claude"], default="agy", help="Worker for cascade second stage when local gets REWORK (default: agy)")
     p_pilot_run.add_argument("--coord-log", dest="coord_log", action="store_true", default=True,
                              help="Record this run in the coordination stream (.coord/stream); on by default")
     p_pilot_run.add_argument("--no-coord-log", dest="coord_log", action="store_false",
@@ -520,7 +542,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_manual_new.add_argument("--out", required=True, help="Manual file to write")
     p_manual_new.add_argument("--source", default=".")
     p_manual_new.add_argument("--work-id", required=True)
-    p_manual_new.add_argument("--worker", required=True, choices=["local", "apply", "agy", "lane", "cascade"])
+    p_manual_new.add_argument("--worker", required=True, choices=["local", "apply", "agy", "lane", "cascade", "claude"])
     p_manual_new.add_argument("--goal", required=True)
     p_manual_new.add_argument("--input", action="append", default=[], help="Input file to pin by SHA-256 (repeatable)")
     p_manual_new.add_argument("--allow", action="append", default=[], required=True)
@@ -532,6 +554,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_manual_new.set_defaults(func=cmd_pilot_manual_new)
 
     # pilot reconcile
+    p_pilot_review = p_pilot_subs.add_parser("review", help="U38: read-only advisory review of a bundle by Claude Code")
+    p_pilot_review.add_argument("--task", required=True)
+    p_pilot_review.add_argument("--work-dir", required=True)
+    p_pilot_review.add_argument("--source", default=".")
+    p_pilot_review.add_argument("--manual", required=True, help="The contract manual the bundle was built from")
+    p_pilot_review.add_argument("--reviewer", default="claude", choices=["claude"])
+    p_pilot_review.add_argument("--budget", type=int, required=True, help="Token budget for the review call")
+    p_pilot_review.add_argument("--model", default=None)
+    p_pilot_review.add_argument("--timeout", type=int, default=600)
+    p_pilot_review.set_defaults(func=cmd_pilot_review)
+
     p_pilot_rec = p_pilot_subs.add_parser("reconcile")
     p_pilot_rec.add_argument("--task", "--task-id", dest="task", required=True, help="Pilot task ID to reconcile")
     p_pilot_rec.add_argument("--work-dir", default=".coord", help="Work directory (default: .coord)")
@@ -608,8 +641,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_coord_presence.add_argument("--from-hook", action="store_true", default=False,
                                   help="Find the project from the hook payload on stdin (cwd, workspacePaths), "
                                        "CLAUDE_PROJECT_DIR or --project, walking up to .coord/PLAN.md; never fails the hook")
-    p_coord_presence.add_argument("--say", choices=["json", "brief", "none", "empty-json"], default="json",
-                                  help="What to print: presence JSON (default), one context line, nothing, or {}")
+    p_coord_presence.add_argument("--say", choices=["json", "brief", "none", "empty-json", "p1"], default="json",
+                                  help="What to print: presence JSON (default), one context line, nothing, {}, or "
+                                       "p1 = one line only when a P1 wake waits and Codex is not ACTIVE (U38)")
     p_coord_presence.set_defaults(func=cmd_coord_presence)
 
     p_coord_init = p_coord_subs.add_parser("init")
@@ -729,6 +763,21 @@ def record_pilot_in_stream(project: Path, summary: dict, *, actor: str = "claude
         return None
 
 
+def cmd_pilot_review(args: argparse.Namespace) -> int:
+    from .review import ReviewRefused, run_review
+
+    try:
+        manual_text = Path(args.manual).read_text(encoding="utf-8")
+        record = run_review(task_id=args.task, work_dir=Path(args.work_dir), source=Path(args.source),
+                            manual_text=manual_text, reviewer=args.reviewer, budget=args.budget, model=args.model,
+                            timeout_s=args.timeout)
+    except (ReviewRefused, OSError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)[:400]}, ensure_ascii=False))
+        return 2
+    print(json.dumps({"ok": True, **record}, ensure_ascii=False, indent=2))
+    return 0
+
+
 def resolve_worker_command(worker: str, explicit: Optional[Sequence[str]]) -> list[str]:
     """어느 작업자에게 맡길지 정한다.
 
@@ -744,6 +793,8 @@ def resolve_worker_command(worker: str, explicit: Optional[Sequence[str]]) -> li
         return [sys.executable, str(Path(__file__).resolve().parent / "adapters" / "lane_worker.py")]
     if worker == "apply":  # U34: the commander already wrote the code; apply it without a model
         return [sys.executable, str(Path(__file__).resolve().parent / "adapters" / "apply_worker.py")]
+    if worker == "claude":  # U38: Claude Code on the paid account, budget-gated (docs/40)
+        return [sys.executable, str(Path(__file__).resolve().parent / "adapters" / "claude_worker.py")]
     return ["agy"]
 
 
@@ -975,14 +1026,18 @@ def cmd_coord_presence(args: argparse.Namespace) -> int:
     def _emit(data: dict[str, Any], line: str = "") -> None:
         if say == "json":
             print(json.dumps(data, ensure_ascii=False))
-        elif say == "brief" and line:
+        elif say in ("brief", "p1") and line:
             print(line)
         elif say == "empty-json":
             print("{}")
 
     if getattr(args, "from_hook", False):
-        from .coord.hook_context import brief_line, hook_project, read_stdin
+        from .coord.hook_context import brief_line, hook_project, p1_line, read_stdin
 
+        # A pilot worker (U38) runs inside a staged copy that holds .coord/PLAN.md; a hook there must write nothing.
+        if os.environ.get("UAOS_WORKER"):
+            _emit({"ok": True, "skipped": "UAOS_WORKER"})
+            return 0
         # A session hook must never break the session: every failure is reported and the exit code stays 0.
         try:
             project = hook_project(read_stdin(), args.project)
@@ -992,7 +1047,8 @@ def cmd_coord_presence(args: argparse.Namespace) -> int:
             if args.tool and args.state:
                 mark(project, args.tool, args.state, ttl_s=args.ttl)
             presence = read_all(project)
-            _emit({"ok": True, "project": str(project), "presence": presence}, brief_line(project, presence))
+            line = p1_line(project, presence) if say == "p1" else brief_line(project, presence)
+            _emit({"ok": True, "project": str(project), "presence": presence}, line)
         except Exception as exc:  # noqa: BLE001
             _emit({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]})
         return 0
