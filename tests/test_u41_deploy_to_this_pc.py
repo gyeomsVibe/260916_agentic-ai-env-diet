@@ -73,6 +73,15 @@ class DeployTests(unittest.TestCase):
         self.assertEqual({"claude": "claude.md", "codex": "AGENTS.md", "antigravity": "GEMINI.md"},
                          {k: v.name for k, v in found.items()})
 
+    def test_default_canon_resolves_from_a_managed_worktree(self) -> None:
+        workspace = Path(self.temp.name) / "workspace"
+        checkout = workspace / "260916_agentic-ai-env-diet"
+        worktree = checkout / ".work" / "u43"
+        canon = workspace / "260718_agentic-ai-platform-optimization"
+        worktree.mkdir(parents=True)
+        canon.mkdir(parents=True)
+        self.assertEqual(canon.resolve(), dp.default_canon(worktree).resolve())
+
     def test_ambiguous_sources_stop_without_guessing_and_an_override_resolves(self) -> None:
         (self.canon / "shared" / "global-rules" / "src" / "codex-extra.md").write_text("x", encoding="utf-8")
         _found, problems = dp.find_canon_sources(self.canon)

@@ -39,7 +39,20 @@ from typing import Any, Callable
 from .global_install import BLOCK_BEGIN, REPO_ROOT
 
 BRANCH = "main"  # PR #1 merged the Claude branch; the rollout runs from main (--branch overrides)
-DEFAULT_CANON = REPO_ROOT.parent / "260718_agentic-ai-platform-optimization"
+PROJECT_DIR_NAME = "260916_agentic-ai-env-diet"
+CANON_DIR_NAME = "260718_agentic-ai-platform-optimization"
+
+
+def default_canon(repo: Path = REPO_ROOT) -> Path:
+    """Resolve the fixed sibling canon from either the primary checkout or one of its managed worktrees."""
+    resolved = Path(repo).resolve()
+    for node in (resolved, *resolved.parents):
+        if node.name == PROJECT_DIR_NAME:
+            return node.parent / CANON_DIR_NAME
+    return resolved.parent / CANON_DIR_NAME
+
+
+DEFAULT_CANON = default_canon()
 GENERATOR = Path("shared") / "global-rules" / "scripts" / "sync-global-rules.ps1"
 CANON_SOURCE_ROOT = Path("shared") / "global-rules"
 # Which canon file feeds which runtime. Exactly one match per runtime, or the run stops (CANON_SOURCES_AMBIGUOUS).
