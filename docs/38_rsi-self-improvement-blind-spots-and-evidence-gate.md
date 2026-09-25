@@ -5,6 +5,8 @@
 - 테스트는 `tests/test_u36_evidence_gated_rsi.py` 27개다.
 - 용어는 처음 나올 때 한국어와 영어를 함께 적는다. 모르는 말은 [쉽게 읽는 용어집](쉽게_읽는_UAOS_진단과_해결_전과정/06_용어집_전문용어_병기.md)에서 찾는다.
 
+> **개정 B83(2026-09-25, Codex 레드팀 → fail-closed)**: 같은 OS 계정 안에서는 작성자·검증자·판정자 이름이 모두 위장 가능해서, `rsi adopt`·`rsi rollback`은 이제 **항상 거부**하고 아무것도 쓰지 않는다(`UNAUTHENTICATED_ACTOR`). 대신 관문 증거와 제안 파일 내용을 출력한다. 채택과 되돌리기는 **PLAN 카드 → 검토된 커밋(사람의 GitHub 검토·병합)**으로만 한다. 아래 본문에서 `rsi adopt`·`rsi rollback`이 파일을 쓴다고 적힌 곳은 이 개정이 우선한다.
+
 ---
 
 ## 0. 한 쪽 요약
@@ -125,8 +127,7 @@ python -m v7_harness.cli rsi propose                    # 처방 목록(반복 �
 python -m v7_harness.cli rsi propose --candidate-for rsi_abc123def456 --author claude > .work/cand.json
 #   → cand.json의 verifier·after_work_ids를 채운다(수치는 쓰지 않는다)
 python -m v7_harness.cli rsi gate --candidate .work/cand.json      # 0=후보, 2=거부
-python -m v7_harness.cli rsi adopt --candidate .work/cand.json --judge codex
-python -m v7_harness.cli rsi rollback --judge codex --reason "rework rose in the next window"
+# rsi adopt / rsi rollback: 항상 거부(B83). 출력된 증거와 제안 파일을 PLAN 카드에 붙여 검토된 커밋으로 반영한다
 ```
 
 후보 파일의 형식:
