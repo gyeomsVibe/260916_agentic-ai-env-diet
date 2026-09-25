@@ -16,19 +16,19 @@ Judge by the artifacts in `evidence`, not by summaries. Without evidence, leave 
 - U34: REVIEW (Claude 대행 2026-09-25)
 - U35: REVIEW (P1 APPLIED · O1/O2/A1 발행·미실행)
 
-## Latest 10 of 55 events since the last verdict
-- [HANDOFF] CODEX-RETURN-HANDOFF · antigravity · Antigravity대행완료: B65훅·P08/P09로컬파일럿·회귀복구(592OK)·UNMEASURED인벤토리·차기계획요청 (exit=0, .coord/codex_return_checklist.md)
-- [NOTE] REVIEW-CLAUDE · antigravity · Claude implementation red-team & step-by-step verification checklist prepared (.coord/codex_return_checklist.md)
-- [NOTE] TOKEN-BUDGET-RESEARCH · antigravity · Token budget diet & fast Antigravity escalation research report delivered (docs/27_token-budget-routing-policy.md)
-- [NOTE] RSI-ESCALATION-FIXED · antigravity · RSI harness definition and fast escalation protocol fixed in Claude and Codex channels (.coord/tasks/CLAUDE_COLLABORATION_CHANNEL.md)
-- [NOTE] U39-U40-SYNC · antigravity · Codex established U39 escalation & U40 RSI cards; syncing with Claude channel (.coord/tasks/U39-token-budget-escalation-policy.md)
-- [NOTE] ROLE-SECRETARY · antigravity · Antigravity assumed role as Claude Code's local executive secretary (.coord/tasks/CLAUDE_COLLABORATION_CHANNEL.md)
-- [NOTE] GLOBAL-DEPLOY-PUSH-COMPLETE · antigravity · Global rules v5.24.0 verified ALIGNED and git pushed to origin/main (ff7eab3) (shared/global-rules/scripts/sync-global-rules.ps1)
-- [NOTE] CLAUDE-CLOUD-INTERFACE · antigravity · Cloud Claude constraints & deterministic script delegation interface deployed and pushed (.coord/tasks/CLAUDE_COLLABORATION_CHANNEL.md)
-- [NOTE] U41-PREFLIGHT-OK · antigravity · Merged Claude U41 branch, verified deploy_to_this_pc dry-run and ready for A1 verification (uaos_everywhere/deploy_to_this_pc.py)
-- [RUN] U41-A1 · antigravity · U41 deployment verified PASS (exit=0, .coord/runs/U41/agy_verify_u41.md)
-
-## Blocked
+## Latest 10 of 21 events since the last verdict
+- [RUN] U15-S11 · claude · 보관 중 기록 유실 결함 교정: 잠금을 스트림 폴더 단위로 바꾸고 읽기를 잠금 안으로 이동 (exit=0, v7_harness/coord/stream.py)
+- [RUN] U15-S12 · claude · coord notify CLI와 스레드 자동 선택 추가, codex CLI 경로 해석 결함 교정, 실배달 확인 (exit=0, v7_harness/coord/README.md)
+- [RUN] WL03 · claude · 승인 화이트리스트 v5.6.0 반영: 로컬 모델 작성 패치 승인, 두 도구 배포 ALIGNED, 원격 push 완료 (exit=0, .work/claude_notes/wl03_approve.out)
+- [RUN] U16-bench · claude · 로컬 작업자 난이도별 벤치 3/3 PASS(easy 9.7s, medium 4.8s, hard 6.9s), 이전 능력 평가 정정 (exit=0, .coord/runs/U16/bench_local_worker.json)
+- [BLOCKED] B23_TEST · claude · 파일럿 B23_TEST: FAILED/BLOCKED, 변경 0개, BROKER_ALREADY_RUNNING (exit=1)
 - [BLOCKED] B25_TEST · claude · 파일럿 B25_TEST: FAILED/BLOCKED, 변경 0개, DB_UNAVAILABLE (exit=1)
 - [BLOCKED] B36_CLI_TEST · claude · 파일럿 B36_CLI_TEST: FAILED/BLOCKED, 변경 0개, SOURCE_DIVERGED (exit=1)
-- [BLOCKED] U23-S1b1 · codex · SOURCE_DIVERGED on concurrent U24 bridge write. Identify writer; hand off single-writer ownership before U23 retry. No source edits during pilot. See U23 card. (.coord/tasks/U23-mailbox-foundation.md)
+- [NOTE] U15-S13 · claude · 테스트 CLI 호출이 스트림에 남긴 사건 8건 제거(원본 .work/stream_pollution_20260920/), 자동 기록을 옵트인으로 변경 (.work/stream_pollution_20260920)
+- [RUN] U16-bench-v2 · claude · 모델 3종x과제 6종 벤치: 7b 6/6, qwen3.5:4b 6/6, 3b 5/6. 한계는 파일 크기가 아니라 지시의 모호함 (exit=0, .coord/runs/U16/bench_local_worker.json)
+- [RUN] U16-advice · claude · 지시문 구체성 조언기 추가: 벤치 결과를 기준선으로 고정, 3b 모호 과제 실패 3/3 재현 (exit=0, v7_harness/adapters/worker_advice.py)
+
+## Blocked
+- [BLOCKED] B23_TEST · claude · 파일럿 B23_TEST: FAILED/BLOCKED, 변경 0개, BROKER_ALREADY_RUNNING (exit=1)
+- [BLOCKED] B25_TEST · claude · 파일럿 B25_TEST: FAILED/BLOCKED, 변경 0개, DB_UNAVAILABLE (exit=1)
+- [BLOCKED] B36_CLI_TEST · claude · 파일럿 B36_CLI_TEST: FAILED/BLOCKED, 변경 0개, SOURCE_DIVERGED (exit=1)
