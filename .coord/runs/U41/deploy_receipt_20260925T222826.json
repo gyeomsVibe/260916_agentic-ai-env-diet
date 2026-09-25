@@ -259,9 +259,41 @@
       "exit": 0,
       "seconds": 2.0,
       "output_tail": "Everything up-to-date"
+    },
+    {
+      "step": "receipt_commit",
+      "cwd": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.work\\u43_scope_push_env",
+      "command": [
+        "git",
+        "commit",
+        "-m",
+        "chore(u41): PC deployment receipt",
+        "--",
+        "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.work\\u43_scope_push_env\\.coord\\runs\\U41\\deploy_receipt_20260925T222826.json"
+      ],
+      "note": "",
+      "status": "OK",
+      "exit": 0,
+      "seconds": 0.6,
+      "output_tail": "[codex/u43-scope-push-env 098d4d5] chore(u41): PC deployment receipt\n 1 file changed, 267 insertions(+)\n create mode 100644 .coord/runs/U41/deploy_receipt_20260925T222826.json"
+    },
+    {
+      "step": "repo_push",
+      "cwd": "D:\\D_Workspace_NB\\-agentic-ai-workspace\\260916_agentic-ai-env-diet\\.work\\u43_scope_push_env",
+      "command": [
+        "git",
+        "push",
+        "origin",
+        "HEAD:codex/u43-scope-push-env"
+      ],
+      "note": "",
+      "status": "OK",
+      "exit": 0,
+      "seconds": 2.8,
+      "output_tail": "To https://github.com/gyeomsVibe/260916_agentic-ai-env-diet.git\n   565596c..098d4d5  HEAD -> codex/u43-scope-push-env"
     }
   ],
   "result": "DONE",
   "stopped_at": null,
-  "snapshot_of": "deployment gates through canon_push; receipt_commit and repo_push publish this snapshot"
+  "snapshot_of": null
 }
