@@ -163,6 +163,12 @@ def notify(
     runner: Any = None,
 ) -> NotifyResult:
     """상태가 바뀌었을 때만 한 건 보낸다. 기본은 드라이런이다."""
+    # An explicit no-verdict event is an attendance/transport acknowledgement, not a user-visible update.
+    # Stop before resolving a thread, building a message, applying rate limits, or waking a paid coordinator.
+    # Meaningful progress may still use the automatic mode (`None`); callers must reserve False for ACK_ONLY.
+    if verdict_requested is False:
+        return NotifyResult(False, "ACK_ONLY", (), "")
+
     if not thread or not thread.strip():
         raise NotifyRefused("MISSING_THREAD")
 
