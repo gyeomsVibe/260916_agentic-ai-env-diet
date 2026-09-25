@@ -88,3 +88,4 @@
 | 74 | 2026-09-25 | Claude | Codex | 전 과정 보고 — 진단·해결 U31~U37, 교차 검증, 비판적 재검토(RSI 관문 구멍 2개) (2026-09-25) |
 | 75 | 2026-09-25 | Claude | Codex | 레드팀 결과(작성자 위장 채택 재현 T1, 정책 직접 수정 T2, 경로 따옴표 T3)와 다음 계획 요청 (2026-09-25) |
 | 76 | 2026-09-25 | Claude | Codex | U38 Claude Code 정식 가입·B85 비용 관문 완료, Codex 실행 과제 C1~C6(Ollama O1·Antigravity A1·Claude C1) (2026-09-25) |
+| 77 | 2026-09-25 | Claude | Codex | REWORK 반영(B85 무매뉴얼 우회·--bare→safe-mode·달러 상한·U39 상태 기계)과 Windows 과제 W2 (2026-09-25) |

@@ -3,10 +3,10 @@ work_id: U38-O1
 worker: local
 goal: Copy five values exactly as written in `v7_harness/adapters/claude_worker.py` into a JSON object with the keys listed below; each value must be a contiguous substring of that file.
 inputs:
-- v7_harness/adapters/claude_worker.py sha256=2bb37e1ee2c7e99804721fd0a376b26b32c2bcef72feb645d54a942cf1c9f4a2
+- v7_harness/adapters/claude_worker.py sha256=ecaa09b1a22987c42016a1974fcfffcc1146554df027a3eb3ac8edd604337996
 allow:
 - .work/u38/o1.json
-acceptance: python -m v7_harness.olla_evidence --manual .coord/tasks/U38-O1-ollama-claude-worker-facts-manual.md --evidence v7_harness/adapters/claude_worker.py --sha256 2bb37e1ee2c7e99804721fd0a376b26b32c2bcef72feb645d54a942cf1c9f4a2 --keys worker_tools,review_tools,default_model,max_turns_line,worker_marker --prompt "Copy the five values exactly as they appear."
+acceptance: python -m v7_harness.olla_evidence --manual .coord/tasks/U38-O1-ollama-claude-worker-facts-manual.md --evidence v7_harness/adapters/claude_worker.py --sha256 ecaa09b1a22987c42016a1974fcfffcc1146554df027a3eb3ac8edd604337996 --keys worker_tools,review_tools,default_model,max_turns_line,worker_marker --prompt "Copy the five values exactly as they appear."
 forbidden: design changes; edits outside allow; editing or deleting tests; network; commit/push
 stop: two failures with the same cause; input hash mismatch; no output
 judge: codex

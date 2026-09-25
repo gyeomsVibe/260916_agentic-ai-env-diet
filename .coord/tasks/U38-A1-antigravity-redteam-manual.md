@@ -3,9 +3,9 @@ work_id: U38-A1
 worker: agy
 goal: Write a red-team report at `.coord/runs/U38/agy_redteam_u38.md` on the U38 Claude worker and reviewer, in the format below; change no code.
 inputs:
-- v7_harness/adapters/claude_worker.py sha256=2bb37e1ee2c7e99804721fd0a376b26b32c2bcef72feb645d54a942cf1c9f4a2
-- v7_harness/review.py sha256=1bd89af9acfc0152c3a63a64629d2dab9c63545b8acae076573f8d1b5246eaca
-- tests/test_u38_cost_gate_and_claude_worker.py sha256=40a96a9d13be6941a1233563014f8dc6591e260b2854b5dfdeaa7230e23b8c9f
+- v7_harness/adapters/claude_worker.py sha256=ecaa09b1a22987c42016a1974fcfffcc1146554df027a3eb3ac8edd604337996
+- v7_harness/review.py sha256=bd62c89219754cc90df504c3ba2cd7dac065ca13c39d97f6415e621fe9e98b90
+- tests/test_u38_cost_gate_and_claude_worker.py sha256=252b10cbc7f13bd80b07700733e32e083e1091d01b026abddbcd056f9635624d
 allow:
 - .coord/runs/U38/agy_redteam_u38.md
 acceptance: python -c "import pathlib;t=pathlib.Path('.coord/runs/U38/agy_redteam_u38.md').read_text(encoding='utf-8');assert '## Findings' in t and '## Reproduction' in t and '## Not found' in t"

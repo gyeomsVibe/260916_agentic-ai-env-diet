@@ -11,6 +11,25 @@
   - B83 fail-closed를 푸시한다.
 - 근거 코드: `v7_harness/adapters/lane_worker.py`. 이 저장소는 이미 `claude -p`(헤드리스 실행)를 도구 제한·테스트 보호·최대 턴 수·JSON 사용량 출력과 함께 쓴다. 단, 모델은 로컬 Ollama로 돌려 두었다. 이번 설계는 그 검증된 호출을 **유료 Claude 계정 쪽으로** 돌리는 것이 핵심이다.
 
+## 개정 A (2026-09-25, Codex 보조 감사 반영) — 먼저 읽을 것
+
+Codex가 사용자 PC의 Claude Code 2.1.281과 실제 `claude --help`·인증 상태로 설계를 검증했다. 그 결과 아래 본문의 일부가 바뀌었다. **이 절이 본문보다 우선한다.**
+
+| # | 감사 결과 | 바뀐 설계 | 코드·테스트 |
+|---|---|---|---|
+| A1 | `--bare`는 OAuth·키체인을 읽지 않고 API 키만 받는다. 사용자 PC는 claude.ai(Pro) 로그인이라 **인증에 실패한다**. UAOS는 비밀값을 읽거나 넣지 않는다 | 작업자·검증자 모두 `--safe-mode --restricted --permission-prompts none` + 도구 허용 목록을 쓴다. **`--bare`는 쓰지 않는다.** 이 조합이 훅 억제·루트 격리·설정/출석 무기록을 실제로 보장하는지는 **가설**이다. 가짜 CLI 테스트와, 따로 승인된 실제 유료 호출 1회로 증명한다. UAOS 자체 훅은 `UAOS_WORKER`로 이미 무기록이다 | `claude_worker.ISOLATION`, argv에 `--bare`가 없는지 확인하는 테스트 |
+| A2 | 예산 옵션은 UNKNOWN이 아니었다. `--max-budget-usd`가 있다 | 계약에 `remote_budget_usd`를 **필수**로 둔다(lint `REMOTE_WITHOUT_USD_CAP`). 이 값이 `--max-budget-usd`로 전달되는 지출 전 상한이다. 값이 없으면 작업자가 시작 자체를 거부한다(`NO_USD_CAP`). 사후 토큰 관문(B85)도 유지한다. 달러를 토큰에서 추정하지 않고, 토큰 종류와 `total_cost_usd`는 따로 기록한다 | `test_the_claude_worker_refuses_to_start_without_a_dollar_cap` 외 |
+| A3 | 매뉴얼 없는 `--prompt`로 유료 작업자를 부르면 예산 관문을 **우회**했다. 승인도 마찬가지였다 | 유료 작업자(agy·claude)는 매뉴얼 필수(`REMOTE_WITHOUT_MANUAL`). 매뉴얼 없는 cascade의 유료 승격은 거부한다. 승인은 **기록된** `cost_gate=WITHIN`이 있어야 한다. 승인 호출이 어떤 작업자·플래그를 대든 상관없다(`runs/<task>/worker`와 현재 명령 모두 확인) | `test_a_paid_worker_without_a_manual_is_refused`, `test_approval_needs_a_persisted_within_gate_whatever_the_flags` |
+| A4 | 신원이 섞였다 | **클라우드 Claude = 현재 파이프라인 주도·계획자(PR 채널)**, **로컬 Claude CLI 하위 프로세스 = 유료 작업자.** `worker: claude`는 이미 실행 중인 클라우드 세션에 연결되거나 그 세션을 재사용하지 않는다 | — |
+| A5 | 자동화 안의 `judge: user`는 인증되지 않은 문자열이다(B83과 같은 부류) | 자동 승인의 경계가 될 수 없다. 경계는 **실제 사람의 GitHub 검토·병합**이다. 검증자(`pilot review`) 출력도 경계가 아니다 | — |
+| A6 | 유료 검토에도 같은 상한이 필요하다 | `pilot review`에 `--budget-usd`를 필수로 두고, 토큰 예산·장부·한도 공유 보호(LIMITED)도 작업자와 같게 한다 | `test_a_paid_review_needs_a_dollar_cap` |
+| A7 | 다음 프롬프트 때 P1 알림은 괜찮다 | 유지한다. 자동 재개와 유료 폴링 금지도 유지한다 | — |
+| A8 | Windows 30분 PR 모니터가 작업 스케줄러에서 exit 1이었다 | Codex가 수리했다(`updatedAt`만 보는 ASCII 안전 조회, exit 0). 무인 운영의 전제 조건으로 기록한다 | Codex 보고 |
+| A9 | 사용자의 배정 규칙 | U39 상태 기계: 결정적 → Ollama 1회(FORMAT_ONLY만 1회 더) → Antigravity 1회(상한 120k) → 판정. 원격이 실패하면 과제를 쪼개고 로컬로 돌아가지 않는다 | `v7_harness/routing.py`, docs/41 |
+
+- 실제 유료 호출은 아직 0회다.
+- 첫 호출 전에 Codex가 Windows 재검증과 `claude --help`에서 `--safe-mode`·`--restricted`·`--permission-prompts`·`--max-budget-usd`가 있는지 확인한다(메모 77).
+
 ---
 
 ## 0. 쉽게 말하면 (ELI10)

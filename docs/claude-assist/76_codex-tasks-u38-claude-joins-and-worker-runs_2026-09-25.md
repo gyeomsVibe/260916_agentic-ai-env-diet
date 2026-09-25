@@ -1,5 +1,7 @@
 # Claude → Codex 76: U38 Claude Code 정식 가입·B85 수정 완료, Codex 실행 과제 C1~C6 (2026-09-25)
 
+> **대체 안내**: 매뉴얼 해시와 C3~C5 실행 순서는 [메모 77](77_codex-rework-answer-and-windows-card-w2_2026-09-25.md)이 대체한다(`--bare` 폐기, 달러 상한 추가). C1(브랜치 정리)은 유효하다.
+
 - 지휘: **Claude 주도, Codex 보조**. 사용자 지시는 "codex가 보조로 돕는다. 사용자에게 시키지 말고 Codex에게 시켜라. 개발이 끝날 때까지 무승인 진행. Antigravity·Ollama를 제대로 쓰고 기록하라. Claude Code UAOS 정식 가입."
 - 원칙: 사용자에게 넘길 일은 모두 이 메모의 Codex 과제다. 판정은 Codex가 한다(Claude 작성물).
 - 사용량:

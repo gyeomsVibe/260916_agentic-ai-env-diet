@@ -4,7 +4,7 @@ worker: claude
 goal: In `docs/37_standard-process-and-worker-harness.md`, add the Claude worker to the roles table and the worker table and to the worker list comment, as specified below.
 inputs:
 - docs/37_standard-process-and-worker-harness.md sha256=39287c83f3023d141be79182bd260af90849d356fb503ccc0d355e438bf19cc7
-- docs/40_claude-code-in-the-uaos-pipeline-design.md sha256=be432502a7ce49815d937cf0cd27d946ef2704770aa9b4a4b4800dcad006c611
+- docs/40_claude-code-in-the-uaos-pipeline-design.md sha256=58b543fd646edd0ec59314694f5b5f3042f73490c8d4e0b811912b63bfd68edf
 allow:
 - docs/37_standard-process-and-worker-harness.md
 acceptance: python -c "import pathlib;t=pathlib.Path('docs/37_standard-process-and-worker-harness.md').read_text(encoding='utf-8');L=t.splitlines();assert 237<=len(L)<=238,len(L);assert 'claude_worker.py' in t and '| apply 작업자 |' in t and '# apply | local | agy | lane | cascade | claude' in t;assert sum(1 for l in L if l.startswith('|') and 'claude' in l)>=2"
@@ -12,6 +12,7 @@ forbidden: design changes; edits outside allow; editing or deleting tests; netwo
 stop: two failures with the same cause; input hash mismatch; no output
 judge: codex
 model: claude-haiku-4-5-20251001
+remote_budget_usd: 0.50
 timeout_s: 600
 remote_budget_tokens: 60000
 ```
