@@ -128,6 +128,9 @@ class DeployTests(unittest.TestCase):
         block = gi.rule_block("C:/Users/Kim/python.exe", Path("C:/Users/Kim/.uaos/uaos.py"), portable=True)
         self.assertIn('python "$HOME/.uaos/uaos.py"', block)
         self.assertNotIn("C:/Users", block)
+        self.assertIn("건설적 자율 릴레이", block)
+        self.assertIn("ACK_ONLY", block)
+        self.assertIn("ACTIONABLE_DELTA", block)
         self.assertIn("C:/Users/Kim/python.exe", gi.rule_block("C:/Users/Kim/python.exe", Path("C:/Users/Kim/.uaos/uaos.py")))
 
 
