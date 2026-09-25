@@ -69,6 +69,7 @@ class Receipt:
     steps: list[dict[str, Any]] = field(default_factory=list)
     result: str = "DRY_RUN"
     stopped_at: str | None = None
+    snapshot_of: str | None = None  # set only in the copy committed mid-run (the push result cannot be in it)
 
 
 def find_canon_sources(canon: Path, overrides: dict[str, Path] | None = None) -> tuple[dict[str, Path], list[str]]:
@@ -175,6 +176,8 @@ def build_steps(*, repo: Path, canon: Path, home: Path, python: str, sources: di
 
 def run(steps: list[Step], receipt: Receipt, receipt_path: Path, *, execute: bool,
         runner: Callable[..., Any] = subprocess.run) -> Receipt:
+    if execute:
+        receipt.result = "IN_PROGRESS"  # the committed mid-run snapshot must never read DRY_RUN (U41 run 20260925T151707)
     for step in steps:
         entry: dict[str, Any] = {"step": step.name, "cwd": str(step.cwd) if step.cwd else None,
                                  "command": step.command, "note": step.note}
@@ -182,7 +185,9 @@ def run(steps: list[Step], receipt: Receipt, receipt_path: Path, *, execute: boo
             receipt.steps.append({**entry, "status": "PLANNED"})
             continue
         if step.name == "receipt_commit":
+            receipt.snapshot_of = "steps before receipt_commit; the final result stays in the local file"
             _write(receipt, receipt_path)  # the receipt goes into the commit with every earlier step
+            receipt.snapshot_of = None
             runner(["git", "add", "--", str(receipt_path)], cwd=str(step.cwd), capture_output=True, text=True)
         started = time.monotonic()
         if step.action is not None:
