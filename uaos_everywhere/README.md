@@ -10,6 +10,7 @@
 | 파일 | 역할 |
 |---|---|
 | `install_uaos_everywhere.py` | 설치 프로그램. 기본은 미리보기, `--apply`로 설치, `--check`로 점검, `--uninstall`로 제거 |
+| `deploy_to_this_pc.py` | 사용자 PC 마무리 배포 한 번에: 회귀 → 훅 설치 → 정본 규칙에 이식 가능한 문단 → 생성기 → 확인 → 교환원 → 커밋·푸시. 계획 모드가 기본, `--apply --push`로 실행(docs/43) |
 | `uaos_global_rule_block.md` | 전역 규칙 파일에 들어가는 문단의 원본. `{uaos}`는 설치할 때 실행기 경로로 바뀐다 |
 
 ```powershell

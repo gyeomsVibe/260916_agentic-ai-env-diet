@@ -1,5 +1,7 @@
 # 05. 모든 프로젝트에 UAOS 설치하기 (Windows 기준, 따라 하기)
 
+> **2026-09-25 추가(U41)**: 아래 설치에 전역 규칙 원본(정본) 반영, 생성기 실행, 커밋·푸시까지 한 번에 하는 `python uaos_everywhere/deploy_to_this_pc.py --apply --push`가 생겼다. 사용자 대신 Codex(또는 Antigravity)가 실행한다. 단계별 관문은 [docs/43](../43_one-command-pc-rollout-u41.md)에 있다.
+
 ## 설치하면 무엇이 달라지나
 
 - 어느 프로젝트에서 Codex·Claude·Antigravity를 열어도 **UAOS 규칙 문단**을 읽는다.
