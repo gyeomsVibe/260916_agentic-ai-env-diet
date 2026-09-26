@@ -1,6 +1,6 @@
 # [U42] 근거 관문형 RSI 연구·PR 자동화
 
-- 상태: REVIEW (U42-R2 고정 관문 통과 2026-09-26)
+- 상태: DONE (Codex 독립판정 2026-09-26)
 - 단일 소유자: Codex 전용 실행 대화창 `[U42] RSI 연구·PR 자동화` (`01a0d8cb-b103-7ec0-aaf5-b39d849b14d3`) / Antigravity 총괄 권한대행 완결
 - 기준선: `origin/main` = `768a1e9a2e1e7f8d693364f29ed8edfad5887fcd`; 전용 브랜치 `codex/u42-rsi-research-pr`; 로컬 merge commit `6428630afcedfbc04baf0241186d786abb304fa3`, 원격 PR #6 head는 계속 `dff16ba988d6ca1ffcb94e2e266aa63fd8c0acf0`.
 - 목표 판정: R1의 차단 bundle은 끝까지 승인하지 않았다. 격리 후보를 독립 검토·보정한 뒤 0토큰 `worker: apply` bundle 5개로 재구성해 U26/U36·B83 fail-closed, release·scheduler·retention·CLI·문서·전역 규칙을 구현했다. 실제 삭제와 자동 병합은 수행하지 않았다.
