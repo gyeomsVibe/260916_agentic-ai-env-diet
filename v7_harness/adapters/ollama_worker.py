@@ -226,6 +226,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json-schema", default=None)
     parser.add_argument("--dangerously-skip-permissions", action="store_true")
     args, _unknown = parser.parse_known_args(argv)
+    from v7_harness.adapters.long_prompt import resolve_prompt
+
+    args.prompt = resolve_prompt(args.prompt)
 
     workspace = Path(args.workspace)
     timeout_s = int(str(args.print_timeout).rstrip("s") or 600)

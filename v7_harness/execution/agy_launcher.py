@@ -9,6 +9,7 @@ import time
 from typing import Any, Callable
 
 from v7_harness.adapters.agy import AgyOutcome, AgyRequest, build_agy_command, parse_agy_result
+from v7_harness.adapters.long_prompt import ARGV_PROMPT_CHARS, FILE_MARKER, WINDOWS_ARGV_LIMIT, command_line_chars
 from v7_harness.contracts.execution import WorkerDecision
 from v7_harness.execution.launcher import (
     _assign_process_to_job,
@@ -16,6 +17,25 @@ from v7_harness.execution.launcher import (
     _create_win_job,
     _terminate_process_tree,
 )
+
+
+def fit_command_line(argv: list[str], prefix_len: int, prompt_path: Path, *,
+                     windows: bool = os.name == "nt") -> tuple[list[str], str]:
+    """(argv, error) that fits the command line (U44 W6). argv[prefix_len] is "-p" and the prompt follows it.
+
+    Our Python adapters (*_worker.py) take the prompt as a file past ARGV_PROMPT_CHARS. The real agy binary has no
+    documented prompt file, so on Windows an agy line past the limit is refused before it starts.
+    """
+    if command_line_chars(argv) <= ARGV_PROMPT_CHARS or argv[prefix_len:prefix_len + 1] != ["-p"]:
+        return argv, ""
+    if any(str(part).endswith("_worker.py") for part in argv[:prefix_len]):
+        prompt_path.write_text(argv[prefix_len + 1], encoding="utf-8")
+        return argv[:prefix_len + 1] + [FILE_MARKER + str(prompt_path.resolve())] + argv[prefix_len + 2:], ""
+    chars = command_line_chars(argv)
+    if windows and chars >= WINDOWS_ARGV_LIMIT:
+        return argv, (f"PROMPT_TOO_LONG_FOR_ARGV: the agy command line is {chars} characters, Windows allows "
+                      f"{WINDOWS_ARGV_LIMIT - 1}; shorten the contract or use a Python worker")
+    return argv, ""
 
 
 class AgyProcessLauncher:
@@ -49,6 +69,14 @@ class AgyProcessLauncher:
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         json_path = self.runs_dir / f"{attempt_id}.json"
         err_path = self.runs_dir / f"{attempt_id}.err"
+        argv, too_long = fit_command_line(argv, len(self.agy_command), self.runs_dir / f"{attempt_id}.prompt.md")
+        if too_long:
+            # Nothing started, so nothing changed: effect NONE, not a reconciliation case.
+            json_path.write_bytes(b"")
+            err_path.write_bytes(too_long.encode("utf-8"))
+            self.raw_paths = (json_path, err_path)
+            return WorkerDecision(successful=False, result_status="ERROR", effect_state="NONE", retryable=False,
+                                  error_class="PROMPT_TOO_LONG_FOR_ARGV")
 
         # Launcher timeout: request.print_timeout_s + 60 seconds
         timeout = float(timeout_sec) if timeout_sec is not None else float(self.request.print_timeout_s + 60)

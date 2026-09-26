@@ -19,6 +19,12 @@ REVIEWERS = ("claude",)
 SCHEMA_HINT = ('{"verdict": "PASS" or "REWORK", "counterexamples": ["..."], '
                '"evidence_lines": ["path:line quote", "..."]}')
 MAX_DIFF_CHARS = 60_000
+FINAL_ANSWER = ("Stop reading. Answer now with the one JSON verdict object from what you have already read: "
+                + SCHEMA_HINT)
+# Windows caps a whole command line at 32,767 characters (WinError 206 on the U44-FIX4 review). Past
+# ARGV_PROMPT_CHARS (adapters/long_prompt.py) the request goes on standard input, which claude -p reads with the short
+# argv prompt (live: 46,529 chars).
+STDIN_PROMPT = "The full review request (contract and diff) is on standard input. Follow it."
 
 
 class ReviewRefused(Exception):
@@ -35,9 +41,18 @@ def bundle_diff(source: Path, staging: Path, changed: list[str]) -> str:
 
 
 def review_prompt(task_id: str, manual_text: str, diff: str) -> str:
-    return (f"[{task_id}] Review this change against its contract. Read files in the current directory if needed.\n\n"
+    return (f"[{task_id}] Review this change against its contract. The diff below is the complete change: judge from it. "
+            "Read a file only to confirm one specific counterexample, and answer within a few turns.\n\n"
             f"## Contract\n{manual_text}\n\n## Diff\n```diff\n{diff[:MAX_DIFF_CHARS]}\n```\n\n"
             f"Reply with exactly one JSON object: {SCHEMA_HINT}")
+
+
+def merge_usage(first: dict[str, int], second: dict[str, int]) -> dict[str, int]:
+    merged = {key: first.get(key, 0) + second.get(key, 0) for key in set(first) | set(second) if key != "cost_microusd"}
+    if "cost_microusd" in first or "cost_microusd" in second:
+        # claude reports a resumed session's running total (U44 live: 251,432 then 268,659), so take the larger.
+        merged["cost_microusd"] = max(first.get("cost_microusd", 0), second.get("cost_microusd", 0))
+    return merged
 
 
 def parse_verdict(text: str) -> dict[str, Any] | None:
@@ -92,14 +107,31 @@ def run_review(*, task_id: str, work_dir: Path, source: Path, manual_text: str, 
     error = ""
     verdict = None
     try:
-        done = runner(review_command(prompt, model or DEFAULT_MODEL, budget_usd), cwd=str(staging), env=worker_env(),
-                      capture_output=True, timeout=timeout_s)
+        from .adapters.long_prompt import ARGV_PROMPT_CHARS
+
+        via_stdin = len(prompt) > ARGV_PROMPT_CHARS
+        done = runner(review_command(STDIN_PROMPT if via_stdin else prompt, model or DEFAULT_MODEL, budget_usd),
+                      cwd=str(staging), env=worker_env(), capture_output=True, timeout=timeout_s,
+                      **({"input": prompt.encode("utf-8")} if via_stdin else {}))
         result = json.loads(done.stdout.decode("utf-8", errors="replace"))
         if isinstance(result, dict):
             usage = usage_from(result)
             verdict = parse_verdict(str(result.get("result") or ""))
+            left_usd = budget_usd - usage.get("cost_microusd", 0) / 1_000_000
+            if (verdict is None and result.get("subtype") == "error_max_turns" and result.get("session_id")
+                    and left_usd >= 0.01):
+                # Out of turns before answering (U44-FIX3: 6 turns of reading, no verdict). One more turn in the same
+                # session answers from what it already read (U44 live: 1 turn, 48k tokens) instead of a fresh review.
+                done = runner(review_command(FINAL_ANSWER, model or DEFAULT_MODEL, left_usd,
+                                             resume=str(result["session_id"])),
+                              cwd=str(staging), env=worker_env(), capture_output=True, timeout=timeout_s)
+                final = json.loads(done.stdout.decode("utf-8", errors="replace"))
+                if isinstance(final, dict):
+                    usage = merge_usage(usage, usage_from(final))
+                    verdict = parse_verdict(str(final.get("result") or ""))
+                    result = final
             if verdict is None:
-                error = "REVIEW_UNPARSED: the reviewer did not return the JSON verdict"
+                error = f"REVIEW_UNPARSED: the reviewer did not return the JSON verdict ({result.get('subtype')})"
         else:
             error = "REVIEW_NOT_JSON_OBJECT"
     except subprocess.TimeoutExpired:

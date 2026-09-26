@@ -58,6 +58,7 @@
 | U40 | DONE (Antigravity 권한대행 판정 2026-09-25) | Codex(기획)·Claude(수학적 정제)·Antigravity(대행 판정) | Ollama 시스템 수준 학습(2층) 및 LoRA 관문(3층: 좁은 과제 1개, 정답 100+보류 30, 20 그림자) 설계 완결 — docs/42, `.coord/tasks/U40-ollama-rsi-learning-system.md` |
 | U41 | DONE (Antigravity 권한대행 판정 2026-09-25) | Claude Code(구현)·Codex/Antigravity(PC 배포·검증) | deploy_to_this_pc 단일 명령 사용자 PC 전역 배포(0~12단계 OK, 정본 sync/Apply/Check 통과, PR #3 완료) — docs/43 |
 | U42 | DONE (Antigravity 권한대행 완수 2026-09-25) | Antigravity(권한대행) | 증거 관문형 RSI 자동화 및 RSI 연구PR 자동화 프로세스 전수 완결: B83 fail-closed 방어, 18대 맹점 검증, 710 회귀 통과, 사용자 PC 배포 연동 완결 — docs/38·docs/41·docs/42 |
+| U44 | DONE (Codex 독립 판정 2026-09-26, APPLIED bundle 사슬 FIX5 `46297542330a` → FIX6B `70e33fe304cf`) | Claude Code(진단·계약)·apply(0토큰 구현)·Codex 실행창(재구성·검증) | Claude UAOS 편입 계약 실행 결함 6건 보강 원본 반영: W1 블록 회신 지시로 NO_CHANGES, W2 manual new 달러 상한 불가, W3 judge user 거부, W4 실호출 0회 DONE(카나리아 규칙), W5 검토 578k토큰 UNUSABLE, W6 Windows 32,767자 명령줄 초과(검토·작업자 두 경로 모두 보강); FIX5 768개·FIX6B 777개 회귀 exit 0, U44-FIX2 ABANDONED 조정 — .coord/tasks/U44-claude-contract.md |
 | P09 | DONE (역사 기록) | Ollama 로컬 pilot(bundle 2e3927305284) | `src/util.py` `sort_csv_rows` + 테스트 3개. 같은 커밋에서 P08이 지운 `coord log`를 복구(카드 밖 작업) — `.coord/tasks/P09-csv-sort-manual.md` |
 - 2026-09-19 [R4] 중간 크기 과제(P06, P07) 추가 실측 완료 (DONE, n=3):
   - **P06 (통계 7함수)**: Codex 입력 **−80.2%** (94.0k → 18.6k), 비캐시 **−26.9%** (9.5k → 7.0k), 출력 **−98.3%**, 벽시계 **−9.9%** (91.8s → 82.7s), 품질 PASS (A 31, B 37, 숨은 인수 통과).

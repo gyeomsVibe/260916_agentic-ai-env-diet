@@ -41,7 +41,10 @@ LIST_KEYS = ("inputs", "allow")
 WORKERS = ("local", "apply", "agy", "lane", "cascade", "claude")
 # Workers that spend a paid account (B85). lane runs Claude Code on the local model, so it is not one of them.
 REMOTE_WORKERS = ("agy", "claude")
-JUDGES = ("codex", "claude", "antigravity")
+JUDGES = ("codex", "claude", "antigravity", "user")
+# Workers that edit files with their own tools. The harness reads the staged files, never their reply text, so
+# telling them to reply with blocks makes them change nothing (U44 probe: NO_CHANGES on the first real claude run).
+TOOL_WORKERS = ("agy", "lane", "claude")
 # The tool that does the work cannot be the one that accepts it.
 WORKER_TOOL = {"agy": "antigravity", "lane": "claude", "claude": "claude"}
 MAX_TIMEOUT_S = 3600
@@ -254,6 +257,7 @@ def new_manual(
     judge: str,
     timeout_s: int = 180,
     remote_budget_tokens: int = 0,
+    remote_budget_usd: float = 0.0,
     forbidden: str = "design changes; edits outside allow; editing or deleting tests; network; commit/push",
     stop: str = "two failures with the same cause; input hash mismatch; no output",
     instructions: str = "",
@@ -276,6 +280,7 @@ def new_manual(
         f"judge: {judge}",
         f"timeout_s: {timeout_s}",
         f"remote_budget_tokens: {remote_budget_tokens}",
+        *([f"remote_budget_usd: {remote_budget_usd:g}"] if remote_budget_usd > 0 else []),
         "```",
         "",
         "## Instructions for the worker",
@@ -284,10 +289,18 @@ def new_manual(
         "",
         "## Output",
         "",
-        "- Reply with ===FILE / ===EDIT blocks only. No explanations. Do not claim success; the acceptance command decides.",
+        output_rule(worker),
         "",
     ]
     return "\n".join(lines)
+
+
+def output_rule(worker: str) -> str:
+    if worker in TOOL_WORKERS:
+        return ("- Edit the files under `allow` directly with your file tools. Your reply is not applied: ===FILE / "
+                "===EDIT blocks in it are ignored. End with one line saying what you changed. Do not claim success; "
+                "the acceptance command decides.")
+    return "- Reply with ===FILE / ===EDIT blocks only. No explanations. Do not claim success; the acceptance command decides."
 
 
 def main(argv: list[str] | None = None) -> int:

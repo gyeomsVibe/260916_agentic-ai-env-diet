@@ -441,6 +441,7 @@ def cmd_pilot_manual_new(args: argparse.Namespace) -> int:
         judge=args.judge,
         timeout_s=args.timeout,
         remote_budget_tokens=args.remote_budget,
+        remote_budget_usd=args.remote_budget_usd,
         instructions=instructions,
     )
     out = Path(args.out)
@@ -562,7 +563,7 @@ def build_parser() -> argparse.ArgumentParser:
                              help="Do not record this run in the coordination stream")
     p_pilot_run.add_argument("--coord-project", default=None,
                              help="Project whose coordination stream records this run (default: the --source project)")
-    p_pilot_run.add_argument("--coord-actor", choices=["codex", "claude", "antigravity"], default=None,
+    p_pilot_run.add_argument("--coord-actor", choices=["codex", "claude", "antigravity", "user"], default=None,
                              help="Who ran this pilot (default: detected from the calling tool's environment)")
     p_pilot_run.add_argument("--model", default=None, help="Model name to pass to agy (e.g. gemini-3.7-flash)")
     p_pilot_run.add_argument("--accept-cmd", default=None, help="Acceptance test command to run in staging")
@@ -585,9 +586,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_manual_new.add_argument("--input", action="append", default=[], help="Input file to pin by SHA-256 (repeatable)")
     p_manual_new.add_argument("--allow", action="append", default=[], required=True)
     p_manual_new.add_argument("--accept", required=True, help="Acceptance command")
-    p_manual_new.add_argument("--judge", required=True, choices=["codex", "claude", "antigravity"])
+    p_manual_new.add_argument("--judge", required=True, choices=["codex", "claude", "antigravity", "user"])
     p_manual_new.add_argument("--timeout", type=int, default=180)
     p_manual_new.add_argument("--remote-budget", type=int, default=0)
+    p_manual_new.add_argument("--remote-budget-usd", type=float, default=0.0,
+                              help="Dollar cap for worker claude (claude --max-budget-usd); lint requires it > 0")
     p_manual_new.add_argument("--instructions-file", default=None, help="Prose instructions to append")
     p_manual_new.set_defaults(func=cmd_pilot_manual_new)
 
