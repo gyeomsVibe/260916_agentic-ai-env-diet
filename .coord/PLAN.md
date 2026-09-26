@@ -67,6 +67,14 @@
 | U45-F5 | READY | codex | harness: EXTERNAL_WRITE watch covers the whole parent `.work/`, so the conductor's own writes during a paid run abandon it (U45-G7 a001, $0.319 lost); scope the watch to paths the worker process can reach or record writer pid (근거: U45-G7 a001) |
 | U45-F6 | READY | codex | harness: `claude --max-budget-usd 0.30` ended at $0.319 (+6%): the cap is checked after a turn; lower the passed cap by one turn's typical cost or record the overshoot as a gate result (근거: U45-G7 a001) |
 | U45-F7 | READY | codex | harness: `pilot run` checks manual work_id vs --task only after the paid worker ran (U45-G7r, $0.263 lost); validate before launching any worker (근거: U45-G7r) |
+| U46-J1 | DONE (Antigravity 판정 16:01, 50 OK) | claude(구현 apply) · antigravity(판정) · codex(재검토) | `pilot review --reviewer agy`: 지휘자가 Antigravity를 CLI로 깨우는 읽기 전용 검토, 토큰 관문. bundle dcc617c7 DRY_RUN_PASSED, 실측 agy 1회 71,299 토큰 UNUSABLE(예산 60k 초과) — docs/47 |
+| U46-J2 | READY | codex | harness: review ledger `receipt` is stored relative to the cwd (`..\..\runs\...`); store an absolute path (근거: U46-J1 live) |
+| U46-J3 | DONE | antigravity(agy CLI 상의) · claude(판정) | 사람 전달 없는 판정 방법 상의: A안 `pilot judge --judge agy` + 교환원 예비 권고, `*/10` 데몬 없음(NOT_FOUND) — .coord/notes/U46_J3_agy_consult.md, 89,263 토큰 |
+| U46-J4 | BLOCKED (사용자 결정) | user | agy CLI 판정 결과로 하네스가 `--coord-actor antigravity` 승인까지 자동 실행하는 A안 구현이 Claude Code 자동 모드 분류기에서 승인 경계 우회로 거부됨(2026-09-26 16:0x). 사용자가 이 자동 승인 경로를 허용할지 결정 |
+| U46-G1 | READY | codex·user | calculator gate: route for merge commits whose v7_harness content is fully explained by parents or APPLIED digests, so no `Calculator-Exempt` is needed (근거: 6e02901·1e5b316 used it) — docs/47 §2-2 |
+| U46-P1 | READY | claude | P1 hook stays silent when the P1 id set fingerprint is unchanged (ACK_ONLY); today it repeats 'P1 waiting (7)' every prompt — docs/47 C3 |
+| U46-S1 | READY | user | apply the permission proposal `.coord/notes/U46_claude_permissions_proposal.json` (remove `gh pr merge *` allow, add UAOS/test/commit allows, deny force push) — docs/47 §4 |
+| U46-T1 | READY | codex | test_u13_isolation.test_real_scan_budget_5k_files fails under load (43.3 s, 51 s vs 30 s); passed 14:50 and at Antigravity 15:42 — decide budget or isolation |
 | P09 | DONE (역사 기록) | Ollama 로컬 pilot(bundle 2e3927305284) | `src/util.py` `sort_csv_rows` + 테스트 3개. 같은 커밋에서 P08이 지운 `coord log`를 복구(카드 밖 작업) — `.coord/tasks/P09-csv-sort-manual.md` |
 - 2026-09-19 [R4] 중간 크기 과제(P06, P07) 추가 실측 완료 (DONE, n=3):
   - **P06 (통계 7함수)**: Codex 입력 **−80.2%** (94.0k → 18.6k), 비캐시 **−26.9%** (9.5k → 7.0k), 출력 **−98.3%**, 벽시계 **−9.9%** (91.8s → 82.7s), 품질 PASS (A 31, B 37, 숨은 인수 통과).

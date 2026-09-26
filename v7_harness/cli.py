@@ -600,10 +600,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_review.add_argument("--work-dir", required=True)
     p_pilot_review.add_argument("--source", default=".")
     p_pilot_review.add_argument("--manual", required=True, help="The contract manual the bundle was built from")
-    p_pilot_review.add_argument("--reviewer", default="claude", choices=["claude"])
+    p_pilot_review.add_argument("--reviewer", default="claude", choices=["claude", "agy"],
+                                help="agy = Antigravity CLI, read-only, token budget only (U46-J1, docs/47)")
     p_pilot_review.add_argument("--budget", type=int, required=True, help="Token budget for the review call")
-    p_pilot_review.add_argument("--budget-usd", type=float, required=True,
-                                help="Dollar cap passed to claude --max-budget-usd (checked before spending)")
+    # Not required by argparse any more: run_review refuses a claude review without it (agy has no dollar option).
+    p_pilot_review.add_argument("--budget-usd", type=float, default=0.0,
+                                help="Dollar cap passed to claude --max-budget-usd (checked before spending); "
+                                     "required for --reviewer claude")
     p_pilot_review.add_argument("--model", default=None)
     p_pilot_review.add_argument("--timeout", type=int, default=600)
     p_pilot_review.set_defaults(func=cmd_pilot_review)

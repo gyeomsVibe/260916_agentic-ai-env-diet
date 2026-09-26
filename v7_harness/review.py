@@ -15,7 +15,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-REVIEWERS = ("claude",)
+# U46-J1: agy lets a conductor wake Antigravity through its CLI instead of a mailbox letter a person must relay.
+REVIEWERS = ("claude", "agy")
 SCHEMA_HINT = ('{"verdict": "PASS" or "REWORK", "counterexamples": ["..."], '
                '"evidence_lines": ["path:line quote", "..."]}')
 MAX_DIFF_CHARS = 60_000
@@ -80,7 +81,8 @@ def run_review(*, task_id: str, work_dir: Path, source: Path, manual_text: str, 
         raise ReviewRefused(f"UNKNOWN_REVIEWER:{reviewer}")
     if budget <= 0:
         raise ReviewRefused("REVIEW_WITHOUT_BUDGET: pass --budget > 0 (a review is a paid call)")
-    if not budget_usd > 0:
+    if reviewer == "claude" and not budget_usd > 0:
+        # agy has no dollar cap option; its review is held by the token budget gate alone (B85).
         raise ReviewRefused("REVIEW_WITHOUT_USD_CAP: pass --budget-usd > 0 (claude --max-budget-usd, before spending)")
     runs = Path(work_dir) / "runs" / task_id
     try:
@@ -106,7 +108,11 @@ def run_review(*, task_id: str, work_dir: Path, source: Path, manual_text: str, 
     usage: dict[str, int] = {}
     error = ""
     verdict = None
+    conversation_id = None
     try:
+        if reviewer == "agy":
+            usage, verdict, error, conversation_id = _agy_review(task_id, prompt, runs, timeout_s, runner)
+            raise _Reviewed
         from .adapters.long_prompt import ARGV_PROMPT_CHARS
 
         via_stdin = len(prompt) > ARGV_PROMPT_CHARS
@@ -134,6 +140,8 @@ def run_review(*, task_id: str, work_dir: Path, source: Path, manual_text: str, 
                 error = f"REVIEW_UNPARSED: the reviewer did not return the JSON verdict ({result.get('subtype')})"
         else:
             error = "REVIEW_NOT_JSON_OBJECT"
+    except _Reviewed:
+        pass
     except subprocess.TimeoutExpired:
         error = f"REVIEW_TIMEOUT:{timeout_s}s"
     except (OSError, ValueError) as exc:
@@ -148,11 +156,46 @@ def run_review(*, task_id: str, work_dir: Path, source: Path, manual_text: str, 
         "evidence_lines": (verdict or {}).get("evidence_lines", []),
         "cost_gate": cost_gate, "usage": usage, "elapsed_s": int(time.monotonic() - started), "error": error,
     }
+    if reviewer == "agy":
+        record["judge_conversation_id"] = conversation_id
     out = runs / f"review_{reviewer}.json"
     out.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     record["review_path"] = str(out)
-    _record_usage(Path(source), task_id, reviewer, model or DEFAULT_MODEL, usage, record, out)
+    _record_usage(Path(source), task_id, reviewer, model or (DEFAULT_MODEL if reviewer == "claude" else "agy-default"),
+                  usage, record, out)
     return record
+
+
+class _Reviewed(Exception):
+    """Leaves the claude call path once the agy review has run."""
+
+
+def _agy_review(task_id: str, prompt: str, runs: Path, timeout_s: int,
+                runner: Any) -> tuple[dict[str, int], dict[str, Any] | None, str, str | None]:
+    """Antigravity reads the request from a file in the run folder (a diff can pass the 32,767-character Windows
+    command line) and answers in JSON. No permission bypass: it can read, and only the pilot applies anything."""
+    import os
+
+    from .adapters.agy import AgyRequest, build_agy_command, parse_agy_result
+
+    request = runs / "review_agy_request.md"
+    request.write_text(prompt, encoding="utf-8")
+    short = (f"Read {request.name} in this folder: a review request with the contract and the complete diff. "
+             f"Do not edit any file. Reply with exactly one JSON object: {SCHEMA_HINT}")
+    argv = build_agy_command(AgyRequest(task_id=task_id, title="review", prompt=short, workspace=runs,
+                                        isolation_mode="staging", print_timeout_s=timeout_s))
+    done = runner(argv, cwd=str(runs), env={**os.environ, "UAOS_WORKER": "1"}, capture_output=True,
+                  timeout=timeout_s + 60)
+    outcome = parse_agy_result(stdout=done.stdout or b"", stderr=done.stderr or b"", exit_code=done.returncode)
+    usage = dict(outcome.usage)
+    if not outcome.successful:
+        return usage, None, f"REVIEW_FAILED:agy {outcome.error_class}", outcome.conversation_id
+    envelope = json.loads(done.stdout.decode("utf-8", errors="replace"))
+    text = envelope.get("response") if isinstance(envelope.get("response"), str) else json.dumps(
+        envelope.get("structured_output"))
+    verdict = parse_verdict(text)
+    return (usage, verdict, "" if verdict else "REVIEW_UNPARSED: the reviewer did not return the JSON verdict (agy)",
+            outcome.conversation_id)
 
 
 def _record_usage(source: Path, task_id: str, reviewer: str, model: str, usage: dict[str, int], record: dict,
