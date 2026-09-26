@@ -227,6 +227,12 @@ def context_files(prompt: str, workspace: Path) -> list[str]:
     return list(dict.fromkeys([*pinned, *named]))
 
 
+def contract_work_id(prompt: str) -> str | None:
+    """U47-O2: the work id from the manual's contract block, so a `pilot_local` row can be joined to its pilot run."""
+    found = re.search(r"^work_id:\s*(\S+)\s*$", prompt, re.M)
+    return found.group(1) if found else None
+
+
 def _log(event: str, **fields) -> None:
     """로컬 모델 사용 기록을 한 곳(olla 사용 기록)에 모은다. 파일럿과 보조 호출이 따로 세면 합계를 못 낸다."""
     try:
@@ -278,7 +284,10 @@ def main(argv: list[str] | None = None) -> int:
     # 즉시 실패로 바꿔 cascade 가 곧바로 agy 로 넘긴다. 한국어가 1글자 3바이트·약 1토큰이라 바이트/3 으로 어림한다.
     estimated = len(prompt.encode("utf-8")) // 3
     limit = NUM_CTX - NUM_PREDICT
+    # U47-O2: every row names the model and the work, so the ledger can be joined to pilot outcomes and distilled.
+    run = {"model": args.model, "work_id": contract_work_id(args.prompt)}
     if estimated > limit:
+        _log("pilot_local", status="PROMPT_TOO_LARGE", elapsed_s=0.0, estimated_tokens=estimated, **run)
         return envelope("ERROR", "", {"input_tokens": 0, "output_tokens": 0}, f"PROMPT_TOO_LARGE: ~{estimated} tokens > {limit}")
     from v7_harness.adapters.gpu_priority import pilot_holds
 
@@ -287,9 +296,9 @@ def main(argv: list[str] | None = None) -> int:
         with pilot_holds(timeout_s):  # 파일럿이 GPU 를 먼저 쓴다(B74). 보조 호출은 이 동안 양보한다
             text, usage = _generate(args.model, prompt, timeout_s)
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        _log("pilot_local", status="ERROR", elapsed_s=round(time.monotonic() - started, 1))
+        _log("pilot_local", status="ERROR", elapsed_s=round(time.monotonic() - started, 1), **run)
         return envelope("ERROR", "", {"input_tokens": 0, "output_tokens": 0}, f"ollama unreachable: {exc}")
-    _log("pilot_local", status="GENERATED", elapsed_s=round(time.monotonic() - started, 1), **usage)
+    _log("pilot_local", status="GENERATED", elapsed_s=round(time.monotonic() - started, 1), **run, **usage)
 
     if "===FILE:" not in text and "===EDIT:" not in text:
         return envelope("ERROR", "", usage, "model returned no file block")
