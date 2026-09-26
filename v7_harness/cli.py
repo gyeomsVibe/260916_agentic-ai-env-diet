@@ -816,6 +816,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_rsi_retention = p_rsi_subs.add_parser("retention", help="Deletion-free retention plan (dry-run manifest, U42-R1)")
     p_rsi_retention.add_argument("--project", default=".")
+    p_rsi_retention.add_argument("--archive", action="store_true", help="Archive candidate files into a verified zip")
+    p_rsi_retention.add_argument("--rollup-olla", action="store_true", help="Roll up olla usage ledger")
+    p_rsi_retention.add_argument("--purge", default=None, metavar="ZIP",
+                                 help="Validate an archive then return the fail-closed deletion boundary")
+    p_rsi_retention.add_argument("--approval", default=None, metavar="FILE",
+                                 help="Compatibility only; file labels are never treated as authentication")
     p_rsi_retention.set_defaults(func=cmd_rsi_retention)
 
     return parser
@@ -1450,13 +1456,47 @@ def cmd_rsi_watch(args: argparse.Namespace) -> int:
 def cmd_rsi_retention(args: argparse.Namespace) -> int:
     import time
 
-    from .retention import apply_retention, default_policy, plan_retention
+    from . import olla
+    from .retention import (
+        RetentionRefused,
+        apply_retention,
+        archive_candidates,
+        default_policy,
+        plan_retention,
+        purge_archived,
+        rollup_jsonl,
+        work_dir_report,
+    )
 
+    now = time.time()
     project = Path(args.project)
     policy = default_policy()
-    plan = plan_retention(project, policy, now=time.time())
+    plan = plan_retention(project, policy, now=now)
     result = apply_retention(project, plan)
-    _print_json({"ok": True, **result})
+    out: dict = {"ok": True, **result}
+
+    if getattr(args, "archive", False):
+        out["archive"] = archive_candidates(project, plan, now=now)
+
+    if getattr(args, "rollup_olla", False):
+        out["rollup"] = rollup_jsonl(olla.USAGE_LOG, olla.USAGE_LOG.parent / "archive")
+
+    if getattr(args, "purge", None):
+        approval_path = Path(args.approval) if getattr(args, "approval", None) else project / "unused_approval.json"
+        try:
+            purge_archived(project, Path(args.purge), approval_path)
+        except RetentionRefused as exc:
+            _print_json({
+                "ok": False,
+                "status": "FRESH_DELETE_APPROVAL_REQUIRED",
+                "error": str(exc),
+                "purge": {"status": "REFUSED", "deleted": 0},
+            })
+            return 2
+        raise AssertionError("purge_archived must always fail closed")
+
+    out["work_report"] = work_dir_report(project, now=now)
+    _print_json(out)
     return 0
 
 
