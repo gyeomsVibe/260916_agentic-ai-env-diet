@@ -18,12 +18,16 @@ from v7_harness import global_install as gi
 class FakeRunner:
     def __init__(self, fail: dict[str, int] | None = None, branch: str = dp.BRANCH, dirty: str = ""):
         self.calls: list[list[str]] = []
+        self.call_envs: list[dict[str, str]] = []
+        self.call_kwargs: list[dict] = []
         self.fail = fail or {}
         self.branch = branch
         self.dirty = dirty
 
     def __call__(self, command, **kwargs):
         self.calls.append(list(command))
+        self.call_envs.append(dict(kwargs.get("env") or {}))
+        self.call_kwargs.append(dict(kwargs))
         if command[:3] == ["git", "add", "--"] and command[-1].endswith(".json"):
             self.committed_receipt = json.loads(Path(command[-1]).read_text(encoding="utf-8"))
         text = " ".join(command)
@@ -45,7 +49,7 @@ class DeployTests(unittest.TestCase):
         src = self.canon / "shared" / "global-rules"
         (src / "dist" / "claude").mkdir(parents=True)
         (src / "src").mkdir()
-        for name in ("claude.md", "AGENTS.md", "GEMINI.md"):
+        for name in ("claude.md", "core.md", "AGENTS.md", "GEMINI.md"):
             (src / "src" / name).write_text("# rules\n", encoding="utf-8")
         (src / "dist" / "claude" / "CLAUDE.md").write_text("# generated\n", encoding="utf-8")  # must be ignored
         self.home = root / "home"
@@ -68,19 +72,28 @@ class DeployTests(unittest.TestCase):
     def test_canon_sources_one_per_runtime_and_dist_is_ignored(self) -> None:
         found, problems = dp.find_canon_sources(self.canon)
         self.assertEqual([], problems)
-        self.assertEqual({"claude": "claude.md", "codex": "AGENTS.md", "antigravity": "GEMINI.md"},
+        self.assertEqual({"claude": "claude.md", "codex": "core.md", "antigravity": "core.md"},
                          {k: v.name for k, v in found.items()})
 
+    def test_default_canon_resolves_from_a_managed_worktree(self) -> None:
+        workspace = Path(self.temp.name) / "workspace"
+        checkout = workspace / "260916_agentic-ai-env-diet"
+        worktree = checkout / ".work" / "u43"
+        canon = workspace / "260718_agentic-ai-platform-optimization"
+        worktree.mkdir(parents=True)
+        canon.mkdir(parents=True)
+        self.assertEqual(canon.resolve(), dp.default_canon(worktree).resolve())
+
     def test_ambiguous_sources_stop_without_guessing_and_an_override_resolves(self) -> None:
-        (self.canon / "shared" / "global-rules" / "src" / "codex-extra.md").write_text("x", encoding="utf-8")
+        (self.canon / "shared" / "global-rules" / "src" / "claude-extra.md").write_text("x", encoding="utf-8")
         _found, problems = dp.find_canon_sources(self.canon)
-        self.assertTrue(problems[0].startswith("CANON_SOURCES_AMBIGUOUS:codex"))
+        self.assertTrue(problems[0].startswith("CANON_SOURCES_AMBIGUOUS:claude"))
         code, out, runner = self._main("--apply")
         self.assertEqual((1, "STOPPED", "canon_sources"), (code, out["result"], out["stopped_at"]))
         self.assertEqual([], runner.calls)
-        override = self.canon / "shared" / "global-rules" / "src" / "AGENTS.md"
-        found, problems = dp.find_canon_sources(self.canon, {"codex": override})
-        self.assertEqual(([], override), (problems, found["codex"]))
+        override = self.canon / "shared" / "global-rules" / "src" / "claude.md"
+        found, problems = dp.find_canon_sources(self.canon, {"claude": override})
+        self.assertEqual(([], override), (problems, found["claude"]))
 
     def test_dry_run_changes_nothing(self) -> None:
         code, out, runner = self._main()
@@ -98,6 +111,8 @@ class DeployTests(unittest.TestCase):
         commands = [" ".join(c) for c in runner.calls]
         self.assertIn("merge --no-edit origin/" + dp.BRANCH, commands[3])
         self.assertTrue(any("--portable" in c and "--rules-file" in c for c in commands))
+        canon_block = next(c for c in runner.calls if "--portable" in c and "--rules-file" in c)
+        self.assertEqual(2, canon_block.count("--rules-file"), canon_block)
         tail = [c for c in commands if c.startswith("git") and ("commit" in c or "push" in c or "add" in c)]
         self.assertEqual(["git add", "git commit", "git push", "git add", "git commit", "git push"],
                          [" ".join(c.split()[:2]) for c in tail])
@@ -115,17 +130,33 @@ class DeployTests(unittest.TestCase):
         code, out, _ = self._main("--apply", "--branch", "release", runner=FakeRunner(branch="release"))
         self.assertEqual((0, "DONE"), (code, out["result"]), out)
 
-    def test_the_committed_receipt_never_reads_dry_run(self) -> None:
-        # The first real PC run committed result=DRY_RUN: the snapshot was taken before the loop set the result.
+    def test_the_committed_receipt_is_a_done_deployment_snapshot(self) -> None:
+        # A remote verifier sees only the committed snapshot, so it must carry the deployment verdict itself.
         code, out, runner = self._main("--apply", "--push")
         self.assertEqual((0, "DONE"), (code, out["result"]))
         snapshot = runner.committed_receipt
-        self.assertEqual("IN_PROGRESS", snapshot["result"])
-        self.assertIn("receipt_commit", snapshot["snapshot_of"])
+        self.assertEqual("DONE", snapshot["result"])
+        self.assertIn("deployment gates through canon_push", snapshot["snapshot_of"])
         self.assertEqual("canon_push", snapshot["steps"][-1]["step"])
         final = json.loads(next(self.receipts.glob("deploy_receipt_*.json")).read_text(encoding="utf-8"))
         self.assertEqual(("DONE", None), (final["result"], final["snapshot_of"]))
         self.assertEqual("repo_push", final["steps"][-1]["step"])
+
+    def test_push_override_is_scoped_to_the_two_push_commands(self) -> None:
+        code, out, runner = self._main("--apply", "--push")
+        self.assertEqual((0, "DONE"), (code, out["result"]))
+        tagged = [(call, env.get("ALLOW_PUSH")) for call, env in zip(runner.calls, runner.call_envs)]
+        enabled = [call for call, value in tagged if value == "1"]
+        self.assertEqual(2, len(enabled), tagged)
+        self.assertTrue(all(call[:2] == ["git", "push"] for call in enabled), enabled)
+        self.assertTrue(all(value is None for call, value in tagged if call[:2] != ["git", "push"]), tagged)
+
+    def test_every_text_subprocess_decodes_utf8_without_crashing_on_windows(self) -> None:
+        code, out, runner = self._main("--apply", "--push")
+        self.assertEqual((0, "DONE"), (code, out["result"]))
+        for call, kwargs in zip(runner.calls, runner.call_kwargs):
+            self.assertEqual("utf-8", kwargs.get("encoding"), call)
+            self.assertEqual("replace", kwargs.get("errors"), call)
 
     def test_the_first_failed_gate_stops_the_run(self) -> None:
         code, out, runner = self._main("--apply", "--push", runner=FakeRunner(fail={"run_regression.py": 1}))
@@ -151,6 +182,9 @@ class DeployTests(unittest.TestCase):
         block = gi.rule_block("C:/Users/Kim/python.exe", Path("C:/Users/Kim/.uaos/uaos.py"), portable=True)
         self.assertIn('python "$HOME/.uaos/uaos.py"', block)
         self.assertNotIn("C:/Users", block)
+        self.assertIn("건설적 자율 릴레이", block)
+        self.assertIn("ACK_ONLY", block)
+        self.assertIn("ACTIONABLE_DELTA", block)
         self.assertIn("C:/Users/Kim/python.exe", gi.rule_block("C:/Users/Kim/python.exe", Path("C:/Users/Kim/.uaos/uaos.py")))
 
 

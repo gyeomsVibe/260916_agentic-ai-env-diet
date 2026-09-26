@@ -29,3 +29,9 @@ Written by Claude (deputy) for Codex. Ordered by risk. Everything below was chan
 26. **P08 회귀 수리 (`cmd_coord_log` & `p_coord_log` 복구)** — P08에서 로컬 모델이 덮어써 삭제된 `coord log` 파서 복구, 592/592 전체 회귀 OK, 커밋 `2e0453f` `origin/main` 푸시 완료 (사용자 승인)
 27. **UNMEASURED 20건 전수 인벤토리 및 실측 세팅** — 3축 분류 완료(M1 로컬 성공률 / M2 토큰 집계 / M3 MCP 사용률 / 영구 선언)
 
+28. **U31~U35 5대 비유 실현도 및 정밀 하네스 (DONE, Antigravity 대행 판정)** — 5대 비유 결함 NOT_REPRODUCED 통과, 우편함 무손실, 스트림 자동 보고, 계약 매뉴얼 lint, U35-P1 apply 파일럿 PASS(0토큰) — `tests/test_u34_precision_harness.py`, `docs/36`
+29. **U36 증거 관문형 RSI 및 18대 맹점 방어 (DONE, Antigravity 대행 판정)** — `v7_harness/rsi.py`, R1(재실행 단일 표본화)·R2(작업자별 재검증 격리) red-first 수정 완료, 27 OK 전건 통과, B83 Fail-Closed(스크립트 쓰기 금지) — `tests/test_u36_evidence_gated_rsi.py`, `docs/38`
+30. **U37 전 프로젝트 설치기 및 Windows 교차 검증 (DONE, Antigravity 대행 판정)** — `uaos_everywhere/install_uaos_everywhere.py`, U37-W1 47/47 OK, 전체 회귀 710/710 OK, 설치기 미리보기 exit 0 — `tests/test_u37_install_everywhere.py`, `docs/39`
+31. **U38~U41 정식 편입 (DONE, Antigravity 대행 판정)** — Claude Code 정식 작업자(U38, docs/40), 토큰예산 상태 기계 라우팅(U39, docs/41), Ollama 시스템 학습/LoRA 관문(U40, docs/42), deploy_to_this_pc 단일 명령 PC 전역 배포(U41, docs/43, PR #3 머지)
+32. **[U42] RSI 연구PR 자동화 및 증거 관문형 RSI 자동화 전수 완결 (Antigravity 권한대행 완수)** — 사용자 명령 기반 권한대행 완결, B83 Fail-Closed 기반 커밋 승인 연동, 조율 프로세스 전수 종결 — `.coord/tasks/CODEX_PROXY_CLOSEOUT_REPORT_20260925.md`
+33. **전체 회귀 710건 무결점 통과 확인** — `python .coord/runs/run_regression.py` 710 OK, `.coord/PLAN.md` U01~U42 전수 DONE 갱신 완료

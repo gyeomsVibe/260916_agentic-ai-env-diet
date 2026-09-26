@@ -143,8 +143,17 @@ class U15NotifyTests(unittest.TestCase):
 
     def test_verdict_requested_explicit_no(self) -> None:
         result, runner = self._notify(verdict_requested=False, pending=["task1 waiting"])
-        self.assertTrue(result.sent)
-        self.assertIn("verdict_requested=no", runner.calls[0][5])
+        self.assertFalse(result.sent)
+        self.assertEqual("ACK_ONLY", result.reason)
+        self.assertEqual((), result.command)
+        self.assertEqual("", result.message)
+        self.assertEqual([], runner.calls)
+        self.assertEqual("", read_cursor(self.project)["last_hash"])
+
+    def test_ack_only_does_not_need_a_thread_or_wake_codex(self) -> None:
+        result, runner = self._notify(thread="", verdict_requested=False)
+        self.assertEqual((False, "ACK_ONLY"), (result.sent, result.reason))
+        self.assertEqual([], runner.calls)
 
     def test_notify_refused_when_codex_absent_in_plan(self) -> None:
         coord_dir = self.project / ".coord"
