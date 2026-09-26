@@ -7,6 +7,7 @@ therefore off for the usual command, and fake local-model runs (1 input / 1 outp
 discovery and imports this module before any test module imports `v7_harness`; `__init__` imports it for dotted runs.
 """
 
+import atexit
 import os
 import sys
 import tempfile
@@ -14,6 +15,15 @@ from pathlib import Path
 
 # One file per test process, in the system temp folder; a test that needs its own log still patches USAGE_LOG.
 SAFE_OLLA_USAGE = Path(tempfile.gettempdir()) / f"uaos_test_olla_usage_{os.getpid()}.jsonl"
+
+
+def _remove_safe_log() -> None:
+    # U47-O3: a file left in %TEMP% after the suite made every paid pilot run that ran the tests fail its watch-root
+    # check as EXTERNAL_WRITE (U47-R2, 2026-09-26; 9 leftovers found). Worker subprocesses finish before this runs.
+    try:
+        SAFE_OLLA_USAGE.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def install() -> None:
@@ -25,3 +35,4 @@ def install() -> None:
 
 
 install()
+atexit.register(_remove_safe_log)
