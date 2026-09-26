@@ -29,6 +29,12 @@ import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+# The pilot starts workers by path without PYTHONPATH (see ollama_worker.py).
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from v7_harness.adapters.long_prompt import resolve_prompt, split_for_stdin  # noqa: E402
 
 DEFAULT_MODEL = os.environ.get("CLAUDE_WORKER_MODEL", "sonnet")
 MAX_TURNS = os.environ.get("CLAUDE_WORKER_MAX_TURNS", "30")
@@ -38,7 +44,9 @@ PROTECTED = [
     "Edit(.coord/**)", "Write(.coord/**)", "Edit(.claude/**)", "Write(.claude/**)",
 ]
 SYSTEM = ("You are a UAOS worker editing a staged copy of a project. Follow the contract in the prompt exactly: change "
-          "only the files it allows, do not edit tests, do not run commands. Stop when the change is done. Be brief.")
+          "only the files it allows, do not edit tests, do not run commands. Make the change with the Edit or Write "
+          "tool: the harness reads the files, not your reply, so if the contract asks for ===FILE / ===EDIT blocks, "
+          "apply them to the files instead of printing them. Stop when the change is done. Be brief.")
 # Markers of the parent Claude Code session. Inherited, they would make the worker look like the commander.
 PARENT_MARKERS = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PROJECT_DIR")
 USAGE_KEYS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
@@ -86,17 +94,26 @@ def worker_command(prompt: str, model: str, max_budget_usd: float) -> list[str]:
 
 
 REVIEW_TOOLS = "Read,Glob,Grep"
+# A review gets the full diff in its prompt, so it needs few turns. Each turn re-reads the cached prompt and the gate
+# counts cache reads, so turns multiply the counted tokens: U44-FIX took 14 turns / 578k tokens, U44-FIX3 6 turns /
+# 218k with no verdict. 4 reading turns plus one forced final answer (review.py) keeps a review near 150-200k tokens.
+REVIEW_MAX_TURNS = os.environ.get("CLAUDE_REVIEW_MAX_TURNS", "4")
 REVIEW_SYSTEM = ("You are an independent UAOS reviewer. You may only read. Look for counterexamples: requirements of the "
                  "contract the change misses, deletions it did not ask for, edits outside its scope, tests it weakens. "
                  "Answer with one JSON object and nothing else.")
 
 
-def review_command(prompt: str, model: str, max_budget_usd: float) -> list[str]:
-    """Read-only: no Edit, Write or Bash, so the reviewer cannot change what it judges. Same dollar cap as a worker."""
+def review_command(prompt: str, model: str, max_budget_usd: float, resume: str | None = None) -> list[str]:
+    """Read-only: no Edit, Write or Bash, so the reviewer cannot change what it judges. Same dollar cap as a worker.
+
+    With *resume*, one more turn in that review session: the forced final answer after the reviewer ran out of turns.
+    """
     return [*claude_executable(), "-p", prompt, *ISOLATION, "--tools", REVIEW_TOOLS, "--strict-mcp-config",
-            "--disable-slash-commands", "--system-prompt", REVIEW_SYSTEM, "--model", model, "--max-turns", MAX_TURNS,
+            "--disable-slash-commands", "--system-prompt", REVIEW_SYSTEM, "--model", model,
+            "--max-turns", "1" if resume else REVIEW_MAX_TURNS,
             "--max-budget-usd", _usd(max_budget_usd), "--allowedTools", REVIEW_TOOLS,
-            "--disallowedTools", "Edit", "Write", "Bash", "--output-format", "json"]
+            "--disallowedTools", "Edit", "Write", "Bash", "--output-format", "json",
+            *(["--resume", resume] if resume else [])]
 
 
 def usage_from(result: dict) -> dict[str, int]:
@@ -110,6 +127,16 @@ def usage_from(result: dict) -> dict[str, int]:
     return usage
 
 
+def cap_overshoot(usage: dict, cap_usd: float) -> int | None:
+    """U45-F6: claude checks --max-budget-usd after a turn, so a run can end above it (U45-G7 a001: $0.319 on a $0.30
+    cap, +6%). The overshoot in micro-dollars is recorded as a gate result instead of being lost."""
+    cost = usage.get("cost_microusd")
+    if not isinstance(cost, int) or isinstance(cost, bool):
+        return None
+    over = cost - int(round(cap_usd * 1_000_000))
+    return over if over > 0 else None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--prompt", required=True)
@@ -119,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", default=None)
     parser.add_argument("--max-budget-usd", dest="max_budget_usd", default=None)
     args, _unknown = parser.parse_known_args(argv)
+    args.prompt = resolve_prompt(args.prompt)
     timeout_s = int(str(args.print_timeout).rstrip("s") or 600)
     model = args.model or DEFAULT_MODEL
 
@@ -138,8 +166,9 @@ def main(argv: list[str] | None = None) -> int:
     # Nothing reported means UNKNOWN to the cost gate, which blocks the run: a failed start is not a free run.
     started = time.monotonic()
     try:
-        done = subprocess.run(worker_command(args.prompt, model, cap), cwd=args.workspace, env=worker_env(),
-                              capture_output=True, timeout=timeout_s)
+        argv_prompt, stdin = split_for_stdin(args.prompt)
+        done = subprocess.run(worker_command(argv_prompt, model, cap), cwd=args.workspace, env=worker_env(),
+                              capture_output=True, timeout=timeout_s, input=stdin)
     except subprocess.TimeoutExpired:
         return envelope("ERROR", "", {}, f"claude worker timed out after {timeout_s}s")
     except (OSError, ValueError) as exc:
@@ -153,6 +182,9 @@ def main(argv: list[str] | None = None) -> int:
         return envelope("ERROR", "", {}, "claude returned a JSON value that is not an object")
     usage = usage_from(result)
     usage["elapsed_s"] = int(time.monotonic() - started)
+    overshoot = cap_overshoot(usage, cap)
+    if overshoot is not None:
+        usage["usd_cap_overshoot_microusd"] = overshoot
     if result.get("is_error") and result.get("subtype") not in ("error_max_turns",):
         return envelope("ERROR", "", usage, str(result.get("subtype") or result.get("result") or "claude error")[:300])
     return envelope("SUCCESS", str(result.get("result") or "").strip()[:2000] or "(claude ended without a summary)", usage)

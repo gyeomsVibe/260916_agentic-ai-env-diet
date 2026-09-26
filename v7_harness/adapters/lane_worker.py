@@ -22,6 +22,8 @@ from pathlib import Path
 # Started by path from the pilot (no PYTHONPATH); make the package importable for pilot_holds.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from v7_harness.adapters.long_prompt import resolve_prompt, split_for_stdin  # noqa: E402
+
 HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
 # qwen3.5:4b with num_ctx 32768 (Modelfile). qwen2.5-coder emits tool calls as plain text, so it cannot drive a loop.
 MODEL = os.environ.get("LANE_MODEL", "qwen3.5-32k")
@@ -58,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--add-dir", dest="workspace", required=True)
     parser.add_argument("--model", default=MODEL)
     args, _unknown = parser.parse_known_args(argv)
+    args.prompt = resolve_prompt(args.prompt)
     timeout_s = int(str(args.print_timeout).rstrip("s") or 600)
 
     def envelope(status: str, response: str, usage: dict, error: str = "") -> int:
@@ -71,8 +74,9 @@ def main(argv: list[str] | None = None) -> int:
         from v7_harness.adapters.gpu_priority import pilot_holds
 
         with pilot_holds(timeout_s):
-            done = subprocess.run(lane_command(args.prompt, args.model), cwd=args.workspace, env=lane_env(),
-                                  capture_output=True, timeout=timeout_s)
+            argv_prompt, stdin = split_for_stdin(args.prompt)
+            done = subprocess.run(lane_command(argv_prompt, args.model), cwd=args.workspace, env=lane_env(),
+                                  capture_output=True, timeout=timeout_s, input=stdin)
     except subprocess.TimeoutExpired:
         return envelope("ERROR", "", empty, f"lane timed out after {timeout_s}s")
     except OSError as exc:

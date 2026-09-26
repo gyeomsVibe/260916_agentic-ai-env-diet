@@ -167,6 +167,34 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def manual_project(manual: Path) -> Path:
+    """U45-F1: the project a manual's paths are relative to, when no --source is given: the nearest folder above the
+    manual that holds .coord/PLAN.md, else the current folder. Lint run from another cwd used to report INPUT_MISSING
+    for files that exist under the pilot source (U45-O1b)."""
+    for folder in Path(manual).resolve().parents:
+        if (folder / ".coord" / "PLAN.md").is_file():
+            return folder
+    return Path(".")
+
+
+def mandatory_watch_roots(work_dir: Path, source_dir: Path) -> list[Path]:
+    """Shallow roots a worker must not write into during a run.
+
+    U45-F5: the work dir's parent used to be watched always. When that parent is a shared `.work/` folder, the
+    conductor keeps writing its own notes there during a paid run (U45-G7 a001: two conductor files flagged, run
+    abandoned, $0.319 lost). A shared `.work/` is therefore not watched; home, temp, the source's parent and the stage
+    stay watched. A worker writing a sibling file inside `.work/` goes unseen, and `.work/` is never committed.
+    """
+    work = work_dir.resolve()
+    return list(dict.fromkeys([
+        Path.home().resolve(),
+        Path(tempfile.gettempdir()).resolve(),
+        *([] if work.parent.name == ".work" else [work.parent]),
+        source_dir.resolve().parent,
+        (work_dir / "stage").resolve(),
+    ]))
+
+
 def cmd_pilot_run(args: argparse.Namespace) -> int:
     task_id = args.task
     source_dir = Path(args.source)
@@ -196,7 +224,11 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         for warning in report.warnings:
             print(f"[manual] {warning}", file=sys.stderr)
         if contract.get("work_id") != task_id:
-            print(f"[manual] work_id {contract.get('work_id')} differs from --task {task_id}", file=sys.stderr)
+            # U45-F7: refuse before any worker runs. A warning here let a paid run finish first (U45-G7r, $0.263 lost).
+            print(json.dumps({"task_id": task_id, "state": "REFUSED", "error_class": "MANUAL_TASK_MISMATCH",
+                              "verdict_hint": "BLOCKED", "manual_work_id": contract.get("work_id")},
+                             indent=2, ensure_ascii=False))
+            return 2
         if args.approve:
             approver = getattr(args, "coord_actor", None) or detect_actor()
             # An approver the harness cannot identify used to pass silently (B85 review). Name it with --coord-actor.
@@ -267,13 +299,7 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         return 2
 
     work_dir = Path(args.work_dir) if args.work_dir else Path(".coord")
-    mandatory_roots = [
-        Path.home().resolve(),
-        Path(tempfile.gettempdir()).resolve(),
-        work_dir.resolve().parent,
-        source_dir.resolve().parent,
-        (work_dir / "stage").resolve(),
-    ]
+    mandatory_roots = mandatory_watch_roots(work_dir, source_dir)
     explicit_roots = [Path(w).resolve() for w in args.watch_root] if args.watch_root else []
     watch_roots = list(dict.fromkeys(mandatory_roots + explicit_roots))
     agy_cmd = resolve_worker_command(chosen, args.agy_command)
@@ -420,7 +446,8 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
 def cmd_pilot_manual_lint(args: argparse.Namespace) -> int:
     from .manual import lint
 
-    report = lint(Path(args.manual).read_text(encoding="utf-8"), Path(args.source))
+    source = Path(args.source) if args.source else manual_project(Path(args.manual))
+    report = lint(Path(args.manual).read_text(encoding="utf-8"), source)
     print(json.dumps(report.as_dict(), indent=2, ensure_ascii=False))
     return 0 if report.ok else 1
 
@@ -441,6 +468,7 @@ def cmd_pilot_manual_new(args: argparse.Namespace) -> int:
         judge=args.judge,
         timeout_s=args.timeout,
         remote_budget_tokens=args.remote_budget,
+        remote_budget_usd=args.remote_budget_usd,
         instructions=instructions,
     )
     out = Path(args.out)
@@ -562,7 +590,7 @@ def build_parser() -> argparse.ArgumentParser:
                              help="Do not record this run in the coordination stream")
     p_pilot_run.add_argument("--coord-project", default=None,
                              help="Project whose coordination stream records this run (default: the --source project)")
-    p_pilot_run.add_argument("--coord-actor", choices=["codex", "claude", "antigravity"], default=None,
+    p_pilot_run.add_argument("--coord-actor", choices=["codex", "claude", "antigravity", "user"], default=None,
                              help="Who ran this pilot (default: detected from the calling tool's environment)")
     p_pilot_run.add_argument("--model", default=None, help="Model name to pass to agy (e.g. gemini-3.7-flash)")
     p_pilot_run.add_argument("--accept-cmd", default=None, help="Acceptance test command to run in staging")
@@ -574,7 +602,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_manual_subs = p_pilot_manual.add_subparsers(dest="manual_subcommand", required=True)
     p_manual_lint = p_manual_subs.add_parser("lint")
     p_manual_lint.add_argument("--manual", required=True)
-    p_manual_lint.add_argument("--source", default=".", help="Project the manual's paths are relative to")
+    p_manual_lint.add_argument("--source", default=None,
+                               help="Project the manual's paths are relative to (default: the folder above the manual "
+                                    "that holds .coord/PLAN.md, else the current folder)")
     p_manual_lint.set_defaults(func=cmd_pilot_manual_lint)
     p_manual_new = p_manual_subs.add_parser("new")
     p_manual_new.add_argument("--out", required=True, help="Manual file to write")
@@ -585,9 +615,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_manual_new.add_argument("--input", action="append", default=[], help="Input file to pin by SHA-256 (repeatable)")
     p_manual_new.add_argument("--allow", action="append", default=[], required=True)
     p_manual_new.add_argument("--accept", required=True, help="Acceptance command")
-    p_manual_new.add_argument("--judge", required=True, choices=["codex", "claude", "antigravity"])
+    p_manual_new.add_argument("--judge", required=True, choices=["codex", "claude", "antigravity", "user"])
     p_manual_new.add_argument("--timeout", type=int, default=180)
     p_manual_new.add_argument("--remote-budget", type=int, default=0)
+    p_manual_new.add_argument("--remote-budget-usd", type=float, default=0.0,
+                              help="Dollar cap for worker claude (claude --max-budget-usd); lint requires it > 0")
     p_manual_new.add_argument("--instructions-file", default=None, help="Prose instructions to append")
     p_manual_new.set_defaults(func=cmd_pilot_manual_new)
 
@@ -597,13 +629,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_review.add_argument("--work-dir", required=True)
     p_pilot_review.add_argument("--source", default=".")
     p_pilot_review.add_argument("--manual", required=True, help="The contract manual the bundle was built from")
-    p_pilot_review.add_argument("--reviewer", default="claude", choices=["claude"])
+    p_pilot_review.add_argument("--reviewer", default="claude", choices=["claude", "agy"],
+                                help="agy = Antigravity CLI, read-only, token budget only (U46-J1, docs/47)")
     p_pilot_review.add_argument("--budget", type=int, required=True, help="Token budget for the review call")
-    p_pilot_review.add_argument("--budget-usd", type=float, required=True,
-                                help="Dollar cap passed to claude --max-budget-usd (checked before spending)")
+    # Not required by argparse any more: run_review refuses a claude review without it (agy has no dollar option).
+    p_pilot_review.add_argument("--budget-usd", type=float, default=0.0,
+                                help="Dollar cap passed to claude --max-budget-usd (checked before spending); "
+                                     "required for --reviewer claude")
     p_pilot_review.add_argument("--model", default=None)
     p_pilot_review.add_argument("--timeout", type=int, default=600)
     p_pilot_review.set_defaults(func=cmd_pilot_review)
+
+    # U46-J4: binding judgement by the contract's judge tool through its CLI, only while Codex is LIMITED/ABSENT.
+    p_pilot_judge = p_pilot_subs.add_parser("judge", help="U46-J4: Antigravity judges a bundle via its CLI while Codex is away")
+    p_pilot_judge.add_argument("--task", required=True)
+    p_pilot_judge.add_argument("--work-dir", required=True)
+    p_pilot_judge.add_argument("--source", default=".")
+    p_pilot_judge.add_argument("--manual", required=True, help="The contract manual the bundle was built from")
+    p_pilot_judge.add_argument("--project", default=None, help="Project whose presence desk says Codex is away")
+    p_pilot_judge.add_argument("--judge", default="agy", choices=["agy"])
+    p_pilot_judge.add_argument("--budget", type=int, default=100_000,
+                               help="Token cap (J1 review used 71,299 and the J3 consult 89,263)")
+    p_pilot_judge.add_argument("--timeout", type=int, default=600)
+    p_pilot_judge.add_argument("--no-apply", action="store_true", help="Record the verdict without running --approve")
+    p_pilot_judge.set_defaults(func=cmd_pilot_judge)
 
     p_pilot_rec = p_pilot_subs.add_parser("reconcile")
     p_pilot_rec.add_argument("--task", "--task-id", dest="task", required=True, help="Pilot task ID to reconcile")
@@ -739,6 +788,42 @@ def build_parser() -> argparse.ArgumentParser:
     p_rsi_rollback.add_argument("--reason", required=True)
     p_rsi_rollback.set_defaults(func=cmd_rsi_rollback)
 
+    p_rsi_watch = p_rsi_subs.add_parser("watch", help="Deterministic change detection cycle (U42)")
+    p_rsi_watch.add_argument("--project", default=".")
+    p_rsi_watch.add_argument("--config", default=None, help="Watcher config JSON path")
+    p_rsi_watch.set_defaults(func=cmd_rsi_watch)
+
+    p_rsi_prepare = p_rsi_subs.add_parser("prepare", help="Prepare a release packet (dry-run by default, --apply to write)")
+    p_rsi_prepare.add_argument("--project", default=".")
+    p_rsi_prepare.add_argument("--packet", required=True, help="Release packet JSON file")
+    p_rsi_prepare.add_argument("--apply", action="store_true", help="Write version and update documents")
+    p_rsi_prepare.add_argument("--date", default="2026-09-25", help="Release date string")
+    p_rsi_prepare.set_defaults(func=cmd_rsi_prepare)
+
+    p_rsi_ship = p_rsi_subs.add_parser("ship", help="Ship an approved release (dry-run by default, --execute to push & pr)")
+    p_rsi_ship.add_argument("--project", default=".")
+    p_rsi_ship.add_argument("--packet", required=True, help="Release packet JSON file")
+    p_rsi_ship.add_argument("--approval", required=True, help="Approval receipt JSON file")
+    p_rsi_ship.add_argument("--execute", action="store_true", help="Execute git commit, push, and gh pr create")
+    p_rsi_ship.set_defaults(func=cmd_rsi_ship)
+
+    p_rsi_schedule = p_rsi_subs.add_parser("schedule", help="Manage Windows Task Scheduler for RSI watch")
+    p_rsi_schedule.add_argument("--project", default=".")
+    p_rsi_schedule.add_argument("--action", choices=["install", "status", "remove", "manual-now"], default="status")
+    p_rsi_schedule.add_argument("--apply", action="store_true", help="Apply schtasks command / run manual-now")
+    p_rsi_schedule.add_argument("--python-bin", default=None, help="Python executable path")
+    p_rsi_schedule.set_defaults(func=cmd_rsi_schedule)
+
+    p_rsi_retention = p_rsi_subs.add_parser("retention", help="Deletion-free retention plan (dry-run manifest, U42-R1)")
+    p_rsi_retention.add_argument("--project", default=".")
+    p_rsi_retention.add_argument("--archive", action="store_true", help="Archive candidate files into a verified zip")
+    p_rsi_retention.add_argument("--rollup-olla", action="store_true", help="Roll up olla usage ledger")
+    p_rsi_retention.add_argument("--purge", default=None, metavar="ZIP",
+                                 help="Validate an archive then return the fail-closed deletion boundary")
+    p_rsi_retention.add_argument("--approval", default=None, metavar="FILE",
+                                 help="Compatibility only; file labels are never treated as authentication")
+    p_rsi_retention.set_defaults(func=cmd_rsi_retention)
+
     return parser
 
 
@@ -817,6 +902,20 @@ def cmd_pilot_review(args: argparse.Namespace) -> int:
         return 2
     print(json.dumps({"ok": True, **record}, ensure_ascii=False, indent=2))
     return 0
+
+
+def cmd_pilot_judge(args: argparse.Namespace) -> int:
+    from .judge import JudgeRefused, run_judge
+
+    try:
+        record = run_judge(task_id=args.task, work_dir=Path(args.work_dir), source=Path(args.source),
+                           manual_path=Path(args.manual), project=Path(args.project) if args.project else None,
+                           judge=args.judge, budget=args.budget, timeout_s=args.timeout, apply=not args.no_apply)
+    except (JudgeRefused, OSError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)[:400]}, ensure_ascii=False))
+        return 2
+    print(json.dumps({"ok": True, **record}, ensure_ascii=False, indent=2))
+    return 0 if record["verdict"] in ("APPROVE", "REJECT") else 3
 
 
 def resolve_worker_command(worker: str, explicit: Optional[Sequence[str]]) -> list[str]:
@@ -1060,7 +1159,7 @@ def cmd_coord_sentinel(args: argparse.Namespace) -> int:
 
 def cmd_coord_presence(args: argparse.Namespace) -> int:
     """U32b: record one tool's heartbeat, or show all three. Called from each tool's session hooks."""
-    from .coord.presence import mark, read_all
+    from .coord.presence import conductor, mark, read_all
 
     say = getattr(args, "say", "json")
 
@@ -1073,7 +1172,15 @@ def cmd_coord_presence(args: argparse.Namespace) -> int:
             print("{}")
 
     if getattr(args, "from_hook", False):
-        from .coord.hook_context import brief_line, hook_project, p1_line, read_stdin
+        from .coord.hook_context import (
+            brief_line,
+            hook_project,
+            p1_is_new,
+            p1_line,
+            read_stdin,
+            retention_alert,
+            retention_alert_is_new,
+        )
 
         # A pilot worker (U38) runs inside a staged copy that holds .coord/PLAN.md; a hook there must write nothing.
         if os.environ.get("UAOS_WORKER"):
@@ -1089,7 +1196,13 @@ def cmd_coord_presence(args: argparse.Namespace) -> int:
                 mark(project, args.tool, args.state, ttl_s=args.ttl)
             presence = read_all(project)
             line = p1_line(project, presence) if say == "p1" else brief_line(project, presence)
-            _emit({"ok": True, "project": str(project), "presence": presence}, line)
+            if say == "brief":
+                alert = retention_alert(project)
+                if retention_alert_is_new(project, alert):
+                    line = line + " " + alert
+            elif say == "p1" and not p1_is_new(project, line):
+                line = ""  # U46-P1: an unchanged P1 set is ACK_ONLY; it was repeated on every prompt
+            _emit({"ok": True, "project": str(project), "presence": presence, "conductor": conductor(presence)}, line)
         except Exception as exc:  # noqa: BLE001
             _emit({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]})
         return 0
@@ -1104,7 +1217,8 @@ def cmd_coord_presence(args: argparse.Namespace) -> int:
             print(json.dumps({"ok": False, "error": "--tool and --state go together"}, ensure_ascii=False))
             return 2
         mark(project, args.tool, args.state, ttl_s=args.ttl)
-    _emit({"ok": True, "presence": read_all(project)})
+    presence = read_all(project)
+    _emit({"ok": True, "presence": presence, "conductor": conductor(presence)})
     return 0
 
 
@@ -1131,6 +1245,33 @@ PLAN_TEMPLATE = """# 통합 실행 계획 (UAOS)
 도구 상태(시각이 지나면 UNKNOWN): `python -m v7_harness.cli coord presence`로 확인한다.
 """
 
+# U45 G2: the big picture is written once per project, before any delegation. Each delegation then gets its own small
+# contract manual in .coord/tasks/<work_id>-manual.md (pilot manual new), whose full text is the worker's input.
+PROJECT_MANUAL_TEMPLATE = """# Project manual (big picture)
+
+Write this before the first delegation. Each delegation also gets a small contract manual:
+`.coord/tasks/<work_id>-manual.md` via `pilot manual new`, and its full text is the call input.
+
+## Goal
+One sentence: what is done when this project is done.
+
+## Scope
+Files and folders the tools may change.
+
+## Forbidden
+Actions that always need the user: deletion, push/deploy/publish, payment, account/permission/credential changes.
+
+## Gates
+The commands that decide done (tests, checks). A step without a gate is unmeasured.
+
+## Workers
+Who does what: apply (0 tokens) when the code is known, Ollama for narrow mechanical work, Antigravity or
+`worker: claude` with a token and dollar cap for judgment work.
+
+## Judge
+The tool that approves, never the author of the same change.
+"""
+
 
 def cmd_coord_init(args: argparse.Namespace) -> int:
     """Prepare any project for UAOS. Idempotent: existing files are never overwritten, only missing lines are added."""
@@ -1144,6 +1285,10 @@ def cmd_coord_init(args: argparse.Namespace) -> int:
         plan.parent.mkdir(parents=True, exist_ok=True)
         plan.write_text(PLAN_TEMPLATE, encoding="utf-8")
         created.append(".coord/PLAN.md")
+    project_manual = project / ".coord" / "PROJECT_MANUAL.md"
+    if not project_manual.is_file():
+        project_manual.write_text(PROJECT_MANUAL_TEMPLATE, encoding="utf-8")
+        created.append(".coord/PROJECT_MANUAL.md")
     for folder in (".coord/tasks", ".coord/mailbox", ".work"):
         if not (project / folder).is_dir():
             (project / folder).mkdir(parents=True)
@@ -1156,7 +1301,9 @@ def cmd_coord_init(args: argparse.Namespace) -> int:
         with gitignore.open("a", encoding="utf-8") as handle:
             handle.write(prefix + "# UAOS runtime state (coord init)\n" + "\n".join(missing) + "\n")
     print(json.dumps({"ok": True, "created": created, "gitignore_added": missing,
+                      "contract_manuals": ".coord/tasks/<work_id>-manual.md",
                       "next": ["coord presence --tool <codex|claude|antigravity> --state ACTIVE",
+                               "fill .coord/PROJECT_MANUAL.md (big picture) before the first delegation",
                                "pilot manual new ... then pilot manual lint ... then pilot run --manual ..."]},
                      ensure_ascii=False))
     return 0
@@ -1289,6 +1436,119 @@ def cmd_rsi_rollback(args: argparse.Namespace) -> int:
         return 2
     _print_json({"ok": True, **result})
     return 0
+
+
+def cmd_rsi_watch(args: argparse.Namespace) -> int:
+    import time
+    from .rsi_release import run_scheduler_cycle
+
+    project = Path(args.project)
+    config_path = Path(args.config) if args.config else project / ".coord" / "rsi" / "watcher.json"
+    if not config_path.is_file():
+        config = {
+            "interval_seconds": 86400,
+            "timeout_seconds": 15,
+            "max_retries": 3,
+            "backoff_base_seconds": 60,
+            "lock_ttl_seconds": 3600,
+            "sources": [],
+        }
+    else:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+
+    def _record(event: dict[str, Any]) -> None:
+        # A quiet local scheduler still leaves one line when it recovers a dead/stale lock.
+        print(json.dumps({"scheduler_event": event}, ensure_ascii=False))
+
+    res = run_scheduler_cycle(project, config, now=time.time(), sleeper=time.sleep, record=_record)
+    _print_json(res)
+    return 0 if res.get("status") in ("ACK_ONLY", "ACTIONABLE_DELTA") else 1
+
+
+def cmd_rsi_retention(args: argparse.Namespace) -> int:
+    import time
+
+    from . import olla
+    from .retention import (
+        RetentionRefused,
+        apply_retention,
+        archive_candidates,
+        default_policy,
+        plan_retention,
+        purge_archived,
+        rollup_jsonl,
+        work_dir_report,
+    )
+
+    now = time.time()
+    project = Path(args.project)
+    policy = default_policy()
+    plan = plan_retention(project, policy, now=now)
+    result = apply_retention(project, plan)
+    out: dict = {"ok": True, **result}
+
+    if getattr(args, "archive", False):
+        out["archive"] = archive_candidates(project, plan, now=now)
+
+    if getattr(args, "rollup_olla", False):
+        out["rollup"] = rollup_jsonl(olla.USAGE_LOG, olla.USAGE_LOG.parent / "archive")
+
+    if getattr(args, "purge", None):
+        approval_path = Path(args.approval) if getattr(args, "approval", None) else project / "unused_approval.json"
+        try:
+            purge_archived(project, Path(args.purge), approval_path)
+        except RetentionRefused as exc:
+            _print_json({
+                "ok": False,
+                "status": "FRESH_DELETE_APPROVAL_REQUIRED",
+                "error": str(exc),
+                "purge": {"status": "REFUSED", "deleted": 0},
+            })
+            return 2
+        raise AssertionError("purge_archived must always fail closed")
+
+    out["work_report"] = work_dir_report(project, now=now)
+    _print_json(out)
+    return 0
+
+
+def cmd_rsi_prepare(args: argparse.Namespace) -> int:
+    from .rsi_release import ReleaseRefused, prepare_release
+
+    project = Path(args.project)
+    packet = json.loads(Path(args.packet).read_text(encoding="utf-8"))
+    try:
+        plan = prepare_release(project, packet, apply=args.apply, date=args.date)
+    except (ReleaseRefused, ValueError) as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        return 1
+    _print_json({"ok": True, **plan})
+    return 0
+
+
+def cmd_rsi_ship(args: argparse.Namespace) -> int:
+    from .rsi_release import ReleaseRefused, ship_release
+
+    project = Path(args.project)
+    packet = json.loads(Path(args.packet).read_text(encoding="utf-8"))
+    approval = json.loads(Path(args.approval).read_text(encoding="utf-8"))
+    try:
+        res = ship_release(project, packet, approval, execute=args.execute)
+    except (ReleaseRefused, ValueError) as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        return 1
+    _print_json({"ok": True, **res})
+    return 0
+
+
+def cmd_rsi_schedule(args: argparse.Namespace) -> int:
+    from .rsi_release import windows_schedule
+
+    project = Path(args.project)
+    python_bin = args.python_bin or sys.executable
+    res = windows_schedule(project, python_bin, action=args.action, apply=args.apply)
+    _print_json(res)
+    return 0 if res.get("status") == "DRY_RUN" or res.get("ok") else 1
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from v7_harness.adapters import ollama_worker  # noqa: E402
+from v7_harness.adapters.long_prompt import resolve_prompt  # noqa: E402
 
 NO_USAGE = {"input_tokens": 0, "output_tokens": 0}
 
@@ -26,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-p", "--prompt", required=True)
     parser.add_argument("--add-dir", dest="workspace", required=True)
     args, _unknown = parser.parse_known_args(argv)
+    args.prompt = resolve_prompt(args.prompt)
 
     def envelope(status: str, response: str, error: str = "") -> int:
         print(json.dumps(
