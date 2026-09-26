@@ -28,6 +28,21 @@ Claude Code는 U38에서 UAOS의 "작업자"로는 가입했다. 하지만 **지
 | C8 | 무승인 범위 표 | FAIL | 규칙 곳곳에 흩어짐. 아래 §3으로 한곳에 모음 |
 | C9 | Claude 권한 설정과 사용자 계획의 일치 | 부분 | `~/.claude/settings.json`이 `gh pr merge *`를 허용 → "자동 병합 금지"와 충돌. 반대로 일상 UAOS 명령(`uaos`, `python -m v7_harness.cli`, `python -m unittest`, 분기 브랜치 커밋)은 허용 목록에 없음 |
 
+### 1-1. 재점검 (2026-09-26 18:3x, U46-H·U47-O1 뒤)
+
+| # | 이전 | 지금 | 근거 |
+|---|---|---|---|
+| C1 | PASS(결함 3) | PASS | F5·F6·F7 적용(b4c0fba), 테스트 test_u46_followup_fixes |
+| C2 | UNKNOWN | 부분 | 실호출 1회(18:29, U47-O1, sonnet-5): 경로 작동, 6턴 69초 $0.176, 그러나 94,953 토큰(캐시 읽기 62,408 포함) > 예산 80k → UNUSABLE. 검토 1회 최소비용이 ~95k이므로 예산 기본값을 120k로 올리거나 캐시 읽기를 별도 계산할지 결정 필요(U47-C2 카드) |
+| C3 | PASS(소음) | PASS | P1 같은 지문 무음(U46-P1, b4c0fba) |
+| C5 | FAIL | PASS | `pilot judge --judge agy` 실사용 1회: U47-O1 APPROVE, 65,078 토큰, 35초, 사람 전달 0회 |
+| C6 | FAIL | FAIL | U46-G1 미구현(Codex·사용자 결정). b4c0fba가 면제 줄 사용 → U47-X1 재검토 |
+| C7 | FAIL | PASS | 장부 `delegator` 필드(U45-F4, b4c0fba) |
+| C8 | FAIL | PASS | §3 표 + docs/48 §4 예산 규칙 |
+| C9 | 부분 | PASS | U46-S1 적용(16:02) |
+
+통과 7/9(C4 포함), 부분 1(C2: 예산 기준), 실패 1(C6: 관문 결정).
+
 ## 2. 개선 설계
 
 ### 2-1. C5 해결 — `pilot judge --judge agy` (판정자를 CLI로 깨운다)
