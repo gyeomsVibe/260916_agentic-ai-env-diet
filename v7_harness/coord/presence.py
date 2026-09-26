@@ -70,3 +70,22 @@ def read(project: Path, tool: str, *, now: float | None = None) -> dict[str, Any
 
 def read_all(project: Path, *, now: float | None = None) -> dict[str, dict[str, Any]]:
     return {tool: read(project, tool, now=now) for tool in TOOLS}
+
+
+# U45 G1/G3: the succession order of docs/27 §4. Codex conducts; Claude acts while Codex is LIMITED or ABSENT;
+# Antigravity acts only while both are. Only desk states count: a quota figure beside a state is ignored on purpose.
+SUCCESSION = ("codex", "claude", "antigravity")
+AWAY = ("LIMITED", "ABSENT")
+
+
+def conductor(desk: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    for position, tool in enumerate(SUCCESSION):
+        state = (desk.get(tool) or {}).get("state", "UNKNOWN")
+        if state == "ACTIVE":
+            acting = position > 0
+            reason = f"{tool} ACTIVE" + (f"; {', '.join(SUCCESSION[:position])} away" if acting else "")
+            return {"conductor": tool, "acting": acting, "reason": reason}
+        if state not in AWAY:
+            # An expired heartbeat is not absence: stop here instead of handing authority to the next tool.
+            return {"conductor": "UNKNOWN", "acting": False, "reason": f"{tool} {state}: heartbeat not current"}
+    return {"conductor": "none", "acting": False, "reason": "all three tools LIMITED or ABSENT"}
