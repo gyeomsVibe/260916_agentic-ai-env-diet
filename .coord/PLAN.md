@@ -70,7 +70,7 @@
 | U46-J1 | DONE (Antigravity 판정 16:01, 50 OK) | claude(구현 apply) · antigravity(판정) · codex(재검토) | `pilot review --reviewer agy`: 지휘자가 Antigravity를 CLI로 깨우는 읽기 전용 검토, 토큰 관문. bundle dcc617c7 DRY_RUN_PASSED, 실측 agy 1회 71,299 토큰 UNUSABLE(예산 60k 초과) — docs/47 |
 | U46-J2 | READY | codex | harness: review ledger `receipt` is stored relative to the cwd (`..\..\runs\...`); store an absolute path (근거: U46-J1 live) |
 | U46-J3 | DONE | antigravity(agy CLI 상의) · claude(판정) | 사람 전달 없는 판정 방법 상의: A안 `pilot judge --judge agy` + 교환원 예비 권고, `*/10` 데몬 없음(NOT_FOUND) — .coord/notes/U46_J3_agy_consult.md, 89,263 토큰 |
-| U46-J4 | BLOCKED (사용자 결정) | user | agy CLI 판정 결과로 하네스가 `--coord-actor antigravity` 승인까지 자동 실행하는 A안 구현이 Claude Code 자동 모드 분류기에서 승인 경계 우회로 거부됨(2026-09-26 16:0x). 사용자가 이 자동 승인 경로를 허용할지 결정 |
+| U46-J4 | DONE (Antigravity 16:21 APPLIED, Claude 재실행 67 OK) | claude→antigravity | 사용자 허용(2026-09-26, Codex 부재 중 권한대행 한정). `pilot judge --judge agy`: Codex LIMITED/ABSENT일 때만 Antigravity CLI 판정→기존 `--approve` 관문; ACTIVE/UNKNOWN이면 Codex 판정. apply 번들 7e3e2606… DRY_RUN_PASSED(67 OK, 16:16). 판정 편지 `claude_u46j4_judge_20260926_1618`. Codex 복귀 시 재검토 |
 | U46-G1 | READY | codex·user | calculator gate: route for merge commits whose v7_harness content is fully explained by parents or APPLIED digests, so no `Calculator-Exempt` is needed (근거: 6e02901·1e5b316 used it) — docs/47 §2-2 |
 | U46-P1 | READY | claude | P1 hook stays silent when the P1 id set fingerprint is unchanged (ACK_ONLY); today it repeats 'P1 waiting (7)' every prompt — docs/47 C3 |
 | U46-S1 | READY | user | apply the permission proposal `.coord/notes/U46_claude_permissions_proposal.json` (remove `gh pr merge *` allow, add UAOS/test/commit allows, deny force push) — docs/47 §4 |

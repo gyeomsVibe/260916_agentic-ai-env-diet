@@ -36,6 +36,12 @@ Claude Code는 U38에서 UAOS의 "작업자"로는 가입했다. 하지만 **지
 - 왜 이렇게: Antigravity는 셸 권한 없이 **읽고 판단만** 한다(`--dangerously-skip-permissions` 불필요, 원본 쓰기 없음). 승인 실행은 결정적 코드가 하므로 "Claude가 Antigravity 이름을 빌려 쓰는" 위조가 아니고, 판정 근거(대화 ID·JSON)가 남는다.
 - 관문: 매뉴얼의 `judge`가 `antigravity`이고 작성자와 다를 것, B85 비용 관문(판정 토큰도 `remote_budget_tokens`에서 차감), 판정 1회(재시도 없음, 실패는 우편함으로 되돌림), 대기 폴링 없음(한 번 부르고 끝).
 - 금지: Bridge MCP, 판정 없이 승인, 판정자=작성자.
+- **기본 로직(사용자 결정 2026-09-26, U46-J4 APPLIED 16:21)**: 이 경로는 **Codex 부재 중 권한대행 절차**다.
+  - Codex가 `ACTIVE`이거나 상태를 모르면(`UNKNOWN`, 심박 만료) → **Codex가 판정**한다. `pilot judge`는 `CODEX_JUDGES`로 거부한다.
+  - Codex가 `LIMITED`·`ABSENT`로 기록돼 있으면 → 대행 Claude가 번들을 만들고 `pilot judge --judge agy`로 Antigravity에 **번들당 한 번** 전달한다. APPROVE면 하네스가 기존 `--approve` 관문을 실행한다. 사람이 우편함 편지를 옮길 필요가 없다.
+  - Antigravity·Ollama가 쓴 번들은 대행 Claude가 판정한다(판정자≠작성자). Claude가 쓴 번들만 Antigravity가 판정한다.
+  - Codex 복귀 후, 부재 중에 `pilot judge`로 적용된 번들(`runs/<task>/judge_agy.json`)을 Codex가 다시 검토한다.
+  - U46-J4 자체는 Claude가 썼으므로 첫 판정은 Antigravity 우편함 편지로 받았다(부트스트랩, 16:21 APPLIED).
 
 ### 2-2. C6 해결 — 병합 커밋 경로 (관문 코드 변경이라 Codex·사용자 결정)
 

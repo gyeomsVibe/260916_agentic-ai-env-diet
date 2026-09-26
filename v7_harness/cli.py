@@ -611,6 +611,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_pilot_review.add_argument("--timeout", type=int, default=600)
     p_pilot_review.set_defaults(func=cmd_pilot_review)
 
+    # U46-J4: binding judgement by the contract's judge tool through its CLI, only while Codex is LIMITED/ABSENT.
+    p_pilot_judge = p_pilot_subs.add_parser("judge", help="U46-J4: Antigravity judges a bundle via its CLI while Codex is away")
+    p_pilot_judge.add_argument("--task", required=True)
+    p_pilot_judge.add_argument("--work-dir", required=True)
+    p_pilot_judge.add_argument("--source", default=".")
+    p_pilot_judge.add_argument("--manual", required=True, help="The contract manual the bundle was built from")
+    p_pilot_judge.add_argument("--project", default=None, help="Project whose presence desk says Codex is away")
+    p_pilot_judge.add_argument("--judge", default="agy", choices=["agy"])
+    p_pilot_judge.add_argument("--budget", type=int, default=100_000,
+                               help="Token cap (J1 review used 71,299 and the J3 consult 89,263)")
+    p_pilot_judge.add_argument("--timeout", type=int, default=600)
+    p_pilot_judge.add_argument("--no-apply", action="store_true", help="Record the verdict without running --approve")
+    p_pilot_judge.set_defaults(func=cmd_pilot_judge)
+
     p_pilot_rec = p_pilot_subs.add_parser("reconcile")
     p_pilot_rec.add_argument("--task", "--task-id", dest="task", required=True, help="Pilot task ID to reconcile")
     p_pilot_rec.add_argument("--work-dir", default=".coord", help="Work directory (default: .coord)")
@@ -853,6 +867,20 @@ def cmd_pilot_review(args: argparse.Namespace) -> int:
         return 2
     print(json.dumps({"ok": True, **record}, ensure_ascii=False, indent=2))
     return 0
+
+
+def cmd_pilot_judge(args: argparse.Namespace) -> int:
+    from .judge import JudgeRefused, run_judge
+
+    try:
+        record = run_judge(task_id=args.task, work_dir=Path(args.work_dir), source=Path(args.source),
+                           manual_path=Path(args.manual), project=Path(args.project) if args.project else None,
+                           judge=args.judge, budget=args.budget, timeout_s=args.timeout, apply=not args.no_apply)
+    except (JudgeRefused, OSError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)[:400]}, ensure_ascii=False))
+        return 2
+    print(json.dumps({"ok": True, **record}, ensure_ascii=False, indent=2))
+    return 0 if record["verdict"] in ("APPROVE", "REJECT") else 3
 
 
 def resolve_worker_command(worker: str, explicit: Optional[Sequence[str]]) -> list[str]:
