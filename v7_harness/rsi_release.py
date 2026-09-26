@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import subprocess
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
@@ -278,6 +279,23 @@ def validate_approval(approval: dict[str, Any], *, work_id: str) -> list[str]:
     return problems
 
 
+def _run_step(
+    run: Callable[..., subprocess.CompletedProcess],
+    command: list[str],
+    *,
+    cwd: Path,
+    stage: str,
+) -> subprocess.CompletedProcess:
+    """Run one external step; fail closed with the stage name and bounded output on any nonzero exit."""
+    proc = run(command, cwd=cwd, capture_output=True, text=True, check=False)
+    rc = getattr(proc, "returncode", None) if proc is not None else None
+    if proc is None or rc != 0:
+        stderr = (getattr(proc, "stderr", "") or "")[:500] if proc is not None else ""
+        stdout = (getattr(proc, "stdout", "") or "")[:500] if proc is not None else ""
+        raise ReleaseRefused(f"{stage} failed (rc={rc}): stdout={stdout!r} stderr={stderr!r}")
+    return proc
+
+
 def ship_release(
     root: Path,
     packet: dict[str, Any],
@@ -286,7 +304,13 @@ def ship_release(
     execute: bool = False,
     run: Optional[Callable[..., subprocess.CompletedProcess]] = None,
 ) -> dict[str, Any]:
-    """Commit, push, and open PR with strict fail-closed safety checks."""
+    """Commit, push, and open PR with strict fail-closed safety checks.
+
+    Every external step (`git status`, `fetch`, `add`, `commit`, `rev-parse HEAD`, `push`,
+    `ls-remote`, `gh pr create`, `gh pr view`) is checked; a nonzero return code refuses with the
+    stage name and bounded stdout/stderr. A failed push, or a missing/mismatched remote SHA, can
+    never return SHIPPED, and merge is never invoked.
+    """
     if run is None:
         run = subprocess.run
 
@@ -308,8 +332,11 @@ def ship_release(
     commands = [
         ["git", "status", "--porcelain"],
         ["git", "fetch", "origin", base_branch],
+        ["git", "add", "<changed_files>"],
         ["git", "commit", "-m", commit_msg],
+        ["git", "rev-parse", "HEAD"],
         ["git", "push", "origin", branch],
+        ["git", "ls-remote", "origin", f"refs/heads/{branch}"],
         ["gh", "pr", "create", "--base", base_branch, "--head", branch, "--title", title, "--body", summary],
         ["gh", "pr", "view", branch, "--json", "url,state"],
     ]
@@ -318,7 +345,7 @@ def ship_release(
         return {"status": "DRY_RUN", "commands": commands}
 
     # 2. Check git status for unexpected dirty files when executing
-    status_proc = run(["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True, check=False)
+    status_proc = _run_step(run, ["git", "status", "--porcelain"], cwd=root, stage="git status")
     if status_proc.stdout:
         expected_paths = {
             str(Path(f).as_posix()) for f in packet.get("changed_files", [])
@@ -348,7 +375,7 @@ def ship_release(
                 raise ReleaseRefused(f"UNEXPECTED_DIRTY_PATH: {path_part}")
 
     # 3. Fetch
-    run(["git", "fetch", "origin", base_branch], cwd=root, capture_output=True, text=True, check=False)
+    _run_step(run, ["git", "fetch", "origin", base_branch], cwd=root, stage="git fetch")
 
     # 4. Stage only permitted paths
     stage_targets = []
@@ -360,39 +387,45 @@ def ship_release(
         stage_targets.append(str(Path(packet["version_file"]).as_posix()))
 
     if stage_targets:
-        run(["git", "add"] + stage_targets, cwd=root, capture_output=True, text=True, check=False)
+        _run_step(run, ["git", "add"] + stage_targets, cwd=root, stage="git add")
 
     # 5. Commit
-    run(["git", "commit", "-m", commit_msg], cwd=root, capture_output=True, text=True, check=False)
+    _run_step(run, ["git", "commit", "-m", commit_msg], cwd=root, stage="git commit")
 
     # 6. HEAD SHA
-    head_proc = run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=False)
-    head_sha = head_proc.stdout.strip() if head_proc else ""
+    head_proc = _run_step(run, ["git", "rev-parse", "HEAD"], cwd=root, stage="git rev-parse HEAD")
+    head_sha = head_proc.stdout.strip()
 
     # 7. Push
-    run(["git", "push", "origin", branch], cwd=root, capture_output=True, text=True, check=False)
+    _run_step(run, ["git", "push", "origin", branch], cwd=root, stage="git push")
 
-    # 8. Check remote SHA
-    ls_proc = run(["git", "ls-remote", "origin", f"refs/heads/{branch}"], cwd=root, capture_output=True, text=True, check=False)
+    # 8. Check remote SHA: it must exist and equal local HEAD. Never substitute local HEAD for a
+    # missing/mismatched remote SHA -- that would silently claim a push that never landed.
+    ls_proc = _run_step(
+        run, ["git", "ls-remote", "origin", f"refs/heads/{branch}"], cwd=root, stage="git ls-remote"
+    )
     remote_sha = ""
-    if ls_proc and ls_proc.stdout:
-        remote_sha = ls_proc.stdout.split()[0].strip() if ls_proc.stdout.strip() else head_sha
+    if ls_proc.stdout and ls_proc.stdout.strip():
+        remote_sha = ls_proc.stdout.split()[0].strip()
     if not remote_sha:
-        remote_sha = head_sha
+        raise ReleaseRefused(f"REMOTE_SHA_MISSING: origin has no SHA for refs/heads/{branch}")
+    if remote_sha != head_sha:
+        raise ReleaseRefused(f"REMOTE_SHA_MISMATCH: local={head_sha} remote={remote_sha}")
 
     # 9. Create PR (never auto-merge!)
-    run(
+    _run_step(
+        run,
         ["gh", "pr", "create", "--base", base_branch, "--head", branch, "--title", title, "--body", summary],
         cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
+        stage="gh pr create",
     )
 
     # 10. View PR
-    view_proc = run(["gh", "pr", "view", branch, "--json", "url,state"], cwd=root, capture_output=True, text=True, check=False)
+    view_proc = _run_step(
+        run, ["gh", "pr", "view", branch, "--json", "url,state"], cwd=root, stage="gh pr view"
+    )
     pr_data: dict[str, Any] = {"state": "UNKNOWN", "url": ""}
-    if view_proc and view_proc.stdout:
+    if view_proc.stdout:
         try:
             pr_data = json.loads(view_proc.stdout)
         except (ValueError, json.JSONDecodeError):
@@ -406,6 +439,41 @@ def ship_release(
     }
 
 
+def _default_pid_alive(pid: Optional[int]) -> bool:
+    """Best-effort real liveness check. Only consulted once a lock is already past the dead-pid
+    grace period (see `run_scheduler_cycle`), so a false negative here cannot recover a fresh lock."""
+    if not pid:
+        return False
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+            if handle:
+                ctypes.windll.kernel32.CloseHandle(handle)
+                return True
+            return False
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def _try_acquire_lock(lock_file: Path, payload: dict[str, Any]) -> bool:
+    """Atomic exclusive lock creation: only one caller (process or thread) ever wins the create."""
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(str(lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    try:
+        os.write(fd, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    finally:
+        os.close(fd)
+    return True
+
+
 def run_scheduler_cycle(
     root: Path,
     config: dict[str, Any],
@@ -413,14 +481,49 @@ def run_scheduler_cycle(
     fetch: Optional[Callable[..., dict[str, Any]]] = None,
     trigger: Optional[Callable[[dict[str, Any]], None]] = None,
     now: float = 0.0,
+    sleeper: Optional[Callable[[float], None]] = None,
+    pid_alive: Optional[Callable[[Optional[int]], bool]] = None,
+    record: Optional[Callable[[dict[str, Any]], None]] = None,
 ) -> dict[str, Any]:
-    """Run one bounded deterministic change-detection cycle."""
-    lock_file = root / ".work" / "rsi-scheduler.lock"
-    if lock_file.is_file():
-        return {"status": "LOCKED"}
+    """Run one bounded deterministic change-detection cycle.
 
-    lock_file.parent.mkdir(parents=True, exist_ok=True)
-    lock_file.write_text(json.dumps({"pid": os.getpid(), "started_at": now}), encoding="utf-8")
+    The scheduler lock is acquired with exclusive creation (never a "file exists" check-then-write
+    race). A live, non-expired lock returns LOCKED. A lock whose owner PID is dead, or whose age is
+    at or past `lock_ttl_seconds`, is recovered (removed, `STALE_LOCK_RECOVERED` is recorded, and
+    acquisition is retried once). Only the lock this invocation created is ever removed.
+    """
+    sleeper = sleeper or (lambda _seconds: None)
+    pid_alive = pid_alive or _default_pid_alive
+    record = record or (lambda _event: None)
+
+    lock_file = root / ".work" / "rsi-scheduler.lock"
+    lock_ttl_seconds = config.get("lock_ttl_seconds", 3600)
+    dead_pid_grace_seconds = config.get("stale_lock_grace_seconds", 30)
+    token = f"{os.getpid()}:{uuid.uuid4().hex}"
+    payload = {"pid": os.getpid(), "started_at": now, "token": token}
+
+    acquired = _try_acquire_lock(lock_file, payload)
+    if not acquired:
+        try:
+            existing = json.loads(lock_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            existing = {}
+        existing_pid = existing.get("pid")
+        existing_started = existing.get("started_at", now)
+        age = now - existing_started
+        is_stale = age >= lock_ttl_seconds
+        is_dead = age >= dead_pid_grace_seconds and not pid_alive(existing_pid)
+        if not (is_stale or is_dead):
+            return {"status": "LOCKED"}
+
+        record({"event": "STALE_LOCK_RECOVERED", "pid": existing_pid, "age_seconds": age})
+        try:
+            lock_file.unlink()
+        except OSError:
+            pass
+        acquired = _try_acquire_lock(lock_file, payload)
+        if not acquired:
+            return {"status": "LOCKED"}
 
     try:
         timeout = config.get("timeout_seconds", 15)
@@ -436,21 +539,24 @@ def run_scheduler_cycle(
             except (ValueError, json.JSONDecodeError):
                 prior_state = {}
 
-        actionable = False
         observations: dict[str, dict[str, Any]] = {}
+        deltas: list[dict[str, Any]] = []
 
         for source in config.get("sources", []):
             url = source.get("url", "")
-            # Fetch with bounded retries and exponential backoff receipt on failure
+            # Fetch with bounded retries; a real exponential sleep only happens between attempts,
+            # never after the final one.
             obs: Optional[dict[str, Any]] = None
             last_exc: Optional[Exception] = None
-            for _ in range(max_retries):
+            for attempt in range(max_retries):
                 try:
                     if fetch is not None:
                         obs = fetch(source, timeout)
                     break
                 except Exception as exc:  # noqa: BLE001
                     last_exc = exc
+                    if attempt < max_retries - 1:
+                        sleeper(backoff_seconds[attempt])
 
             if obs is None:
                 return {
@@ -462,28 +568,53 @@ def run_scheduler_cycle(
 
             observations[url] = obs
 
-            # Check if actionable delta exists
+            # Content change is the sole actionable signal; etag/date-only changes are ACK_ONLY.
             prev_obs = prior_state.get(url)
-            if prev_obs is not None:
-                # Content change is the sole actionable delta; etag/date only changes are ACK_ONLY
-                if obs.get("content_sha256") != prev_obs.get("content_sha256"):
-                    actionable = True
-                    if trigger is not None:
-                        trigger(obs)
+            if prev_obs is not None and obs.get("content_sha256") != prev_obs.get("content_sha256"):
+                deltas.append(obs)
 
         # Update saved state
         state_file.write_text(json.dumps(observations, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        if actionable:
-            return {"status": "ACTIONABLE_DELTA", "observations": observations}
+        if deltas:
+            # Collect every changed source first, dedupe by URL, then trigger exactly once.
+            deduped: dict[str, dict[str, Any]] = {d.get("url"): d for d in deltas}
+            bundle = {"deltas": list(deduped.values()), "count": len(deduped)}
+            if trigger is not None:
+                trigger(bundle)
+            return {"status": "ACTIONABLE_DELTA", "observations": observations, "deltas": bundle["deltas"]}
         return {"status": "ACK_ONLY", "observations": observations}
 
     finally:
-        if lock_file.is_file():
+        try:
+            current = json.loads(lock_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            current = {}
+        if current.get("token") == token:
             try:
                 lock_file.unlink()
             except OSError:
                 pass
+
+
+def _project_hash(project: Path) -> str:
+    normalized = str(project).replace("\\", "/").rstrip("/").lower()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:8]
+
+
+def _task_name(project: Path) -> str:
+    """Project-unique task name so two UAOS projects never collide in Task Scheduler."""
+    return f"UAOS_RSI_Watch_{_project_hash(project)}"
+
+
+def _wrapper_text(project: Path, python_bin: str) -> str:
+    """A deterministic wrapper: `cd` to the project root, then run with absolute paths only."""
+    project_str = str(project)
+    return (
+        "@echo off\r\n"
+        f'cd /d "{project_str}"\r\n'
+        f'"{python_bin}" -m v7_harness.cli rsi watch --project "{project_str}"\r\n'
+    )
 
 
 def windows_schedule(
@@ -494,11 +625,23 @@ def windows_schedule(
     apply: bool = False,
     run: Optional[Callable[..., subprocess.CompletedProcess]] = None,
 ) -> dict[str, Any]:
-    """Manage Windows Task Scheduler task for deterministic daily rsi watch."""
+    """Manage a Windows Task Scheduler task for deterministic daily rsi watch.
+
+    Task names are made project-unique with a stable normalized-project hash so installing on two
+    projects never collides. Install goes through a deterministic wrapper that `cd`s to the project
+    root and calls absolute python/launcher paths. Supports install/status/remove/manual-now; every
+    action defaults to dry run unless `apply=True` is passed explicitly.
+    """
     if run is None:
         run = subprocess.run
 
-    task_name = "UAOS_RSI_Watch"
+    project = Path(project).resolve()
+    python_bin = str(Path(python_bin).resolve())
+    task_name = _task_name(project)
+    wrapper_text = _wrapper_text(project, python_bin)
+    wrapper_path = (project / ".work" / "rsi watch.cmd").resolve()
+    watch_command = str(wrapper_path)
+
     if action == "install":
         command = [
             "schtasks",
@@ -509,23 +652,34 @@ def windows_schedule(
             "/TN",
             task_name,
             "/TR",
-            f'"{python_bin}" -m v7_harness.cli rsi watch --project "{project}"',
+            watch_command,
         ]
     elif action == "status":
         command = ["schtasks", "/Query", "/TN", task_name, "/FO", "LIST", "/V"]
     elif action == "remove":
         command = ["schtasks", "/Delete", "/F", "/TN", task_name]
+    elif action == "manual-now":
+        command = [python_bin, "-m", "v7_harness.cli", "rsi", "watch", "--project", str(project)]
     else:
         raise ValueError(f"Unknown scheduler action: '{action}'")
 
-    if not apply:
-        return {"status": "DRY_RUN", "action": action, "command": command}
+    base = {"task_name": task_name, "wrapper_text": wrapper_text, "wrapper_path": str(wrapper_path)}
 
-    proc = run(command, capture_output=True, text=True, check=False)
+    if not apply:
+        return {"status": "DRY_RUN", "action": action, "command": command, **base}
+
+    if action == "install":
+        wrapper_path.parent.mkdir(parents=True, exist_ok=True)
+        wrapper_path.write_text(wrapper_text, encoding="utf-8", newline="")
+    proc = run(
+        command, cwd=project, capture_output=True, text=True, encoding="utf-8",
+        errors="replace", check=False,
+    )
     return {
         "ok": proc.returncode == 0,
         "status": "APPLIED",
         "action": action,
-        "output": proc.stdout.strip(),
-        "error": proc.stderr.strip(),
+        "output": (proc.stdout or "").strip(),
+        "error": (proc.stderr or "").strip(),
+        **base,
     }

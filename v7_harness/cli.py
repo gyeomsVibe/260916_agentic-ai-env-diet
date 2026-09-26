@@ -760,10 +760,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_rsi_schedule = p_rsi_subs.add_parser("schedule", help="Manage Windows Task Scheduler for RSI watch")
     p_rsi_schedule.add_argument("--project", default=".")
-    p_rsi_schedule.add_argument("--action", choices=["install", "status", "remove"], default="status")
-    p_rsi_schedule.add_argument("--apply", action="store_true", help="Apply schtasks command")
+    p_rsi_schedule.add_argument("--action", choices=["install", "status", "remove", "manual-now"], default="status")
+    p_rsi_schedule.add_argument("--apply", action="store_true", help="Apply schtasks command / run manual-now")
     p_rsi_schedule.add_argument("--python-bin", default=None, help="Python executable path")
     p_rsi_schedule.set_defaults(func=cmd_rsi_schedule)
+
+    p_rsi_retention = p_rsi_subs.add_parser("retention", help="Deletion-free retention plan (dry-run manifest, U42-R1)")
+    p_rsi_retention.add_argument("--project", default=".")
+    p_rsi_retention.set_defaults(func=cmd_rsi_retention)
 
     return parser
 
@@ -1329,13 +1333,32 @@ def cmd_rsi_watch(args: argparse.Namespace) -> int:
             "timeout_seconds": 15,
             "max_retries": 3,
             "backoff_base_seconds": 60,
+            "lock_ttl_seconds": 3600,
             "sources": [],
         }
     else:
         config = json.loads(config_path.read_text(encoding="utf-8"))
-    res = run_scheduler_cycle(project, config, now=time.time())
+
+    def _record(event: dict[str, Any]) -> None:
+        # A quiet local scheduler still leaves one line when it recovers a dead/stale lock.
+        print(json.dumps({"scheduler_event": event}, ensure_ascii=False))
+
+    res = run_scheduler_cycle(project, config, now=time.time(), sleeper=time.sleep, record=_record)
     _print_json(res)
     return 0 if res.get("status") in ("ACK_ONLY", "ACTIONABLE_DELTA") else 1
+
+
+def cmd_rsi_retention(args: argparse.Namespace) -> int:
+    import time
+
+    from .retention import apply_retention, default_policy, plan_retention
+
+    project = Path(args.project)
+    policy = default_policy()
+    plan = plan_retention(project, policy, now=time.time())
+    result = apply_retention(project, plan)
+    _print_json({"ok": True, **result})
+    return 0
 
 
 def cmd_rsi_prepare(args: argparse.Namespace) -> int:
