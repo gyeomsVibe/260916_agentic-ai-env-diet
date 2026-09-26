@@ -358,10 +358,12 @@ class U13IsolationTests(unittest.TestCase):
         watched.mkdir()
         for index in range(5_000):
             (watched / f"f{index:05d}.txt").write_bytes(b"payload")
-        started = time.perf_counter()
+        # U46-T1: CPU time of this process, not wall time. Wall time failed under a loaded machine (43 s, 51 s) while
+        # passing alone; the budget is about the scan's own cost, which other processes cannot inflate.
+        started = time.process_time()
         before = snapshot_watch_roots([watched])
         before.assert_unchanged()
-        self.assertLess(time.perf_counter() - started, 30.0)
+        self.assertLess(time.process_time() - started, 30.0)
 
     def test_patch_bundle_classifies_rename_binary_newline_and_encoding(self) -> None:
         (self.source / "backend" / "old.txt").write_text("same\n", encoding="utf-8")

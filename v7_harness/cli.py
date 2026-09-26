@@ -167,6 +167,34 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def manual_project(manual: Path) -> Path:
+    """U45-F1: the project a manual's paths are relative to, when no --source is given: the nearest folder above the
+    manual that holds .coord/PLAN.md, else the current folder. Lint run from another cwd used to report INPUT_MISSING
+    for files that exist under the pilot source (U45-O1b)."""
+    for folder in Path(manual).resolve().parents:
+        if (folder / ".coord" / "PLAN.md").is_file():
+            return folder
+    return Path(".")
+
+
+def mandatory_watch_roots(work_dir: Path, source_dir: Path) -> list[Path]:
+    """Shallow roots a worker must not write into during a run.
+
+    U45-F5: the work dir's parent used to be watched always. When that parent is a shared `.work/` folder, the
+    conductor keeps writing its own notes there during a paid run (U45-G7 a001: two conductor files flagged, run
+    abandoned, $0.319 lost). A shared `.work/` is therefore not watched; home, temp, the source's parent and the stage
+    stay watched. A worker writing a sibling file inside `.work/` goes unseen, and `.work/` is never committed.
+    """
+    work = work_dir.resolve()
+    return list(dict.fromkeys([
+        Path.home().resolve(),
+        Path(tempfile.gettempdir()).resolve(),
+        *([] if work.parent.name == ".work" else [work.parent]),
+        source_dir.resolve().parent,
+        (work_dir / "stage").resolve(),
+    ]))
+
+
 def cmd_pilot_run(args: argparse.Namespace) -> int:
     task_id = args.task
     source_dir = Path(args.source)
@@ -196,7 +224,11 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         for warning in report.warnings:
             print(f"[manual] {warning}", file=sys.stderr)
         if contract.get("work_id") != task_id:
-            print(f"[manual] work_id {contract.get('work_id')} differs from --task {task_id}", file=sys.stderr)
+            # U45-F7: refuse before any worker runs. A warning here let a paid run finish first (U45-G7r, $0.263 lost).
+            print(json.dumps({"task_id": task_id, "state": "REFUSED", "error_class": "MANUAL_TASK_MISMATCH",
+                              "verdict_hint": "BLOCKED", "manual_work_id": contract.get("work_id")},
+                             indent=2, ensure_ascii=False))
+            return 2
         if args.approve:
             approver = getattr(args, "coord_actor", None) or detect_actor()
             # An approver the harness cannot identify used to pass silently (B85 review). Name it with --coord-actor.
@@ -267,13 +299,7 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
         return 2
 
     work_dir = Path(args.work_dir) if args.work_dir else Path(".coord")
-    mandatory_roots = [
-        Path.home().resolve(),
-        Path(tempfile.gettempdir()).resolve(),
-        work_dir.resolve().parent,
-        source_dir.resolve().parent,
-        (work_dir / "stage").resolve(),
-    ]
+    mandatory_roots = mandatory_watch_roots(work_dir, source_dir)
     explicit_roots = [Path(w).resolve() for w in args.watch_root] if args.watch_root else []
     watch_roots = list(dict.fromkeys(mandatory_roots + explicit_roots))
     agy_cmd = resolve_worker_command(chosen, args.agy_command)
@@ -420,7 +446,8 @@ def cmd_pilot_run(args: argparse.Namespace) -> int:
 def cmd_pilot_manual_lint(args: argparse.Namespace) -> int:
     from .manual import lint
 
-    report = lint(Path(args.manual).read_text(encoding="utf-8"), Path(args.source))
+    source = Path(args.source) if args.source else manual_project(Path(args.manual))
+    report = lint(Path(args.manual).read_text(encoding="utf-8"), source)
     print(json.dumps(report.as_dict(), indent=2, ensure_ascii=False))
     return 0 if report.ok else 1
 
@@ -575,7 +602,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_manual_subs = p_pilot_manual.add_subparsers(dest="manual_subcommand", required=True)
     p_manual_lint = p_manual_subs.add_parser("lint")
     p_manual_lint.add_argument("--manual", required=True)
-    p_manual_lint.add_argument("--source", default=".", help="Project the manual's paths are relative to")
+    p_manual_lint.add_argument("--source", default=None,
+                               help="Project the manual's paths are relative to (default: the folder above the manual "
+                                    "that holds .coord/PLAN.md, else the current folder)")
     p_manual_lint.set_defaults(func=cmd_pilot_manual_lint)
     p_manual_new = p_manual_subs.add_parser("new")
     p_manual_new.add_argument("--out", required=True, help="Manual file to write")
@@ -1137,7 +1166,7 @@ def cmd_coord_presence(args: argparse.Namespace) -> int:
             print("{}")
 
     if getattr(args, "from_hook", False):
-        from .coord.hook_context import brief_line, hook_project, p1_line, read_stdin
+        from .coord.hook_context import brief_line, hook_project, p1_is_new, p1_line, read_stdin
 
         # A pilot worker (U38) runs inside a staged copy that holds .coord/PLAN.md; a hook there must write nothing.
         if os.environ.get("UAOS_WORKER"):
@@ -1153,6 +1182,8 @@ def cmd_coord_presence(args: argparse.Namespace) -> int:
                 mark(project, args.tool, args.state, ttl_s=args.ttl)
             presence = read_all(project)
             line = p1_line(project, presence) if say == "p1" else brief_line(project, presence)
+            if say == "p1" and not p1_is_new(project, line):
+                line = ""  # U46-P1: an unchanged P1 set is ACK_ONLY; it was repeated on every prompt
             _emit({"ok": True, "project": str(project), "presence": presence, "conductor": conductor(presence)}, line)
         except Exception as exc:  # noqa: BLE001
             _emit({"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]})

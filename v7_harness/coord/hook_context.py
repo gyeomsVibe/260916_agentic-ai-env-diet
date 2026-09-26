@@ -11,6 +11,7 @@ and the hook stays silent: other projects pay nothing, not even a line of contex
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -127,4 +128,30 @@ def p1_line(project: Path, presence: dict[str, Any]) -> str:
     codex = (presence.get("codex") or {}).get("state", "UNKNOWN")
     return (f"UAOS P1 waiting ({len(wakes)}), Codex {codex}: {reason or 'see mailbox'}. Claude acts as deputy: "
             "`coord inbox`, handle it, then `coord ack --id <id>`.")[:400]
+
+
+# Runtime state beside the presence files (.coord/presence/ is git-ignored); presence reads only <tool>.json.
+P1_SEEN = Path(".coord") / "presence" / "p1_hook_seen.txt"
+
+
+def p1_is_new(project: Path, line: str) -> bool:
+    """U46-P1: say a P1 line only when it differs from the last one said. The line carries the wake count, Codex's
+    state and the first reason, and the fingerprint adds the wake ids, so any new wake or state change speaks again."""
+    if not line:
+        return False
+    box_dir = Path(project) / ".coord" / "mailbox" / "inbox"
+    ids = sorted(path.stem for path in box_dir.glob("wake_*.json")) if box_dir.is_dir() else []
+    fingerprint = hashlib.sha256("\n".join([line, *ids]).encode("utf-8")).hexdigest()
+    seen = Path(project) / P1_SEEN
+    try:
+        if seen.read_text(encoding="utf-8").strip() == fingerprint:
+            return False
+    except OSError:
+        pass
+    try:
+        seen.parent.mkdir(parents=True, exist_ok=True)
+        seen.write_text(fingerprint, encoding="utf-8")
+    except OSError:
+        pass  # a hook never fails the session; the line is said again next time
+    return True
 

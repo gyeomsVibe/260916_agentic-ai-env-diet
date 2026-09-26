@@ -94,6 +94,21 @@ PAID_WORKERS = ("agy", "claude")
 COST_TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 
 
+def delegator() -> str | None:
+    """U45-F4: which tool ordered this run (codex, claude, antigravity), from its shell environment; None for a plain
+    terminal. The ledger needs it to measure how much Claude conducted while Codex was away."""
+    import os as _os
+
+    names = _os.environ.keys()
+    if any(n.upper().startswith(("ANTIGRAVITY", "GEMINI_CLI")) for n in names):
+        return "antigravity"
+    if "CLAUDECODE" in names:
+        return "claude"
+    if any(n.upper().startswith("CODEX_") for n in names):
+        return "codex"
+    return None
+
+
 def evaluate_cost_gate(usage: dict[str, Any] | None, budget: int) -> str:
     """WITHIN, EXCEEDED:<used>><budget>, or UNKNOWN when input or output is not reported (never read as zero)."""
     if not isinstance(usage, dict):
@@ -900,6 +915,7 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                     "rsi_eligible": False,
                     "exclusion_reason": "PENDING_INDEPENDENT_VERIFICATION",
                     "worker": worker_type,
+                    "delegator": delegator(),
                     "exit_code": acceptance_exit if acceptance_exit is not None else (0 if state == "SUCCEEDED" else 1),
                     "bundle_id": bundle_id,
                     "rework_class": rework_class,
@@ -908,7 +924,8 @@ def run_pilot(config: PilotConfig) -> dict[str, Any]:
                     "error_detail": summary.get("error_detail"),
                 }
                 # U38: cached tokens and the dollar cost, when the worker reports them (Claude does).
-                for extra in ("cache_creation_input_tokens", "cache_read_input_tokens", "cost_microusd"):
+                for extra in ("cache_creation_input_tokens", "cache_read_input_tokens", "cost_microusd",
+                              "usd_cap_overshoot_microusd"):
                     value = usage_dict.get(extra) if isinstance(usage_dict, dict) else None
                     if isinstance(value, int) and not isinstance(value, bool):
                         ledger_entry[extra] = value

@@ -209,7 +209,9 @@ def _record_usage(source: Path, task_id: str, reviewer: str, model: str, usage: 
         "schema": "uaos-usage-v2", "work_id": f"{task_id}-review-{reviewer}", "actor": reviewer, "model": model,
         "kind": "review", "collection_mode": "automatic",
         "input_tokens": usage.get("input_tokens"), "output_tokens": usage.get("output_tokens"),
-        "wall_time_s": None, "outcome": record["verdict"], "receipt": str(receipt), "independent_verifier": None,
+        # U46-J2: absolute, so the receipt resolves from any cwd (it was stored as ..\..\runs\...).
+        "wall_time_s": None, "outcome": record["verdict"], "receipt": str(Path(receipt).resolve()),
+        "independent_verifier": None,
         "rsi_eligible": False, "exclusion_reason": "ADVISORY_REVIEW", "worker": reviewer, "cost_gate": record["cost_gate"],
     }
     for extra in ("cache_creation_input_tokens", "cache_read_input_tokens", "cost_microusd"):

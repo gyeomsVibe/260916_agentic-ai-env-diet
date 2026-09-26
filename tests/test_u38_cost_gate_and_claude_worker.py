@@ -484,7 +484,7 @@ class U39RouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             helper = RemoteBudgetContractTests()
-            (root / "m.md").write_text(helper._manual(root, worker="cascade", remote_budget_tokens=120000), encoding="utf-8")
+            (root / "m.md").write_text(helper._manual(root, work_id="R1", worker="cascade", remote_budget_tokens=120000), encoding="utf-8")
             out = io.StringIO()
             with mock.patch("v7_harness.pilot.run_pilot", fake_run), redirect_stdout(out), redirect_stderr(io.StringIO()):
                 main(["pilot", "run", "--task", "R1", "--source", d, "--manual", str(root / "m.md")])
@@ -507,7 +507,7 @@ class U39RouteTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            (root / "m.md").write_text(RemoteBudgetContractTests()._manual(root, worker="cascade", remote_budget_tokens=120000),
+            (root / "m.md").write_text(RemoteBudgetContractTests()._manual(root, work_id="R2", worker="cascade", remote_budget_tokens=120000),
                                        encoding="utf-8")
             out = io.StringIO()
             with mock.patch("v7_harness.pilot.run_pilot", fake_run), redirect_stdout(out), redirect_stderr(io.StringIO()):

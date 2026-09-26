@@ -127,6 +127,16 @@ def usage_from(result: dict) -> dict[str, int]:
     return usage
 
 
+def cap_overshoot(usage: dict, cap_usd: float) -> int | None:
+    """U45-F6: claude checks --max-budget-usd after a turn, so a run can end above it (U45-G7 a001: $0.319 on a $0.30
+    cap, +6%). The overshoot in micro-dollars is recorded as a gate result instead of being lost."""
+    cost = usage.get("cost_microusd")
+    if not isinstance(cost, int) or isinstance(cost, bool):
+        return None
+    over = cost - int(round(cap_usd * 1_000_000))
+    return over if over > 0 else None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--prompt", required=True)
@@ -172,6 +182,9 @@ def main(argv: list[str] | None = None) -> int:
         return envelope("ERROR", "", {}, "claude returned a JSON value that is not an object")
     usage = usage_from(result)
     usage["elapsed_s"] = int(time.monotonic() - started)
+    overshoot = cap_overshoot(usage, cap)
+    if overshoot is not None:
+        usage["usd_cap_overshoot_microusd"] = overshoot
     if result.get("is_error") and result.get("subtype") not in ("error_max_turns",):
         return envelope("ERROR", "", usage, str(result.get("subtype") or result.get("result") or "claude error")[:300])
     return envelope("SUCCESS", str(result.get("result") or "").strip()[:2000] or "(claude ended without a summary)", usage)

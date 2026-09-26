@@ -37,7 +37,13 @@ KEEP_ALIVE = os.environ.get("OLLAMA_WORKER_KEEP_ALIVE", "30m")
 # Fixed seed: the same prompt gives the same output, so a failure can be reproduced and a manual change can be
 # compared against the same sample (Ollama API: `seed` makes generation reproducible).
 SEED = int(os.environ.get("OLLAMA_WORKER_SEED", "42"))
-BLOCK_RE = re.compile(r"^===FILE:\s*(?P<path>[^\n=]+?)\s*===\n(?P<body>.*?)(?=^===(?:FILE|EDIT):|\Z)", re.M | re.S)
+# U45-F2: a FILE block also ends at an explicit `===END===` line or at the `## Output` section `pilot manual new`
+# appends, so a trailing FILE block no longer swallows that text (U45-G2: SYNTAX_ERROR).
+BLOCK_RE = re.compile(
+    r"^===FILE:\s*(?P<path>[^\n=]+?)\s*===\n(?P<body>.*?)"
+    r"(?=^===(?:FILE|EDIT):|^===END===[ \t]*$|^## Output\n\n- (?:Reply with|Edit the files)|\Z)",
+    re.M | re.S,
+)
 EDIT_RE = re.compile(
     r"^===EDIT:\s*(?P<path>[^\n=]+?)\s*===\n<<<<<<< SEARCH\n(?P<search>.*?)\n=======\n(?P<replace>.*?)\n>>>>>>> REPLACE",
     re.M | re.S,
@@ -205,6 +211,22 @@ def _apply(text: str, workspace: Path, task: str = "") -> list[str]:
     return written
 
 
+def context_files(prompt: str, workspace: Path) -> list[str]:
+    """Files whose current content goes with the task. The contract's pinned inputs come first (U45-F3: the local
+    worker got the manual but not the input it had to read, and guessed ids 1..38), then the files the task names."""
+    def present(raw: str) -> str | None:
+        rel = raw.strip().replace("\\", "/")
+        return rel if (workspace / rel).is_file() else None
+
+    pinned = [p for p in (present(m) for m in re.findall(r"^- (\S+) sha256=[0-9a-f]{64}\s*$", prompt, re.M)) if p]
+    named = sorted({p for p in (present(m) for m in re.findall(r"`([^`\n]+\.(?:md|py|txt))`", prompt)) if p}
+                   | {p for p in (present(m) for m in re.findall(r"^===(?:FILE|EDIT):\s*([^\n=]+?)\s*===", prompt,
+                                                                 re.M)) if p}
+                   | {name for name in ("core.md", "GLOBAL_RULES.ko.md", "VERSION", "history.md")
+                      if (workspace / name).is_file() and name in prompt})
+    return list(dict.fromkeys([*pinned, *named]))
+
+
 def _log(event: str, **fields) -> None:
     """로컬 모델 사용 기록을 한 곳(olla 사용 기록)에 모은다. 파일럿과 보조 호출이 따로 세면 합계를 못 낸다."""
     try:
@@ -241,18 +263,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if status == "SUCCESS" else 1
 
     # 과제가 가리키는 파일의 현재 내용을 함께 준다. 7B 모델은 파일을 스스로 찾지 못한다.
-    named = sorted({
-        candidate.replace("\\", "/")
-        for candidate in re.findall(r"`([^`\n]+\.(?:md|py|txt))`", args.prompt)
-        if (workspace / candidate.replace("\\", "/")).is_file()
-    } | {
-        candidate.strip().replace("\\", "/")
-        for candidate in re.findall(r"^===(?:FILE|EDIT):\s*([^\n=]+?)\s*===", args.prompt, re.M)
-        if (workspace / candidate.strip().replace("\\", "/")).is_file()
-    } | {
-        name for name in ("core.md", "GLOBAL_RULES.ko.md", "VERSION", "history.md")
-        if (workspace / name).is_file() and name in args.prompt
-    })
+    named = context_files(args.prompt, workspace)
     context = "".join(
         f"\n===CURRENT FILE: {name}===\n{(workspace / name).read_text(encoding='utf-8')}\n"
         for name in named[:4]
