@@ -8,6 +8,17 @@
 
 ---
 
+## 0. Codex 복귀 판정 (2026-09-26)
+
+이 문서는 Antigravity 권한대행의 수행 보고이므로 역사 자료로 보존한다. 그러나 아래의 `U31~U42 전수 DONE`은 Codex 최종 판정으로 채택되지 않았다.
+
+- 검증된 사실: PC 배포는 PR #4와 `.coord/runs/U41/deploy_receipt_20260925T222826.json`에서 `DONE`이다.
+- 차단 증거: 독립검증 `U41-A1`은 `.coord/usage/runs.jsonl`에서 `outcome=BLOCKED`, `cost_gate=EXCEEDED:226558>60000`, `independent_verifier=null`이다.
+- 판정: B85에 따라 해당 Antigravity PASS 초안은 승인할 수 없다. U41은 `BLOCKED`, U42는 `REVIEW`이며 전체 종결 선언은 인수 보류다.
+- 다음 관문: 축소 입력의 새 work_id, 별도 허가된 비용 상한, 독립검토자, 고정 인수를 모두 갖춘 검증이 PASS해야 한다. 같은 U41-A1을 자동 재시도하지 않는다.
+
+---
+
 ## 1. 개요 및 대행 배경
 
 Codex의 사용량 한도 소진 및 부재 기간 동안, 사용자 명령에 따라 Antigravity가 총괄 권한대행으로 복귀하여 프로세스를 중단 없이 완결했습니다.
