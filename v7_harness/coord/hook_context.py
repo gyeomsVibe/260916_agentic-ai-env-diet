@@ -155,3 +155,84 @@ def p1_is_new(project: Path, line: str) -> bool:
         pass  # a hook never fails the session; the line is said again next time
     return True
 
+
+RETENTION_SEEN = Path(".coord") / "presence" / "retention_seen.txt"
+
+
+def _scan_zone(target_path: Path | str) -> tuple[int, int]:
+    count = 0
+    total_bytes = 0
+    stack = [str(target_path)]
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as it:
+                for entry in it:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(entry.path)
+                        elif entry.is_file(follow_symlinks=False):
+                            count += 1
+                            total_bytes += entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return count, total_bytes
+
+
+def retention_alert(project: Path | str, policy: dict[str, Any] | None = None) -> str:
+    """Walk retention zones with stat only and return an alert line if any zone exceeds count or byte caps."""
+    if policy is None:
+        from v7_harness.retention import default_policy
+        policy = default_policy()
+
+    root = Path(project)
+    over_cap: list[str] = []
+
+    for zone in policy.get("zones", []):
+        zone_path = zone.get("path")
+        if not zone_path:
+            continue
+        target = root / zone_path
+        if not target.is_dir():
+            continue
+        count, total_bytes = _scan_zone(target)
+        max_count = zone.get("max_count")
+        max_bytes = zone.get("max_bytes")
+
+        is_over_count = max_count is not None and count > max_count
+        is_over_bytes = max_bytes is not None and total_bytes > max_bytes
+
+        if is_over_count or is_over_bytes:
+            cur_mb = round(total_bytes / 10**6, 1)
+            max_mb = round((max_bytes or 0) / 10**6, 1)
+            cur_mb_s = f"{int(cur_mb) if cur_mb.is_integer() else cur_mb}"
+            max_mb_s = f"{int(max_mb) if max_mb.is_integer() else max_mb}"
+            over_cap.append(f"{zone_path} {count}/{max_count} files, {cur_mb_s}/{max_mb_s} MB")
+
+    if not over_cap:
+        return ""
+
+    line = f"UAOS retention: {'; '.join(over_cap)} - run `rsi retention` (dry run), then `--archive`"
+    line = line.replace("\n", " ")
+    return line[:299]
+
+
+def retention_alert_is_new(project: Path | str, line: str) -> bool:
+    """Say a retention alert line only when it differs from the last one said."""
+    if not line:
+        return False
+    fingerprint = hashlib.sha256(line.encode("utf-8")).hexdigest()
+    seen = Path(project) / RETENTION_SEEN
+    try:
+        if seen.read_text(encoding="utf-8").strip() == fingerprint:
+            return False
+    except OSError:
+        pass
+    try:
+        seen.parent.mkdir(parents=True, exist_ok=True)
+        seen.write_text(fingerprint, encoding="utf-8")
+    except OSError:
+        pass  # a hook never fails the session
+    return True

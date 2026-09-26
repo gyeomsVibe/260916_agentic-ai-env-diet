@@ -1,3 +1,274 @@
+```contract
+work_id: U47-R2b
+worker: apply
+goal: Apply Antigravity's U47-R2 stage verbatim: stat-only retention alert in the brief session hook, once per change
+inputs:
+- tests/u47_r2_check.py sha256=39c18cc13e7d2da2ac6b5ecd4fbe6391aad9d1bac54969ad78512e0f8e9ce7b5
+- v7_harness/coord/hook_context.py sha256=b05748074339b5648880f2084c7727bf68c75257cfeff6f4f8c9923678af7d18
+- v7_harness/cli.py sha256=d5d8fac322b0a2e7b1b7e2c5b0c72a0d26908f97cd87ed75902723fa7fa7a9cf
+- .work/u47r2_run/runs/U47-R2/summary.json sha256=2b9b27b3cdb6c841df72c3828554f825038f1db7921b5355dd20a1dbbeffd28f
+allow:
+- v7_harness/coord/hook_context.py
+- v7_harness/cli.py
+- tests/test_u47_r2_retention_alert.py
+acceptance: python tests/u47_r2_check.py && python -m unittest discover -s tests -p "test_*.py"
+forbidden: design changes; edits outside allow; editing or deleting tests; network; commit/push
+stop: two failures with the same cause; input hash mismatch; no output
+judge: claude
+timeout_s: 1800
+remote_budget_tokens: 0
+```
+
+## Instructions for the worker
+
+## Instructions for the worker
+
+Apply Antigravity's U47-R2 stage (run U47-R2 a001) verbatim. The run was BLOCKED only by EXTERNAL_WRITE of `uaos_test_olla_usage_<pid>.jsonl` (leak from tests/_env_guard.py, U47-O3) and by cost 1,141,039 > 400,000; its stage passed `python tests/u47_r2_check.py` (18 tests OK) when the judge re-ran it.
+
+===FILE: v7_harness/coord/hook_context.py===
+"""Find the UAOS project a tool's session hook fired for, and say one line about it.
+
+Global hooks fire in every project, from wherever the tool chose to run them:
+- Claude Code passes `cwd` on stdin and sets CLAUDE_PROJECT_DIR.
+- Codex passes `cwd` on stdin (SessionStart, UserPromptSubmit).
+- Antigravity runs hooks inside ~/.gemini/config/ (antigravity-cli#1005) and passes `workspacePaths` on stdin (#893).
+So the project comes from the payload first, the environment second and the current folder last, and the search walks
+up to the folder that holds `.coord/PLAN.md` (a session may start in a subfolder). No such folder means no UAOS project,
+and the hook stays silent: other projects pay nothing, not even a line of context.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import sys
+import threading
+from pathlib import Path
+from typing import Any, Iterable
+
+PLAN = Path(".coord") / "PLAN.md"
+_PAYLOAD_KEYS = ("cwd", "workspacePaths", "workspace_paths", "workspaceRoots", "workspace_roots", "project_dir")
+
+
+def read_stdin(timeout_s: float = 2.0) -> str:
+    """The hook payload, or "" for a terminal or a runner that never closes stdin."""
+    stream = sys.stdin
+    if stream is None or stream.closed:
+        return ""
+    try:
+        if stream.isatty():
+            return ""
+    except (ValueError, OSError):
+        return ""
+    box: list[str] = []
+
+    def _read() -> None:
+        try:
+            box.append(stream.read())
+        except (OSError, ValueError, UnicodeDecodeError):
+            box.append("")
+
+    reader = threading.Thread(target=_read, daemon=True)
+    reader.start()
+    reader.join(timeout_s)
+    return box[0] if box else ""
+
+
+def payload_candidates(stdin_text: str) -> list[str]:
+    try:
+        payload = json.loads(stdin_text) if stdin_text.strip() else {}
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, dict):
+        return []
+    found: list[str] = []
+    for key in _PAYLOAD_KEYS:
+        value = payload.get(key)
+        values = value if isinstance(value, list) else [value]
+        for item in values:
+            if isinstance(item, dict):
+                item = item.get("path") or item.get("uri")
+            if isinstance(item, str) and item.strip():
+                item = item.removeprefix("file://")
+                # file:///C:/work becomes /C:/work; the drive letter needs the leading slash removed on Windows.
+                if len(item) > 2 and item[0] == "/" and item[2] == ":" and item[1].isalpha():
+                    item = item[1:]
+                found.append(item)
+    return found
+
+
+def find_project(candidates: Iterable[str | Path], max_depth: int = 25) -> Path | None:
+    for candidate in candidates:
+        try:
+            current = Path(candidate).expanduser().resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        for _ in range(max_depth):
+            if (current / PLAN).is_file():
+                return current
+            if current.parent == current:
+                break
+            current = current.parent
+    return None
+
+
+def hook_project(stdin_text: str, fallback: str | Path | None, env: dict[str, str] | None = None) -> Path | None:
+    env = os.environ if env is None else env
+    candidates: list[str | Path] = payload_candidates(stdin_text)
+    if env.get("CLAUDE_PROJECT_DIR"):
+        candidates.append(env["CLAUDE_PROJECT_DIR"])
+    if fallback is not None:
+        candidates.append(fallback)
+    return find_project(candidates)
+
+
+def brief_line(project: Path, presence: dict[str, Any]) -> str:
+    """One line of session context (a SessionStart hook's stdout becomes context in Claude Code and Codex)."""
+    inbox: list[str] = []
+    box_dir = Path(project) / ".coord" / "mailbox" / "inbox"
+    if box_dir.is_dir():
+        inbox = sorted(path.stem for path in box_dir.glob("*.json"))
+    wakes = sum(1 for item in inbox if item.startswith("wake_"))
+    reviews = sum(1 for item in inbox if item.startswith("rsi_review_"))
+    desk = ", ".join(f"{tool}={info.get('state')}" for tool, info in presence.items())
+    return (f"UAOS project {Path(project).name}: inbox {len(inbox)} (P1 {wakes}, RSI reviews {reviews}); desk {desk}. "
+            "Read .coord/PLAN.md; `coord inbox` lists what waits.")[:400]
+
+
+def p1_line(project: Path, presence: dict[str, Any]) -> str:
+    """U38: the P1 hand-off to Claude while Codex is away. Empty unless a wake waits and Codex is not ACTIVE, so an
+    ordinary prompt carries nothing (a hook's stdout on UserPromptSubmit is added to the prompt)."""
+    if (presence.get("codex") or {}).get("state") == "ACTIVE":
+        return ""  # the sentinel rings Codex itself (codex queue)
+    box_dir = Path(project) / ".coord" / "mailbox" / "inbox"
+    wakes = sorted(box_dir.glob("wake_*.json")) if box_dir.is_dir() else []
+    if not wakes:
+        return ""
+    reason = ""
+    try:
+        data = json.loads(wakes[0].read_text(encoding="utf-8"))
+        payload = data.get("payload") if isinstance(data, dict) else None
+        if isinstance(payload, dict):
+            reason = str(payload.get("wake_reason") or "")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        pass
+    codex = (presence.get("codex") or {}).get("state", "UNKNOWN")
+    return (f"UAOS P1 waiting ({len(wakes)}), Codex {codex}: {reason or 'see mailbox'}. Claude acts as deputy: "
+            "`coord inbox`, handle it, then `coord ack --id <id>`.")[:400]
+
+
+# Runtime state beside the presence files (.coord/presence/ is git-ignored); presence reads only <tool>.json.
+P1_SEEN = Path(".coord") / "presence" / "p1_hook_seen.txt"
+
+
+def p1_is_new(project: Path, line: str) -> bool:
+    """U46-P1: say a P1 line only when it differs from the last one said. The line carries the wake count, Codex's
+    state and the first reason, and the fingerprint adds the wake ids, so any new wake or state change speaks again."""
+    if not line:
+        return False
+    box_dir = Path(project) / ".coord" / "mailbox" / "inbox"
+    ids = sorted(path.stem for path in box_dir.glob("wake_*.json")) if box_dir.is_dir() else []
+    fingerprint = hashlib.sha256("\n".join([line, *ids]).encode("utf-8")).hexdigest()
+    seen = Path(project) / P1_SEEN
+    try:
+        if seen.read_text(encoding="utf-8").strip() == fingerprint:
+            return False
+    except OSError:
+        pass
+    try:
+        seen.parent.mkdir(parents=True, exist_ok=True)
+        seen.write_text(fingerprint, encoding="utf-8")
+    except OSError:
+        pass  # a hook never fails the session; the line is said again next time
+    return True
+
+
+RETENTION_SEEN = Path(".coord") / "presence" / "retention_seen.txt"
+
+
+def _scan_zone(target_path: Path | str) -> tuple[int, int]:
+    count = 0
+    total_bytes = 0
+    stack = [str(target_path)]
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as it:
+                for entry in it:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(entry.path)
+                        elif entry.is_file(follow_symlinks=False):
+                            count += 1
+                            total_bytes += entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return count, total_bytes
+
+
+def retention_alert(project: Path | str, policy: dict[str, Any] | None = None) -> str:
+    """Walk retention zones with stat only and return an alert line if any zone exceeds count or byte caps."""
+    if policy is None:
+        from v7_harness.retention import default_policy
+        policy = default_policy()
+
+    root = Path(project)
+    over_cap: list[str] = []
+
+    for zone in policy.get("zones", []):
+        zone_path = zone.get("path")
+        if not zone_path:
+            continue
+        target = root / zone_path
+        if not target.is_dir():
+            continue
+        count, total_bytes = _scan_zone(target)
+        max_count = zone.get("max_count")
+        max_bytes = zone.get("max_bytes")
+
+        is_over_count = max_count is not None and count > max_count
+        is_over_bytes = max_bytes is not None and total_bytes > max_bytes
+
+        if is_over_count or is_over_bytes:
+            cur_mb = round(total_bytes / 10**6, 1)
+            max_mb = round((max_bytes or 0) / 10**6, 1)
+            cur_mb_s = f"{int(cur_mb) if cur_mb.is_integer() else cur_mb}"
+            max_mb_s = f"{int(max_mb) if max_mb.is_integer() else max_mb}"
+            over_cap.append(f"{zone_path} {count}/{max_count} files, {cur_mb_s}/{max_mb_s} MB")
+
+    if not over_cap:
+        return ""
+
+    line = f"UAOS retention: {'; '.join(over_cap)} - run `rsi retention` (dry run), then `--archive`"
+    line = line.replace("\n", " ")
+    return line[:299]
+
+
+def retention_alert_is_new(project: Path | str, line: str) -> bool:
+    """Say a retention alert line only when it differs from the last one said."""
+    if not line:
+        return False
+    fingerprint = hashlib.sha256(line.encode("utf-8")).hexdigest()
+    seen = Path(project) / RETENTION_SEEN
+    try:
+        if seen.read_text(encoding="utf-8").strip() == fingerprint:
+            return False
+    except OSError:
+        pass
+    try:
+        seen.parent.mkdir(parents=True, exist_ok=True)
+        seen.write_text(fingerprint, encoding="utf-8")
+    except OSError:
+        pass  # a hook never fails the session
+    return True
+
+
+===END===
+
+===FILE: v7_harness/cli.py===
 """
 Command-line interface for v7 harness.
 
@@ -1566,3 +1837,129 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+===END===
+
+===FILE: tests/test_u47_r2_retention_alert.py===
+"""U47-R2 frozen acceptance (written by the judge, Claude): a session hook says one stat-only retention line.
+
+`retention_alert(project, policy=None)` walks the retention zones with stat only (no file contents, no writes, no
+deletes) and returns "" when every zone is within its count and byte caps, else one line under 300 characters that
+starts "UAOS retention:", names each over-cap zone and points to the dry-run command. `retention_alert_is_new` makes
+the line speak once per change, like the U46-P1 hook line. `coord presence --from-hook --say brief` adds the line.
+"""
+
+import builtins
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from v7_harness.coord import hook_context
+
+
+def _policy(max_count=1000, max_bytes=10**9):
+    return {"zones": [{"path": ".coord/runs", "retention_days": 30, "max_count": max_count,
+                       "max_bytes": max_bytes, "kind": "runs"}]}
+
+
+def _files(folder, n, size=1):
+    folder.mkdir(parents=True, exist_ok=True)
+    for i in range(n):
+        (folder / f"f{i:05d}.json").write_bytes(b"x" * size)
+
+
+class AlertLineTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".coord").mkdir()
+        (self.root / ".coord" / "PLAN.md").write_text("# plan\n", encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_missing_or_small_zones_say_nothing(self):
+        self.assertEqual("", hook_context.retention_alert(self.root))
+        _files(self.root / ".coord" / "runs", 2)
+        self.assertEqual("", hook_context.retention_alert(self.root, _policy(max_count=2)))
+
+    def test_count_over_cap_names_the_zone_and_the_dry_run(self):
+        _files(self.root / ".coord" / "runs" / "T1", 3)
+        line = hook_context.retention_alert(self.root, _policy(max_count=2))
+        self.assertTrue(line.startswith("UAOS retention:"), line)
+        self.assertIn(".coord/runs", line)
+        self.assertIn("3/2", line)
+        self.assertIn("rsi retention", line)
+        self.assertLess(len(line), 300)
+        self.assertNotIn("\n", line)
+
+    def test_bytes_over_cap_also_speak(self):
+        _files(self.root / ".coord" / "runs", 2, size=600)
+        line = hook_context.retention_alert(self.root, _policy(max_bytes=1000))
+        self.assertIn(".coord/runs", line)
+
+    def test_default_policy_is_used_when_none_is_given(self):
+        _files(self.root / ".coord" / "runs", 3)
+        self.assertEqual("", hook_context.retention_alert(self.root))
+
+    def test_stat_only_no_reads_writes_or_deletes(self):
+        _files(self.root / ".coord" / "runs", 3)
+        before = sorted(p.name for p in (self.root / ".coord" / "runs").iterdir())
+        guard = AssertionError("retention_alert must only stat")
+        with mock.patch.object(builtins, "open", side_effect=guard), \
+                mock.patch.object(Path, "unlink", side_effect=guard), \
+                mock.patch.object(os, "remove", side_effect=guard), \
+                mock.patch.object(shutil, "rmtree", side_effect=guard):
+            line = hook_context.retention_alert(self.root, _policy(max_count=2))
+        self.assertIn(".coord/runs", line)
+        self.assertEqual(before, sorted(p.name for p in (self.root / ".coord" / "runs").iterdir()))
+
+    def test_five_thousand_files_under_200_ms(self):
+        _files(self.root / ".coord" / "runs", 5000)
+        best = min(self._timed() for _ in range(3))
+        self.assertLess(best, 0.2, f"best of 3 took {best:.3f}s")
+
+    def _timed(self):
+        start = time.perf_counter()
+        hook_context.retention_alert(self.root, _policy(max_count=10))
+        return time.perf_counter() - start
+
+    def test_speaks_once_per_change(self):
+        self.assertFalse(hook_context.retention_alert_is_new(self.root, ""))
+        self.assertTrue(hook_context.retention_alert_is_new(self.root, "UAOS retention: a"))
+        self.assertFalse(hook_context.retention_alert_is_new(self.root, "UAOS retention: a"))
+        self.assertTrue(hook_context.retention_alert_is_new(self.root, "UAOS retention: b"))
+
+
+class HookIntegrationTest(unittest.TestCase):
+    def test_brief_hook_line_carries_the_alert_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / ".coord").mkdir()
+            (root / ".coord" / "PLAN.md").write_text("# plan\n", encoding="utf-8")
+            _files(root / ".coord" / "runs", 2001)  # default cap for .coord/runs is 2,000 files
+            env = {k: v for k, v in os.environ.items() if k != "UAOS_WORKER"}
+            cmd = [sys.executable, "-m", "v7_harness.cli", "coord", "presence", "--from-hook", "--project", str(root),
+                   "--say", "brief"]
+            first = subprocess.run(cmd, capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, timeout=60)
+            second = subprocess.run(cmd, capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, timeout=60)
+            self.assertEqual(0, first.returncode, first.stderr)
+            self.assertIn("UAOS project", first.stdout)
+            self.assertIn("UAOS retention:", first.stdout)
+            self.assertIn("UAOS project", second.stdout)
+            self.assertNotIn("UAOS retention:", second.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()
+===END===
+
+
+## Output
+
+- Reply with ===FILE / ===EDIT blocks only. No explanations. Do not claim success; the acceptance command decides.
